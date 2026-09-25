@@ -1,0 +1,59 @@
+{
+  "_comment": "Curated teach-list per crafter building type. Ordered by priority: the auto-teach loop teaches from the top and stops when the building's recipe slots are full (max = 2^level x research x module factor), so early entries are what a lv1 building learns first. Inputs use id:count. grid:1 = furnace (smelting) recipe. All recipes are vanilla-correct so the crafter's compatibility tags accept them.",
+  "blockhutsawmill": [
+    { "output": "minecraft:oak_planks", "count": 4, "inputs": "minecraft:oak_log:1" },
+    { "output": "minecraft:stick", "count": 4, "inputs": "minecraft:oak_planks:2" },
+    { "output": "minecraft:oak_slab", "count": 6, "inputs": "minecraft:oak_planks:3" },
+    { "output": "minecraft:oak_stairs", "count": 4, "inputs": "minecraft:oak_planks:6" },
+    { "output": "minecraft:oak_door", "count": 3, "inputs": "minecraft:oak_planks:6" },
+    { "output": "minecraft:oak_fence", "count": 3, "inputs": "minecraft:oak_planks:4,minecraft:stick:2" },
+    { "output": "minecraft:ladder", "count": 3, "inputs": "minecraft:stick:7" },
+    { "output": "minecraft:chest", "count": 1, "inputs": "minecraft:oak_planks:8" }
+  ],
+  "blockhutstonemason": [
+    { "output": "minecraft:stone_bricks", "count": 4, "inputs": "minecraft:stone:4" },
+    { "output": "minecraft:stone_brick_slab", "count": 6, "inputs": "minecraft:stone_bricks:3" },
+    { "output": "minecraft:stone_brick_stairs", "count": 4, "inputs": "minecraft:stone_bricks:6" },
+    { "output": "minecraft:cobblestone_slab", "count": 6, "inputs": "minecraft:cobblestone:3" },
+    { "output": "minecraft:cobblestone_stairs", "count": 4, "inputs": "minecraft:cobblestone:6" },
+    { "output": "minecraft:stone_brick_wall", "count": 6, "inputs": "minecraft:stone_bricks:6" }
+  ],
+  "blockhutstonesmeltery": [
+    { "output": "minecraft:stone", "count": 1, "inputs": "minecraft:cobblestone:1", "grid": 1 },
+    { "output": "minecraft:smooth_stone", "count": 1, "inputs": "minecraft:stone:1", "grid": 1 },
+    { "output": "minecraft:glass", "count": 1, "inputs": "minecraft:sand:1", "grid": 1 }
+  ],
+  "blockhutblacksmith": [
+    { "output": "minecraft:iron_pickaxe", "count": 1, "inputs": "minecraft:iron_ingot:3,minecraft:stick:2" },
+    { "output": "minecraft:iron_axe", "count": 1, "inputs": "minecraft:iron_ingot:3,minecraft:stick:2" },
+    { "output": "minecraft:iron_shovel", "count": 1, "inputs": "minecraft:iron_ingot:1,minecraft:stick:2" },
+    { "output": "minecraft:iron_hoe", "count": 1, "inputs": "minecraft:iron_ingot:2,minecraft:stick:2" },
+    { "output": "minecraft:shears", "count": 1, "inputs": "minecraft:iron_ingot:2" },
+    { "output": "minecraft:iron_sword", "count": 1, "inputs": "minecraft:iron_ingot:2,minecraft:stick:1" },
+    { "output": "minecraft:bucket", "count": 1, "inputs": "minecraft:iron_ingot:3" }
+  ],
+  "blockhutglassblower": [
+    { "output": "minecraft:glass", "count": 1, "inputs": "minecraft:sand:1", "grid": 1 },
+    { "output": "minecraft:glass_pane", "count": 16, "inputs": "minecraft:glass:6" },
+    { "output": "minecraft:glass_bottle", "count": 3, "inputs": "minecraft:glass:3" }
+  ],
+  "blockhutfletcher": [
+    { "output": "minecraft:arrow", "count": 4, "inputs": "minecraft:flint:1,minecraft:stick:1,minecraft:feather:1" },
+    { "output": "minecraft:bow", "count": 1, "inputs": "minecraft:stick:3,minecraft:string:3" },
+    { "output": "minecraft:string", "count": 4, "inputs": "minecraft:white_wool:1" },
+    { "output": "minecraft:paper", "count": 3, "inputs": "minecraft:sugar_cane:3" },
+    { "output": "minecraft:book", "count": 1, "inputs": "minecraft:paper:3,minecraft:leather:1" }
+  ],
+  "blockhutsmeltery": [
+    { "output": "minecraft:iron_ingot", "count": 1, "inputs": "minecraft:raw_iron:1", "grid": 1 },
+    { "output": "minecraft:gold_ingot", "count": 1, "inputs": "minecraft:raw_gold:1", "grid": 1 },
+    { "output": "minecraft:copper_ingot", "count": 1, "inputs": "minecraft:raw_copper:1", "grid": 1 },
+    { "output": "minecraft:charcoal", "count": 1, "inputs": "minecraft:oak_log:1", "grid": 1 }
+  ],
+  "blockhutmechanic": [
+    { "output": "minecraft:torch", "count": 4, "inputs": "minecraft:coal:1,minecraft:stick:1" },
+    { "output": "minecraft:iron_nugget", "count": 9, "inputs": "minecraft:iron_ingot:1" },
+    { "output": "minecraft:lantern", "count": 1, "inputs": "minecraft:torch:1,minecraft:iron_nugget:8" },
+    { "output": "minecraft:iron_bars", "count": 16, "inputs": "minecraft:iron_ingot:6" }
+  ]
+}

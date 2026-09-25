@@ -1,0 +1,386 @@
+{
+  "alchemist": {
+    "block": "minecolonies:blockhutalchemist",
+    "blueprint": "craftsmanship/luxury/alchemisttower1.blueprint",
+    "job": "錬金術師",
+    "role": "醸造・ポーション製造",
+    "desc_en": "Brews potions and cultivates netherwart and mistletoe",
+    "tier": 4
+  },
+  "archery": {
+    "block": "minecolonies:blockhutarchery",
+    "blueprint": "military/archery1.blueprint",
+    "job": "弓兵訓練所",
+    "role": "弓兵の訓練",
+    "desc_en": "Trains citizens in archery skills to become proficient archers",
+    "tier": 4
+  },
+  "baker": {
+    "block": "minecolonies:blockhutbaker",
+    "blueprint": "craftsmanship/luxury/bakery1.blueprint",
+    "job": "パン職人",
+    "role": "食料(パン類)の製造",
+    "desc_en": "The Baker is part of the food production of your colony. They will bake bread, cookies, pumpkin pie, and/or cake. On page two of the Bakery GUI, you can select which items you want them to make.",
+    "tier": 2
+  },
+  "barracks": {
+    "block": "minecolonies:blockhutbarracks",
+    "blueprint": "military/barracks1.blueprint",
+    "job": "兵舎",
+    "role": "衛兵を複数収容・訓練する拠点。バラックスタワーが必要",
+    "desc_en": "The Barracks is the heart of your military defense. Without it you wouldn't be able to build any Barracks Towers! Each Barracks contains four Barracks Towers, one for each level (up to level four).",
+    "tier": 4
+  },
+  "barrackstower": {
+    "block": "minecolonies:blockhutbarrackstower",
+    "blueprint": "military/barrackstower1.blueprint",
+    "job": "兵舎タワー",
+    "role": "兵舎に隣接して建てる衛兵配置拠点",
+    "desc_en": "The Barracks Tower is the heart of your military defense. Each Barracks Tower employs 1 Guard per level for a total of 5. However, the Guards will also live in the tower, freeing up beds for more citi",
+    "tier": 4
+  },
+  "beekeeper": {
+    "block": "minecolonies:blockhutbeekeeper",
+    "blueprint": "agriculture/husbandry/apiary1.blueprint",
+    "job": "養蜂家",
+    "role": "蜂蜜・蜜蝋の収集",
+    "desc_en": "Handles bees to produce honey through careful breeding and harvesting",
+    "tier": 4
+  },
+  "blacksmith": {
+    "block": "minecolonies:blockhutblacksmith",
+    "blueprint": "craftsmanship/metallurgy/blacksmith1.blueprint",
+    "job": "鍛冶職人",
+    "role": "武器・道具・防具の製造",
+    "desc_en": "Crafts tools, armor, and other items using metal materials",
+    "tier": 2
+  },
+  "builder": {
+    "block": "minecolonies:blockhutbuilder",
+    "blueprint": "fundamentals/builder1.blueprint",
+    "job": "建築家",
+    "role": "全建物の建設・アップグレード。1市民につき1棟必須",
+    "desc_en": "The Builder is the heart of your colony. Without them, you wouldn't be able to get anything done! Every hut worker has to have their building built to at least level 1 before they can do anything, exc",
+    "tier": 1
+  },
+  "chickenherder": {
+    "block": "minecolonies:blockhutchickenherder",
+    "blueprint": "agriculture/husbandry/chickenfarmer1.blueprint",
+    "job": "養鶏家",
+    "role": "鶏肉・羽・卵の収集",
+    "desc_en": "The Chicken Farmer is part of the food production of your colony. The Chicken Farmer breeds, raises, and butchers chickens. They will collect eggs, feathers, and meat, as well as any drops from other ",
+    "tier": 2
+  },
+  "combatacademy": {
+    "block": "minecolonies:blockhutcombatacademy",
+    "blueprint": "military/combatacademy1.blueprint",
+    "job": "戦闘訓練所",
+    "role": "近接戦闘兵の訓練",
+    "desc_en": "Trains citizens in swordsmanship to become proficient knights",
+    "tier": 4
+  },
+  "composter": {
+    "block": "minecolonies:blockhutcomposter",
+    "blueprint": "agriculture/horticulture/composter1.blueprint",
+    "job": "堆肥職人",
+    "role": "有機物を骨粉に変換",
+    "desc_en": "The Composter is part of the crafting line of your colony. The Composter will turn items into compost for Farmers and Florists to use.",
+    "tier": 3
+  },
+  "concretemixer": {
+    "block": "minecolonies:blockhutconcretemixer",
+    "blueprint": "craftsmanship/luxury/concretemixer1.blueprint",
+    "job": "コンクリート職人",
+    "role": "コンクリートの製造",
+    "desc_en": "Crafts concrete powder and concrete blocks",
+    "tier": 3
+  },
+  "cook": {
+    "block": "minecolonies:blockhutcook",
+    "blueprint": "craftsmanship/luxury/cookery1.blueprint",
+    "job": "料理人",
+    "role": "食料の調理・市民への食事提供",
+    "desc_en": "The Waiter is part of the food production of your colony. The Waiter supplies all your citizens with food and will cook meat and potatoes, as well as other cooked food that only needs a furnace. When ",
+    "tier": 1
+  },
+  "cowboy": {
+    "block": "minecolonies:blockhutcowboy",
+    "blueprint": "agriculture/husbandry/cowhand1.blueprint",
+    "job": "牧場主",
+    "role": "牛肉・牛乳・皮革の収集",
+    "desc_en": "The Cowhand is part of the food production of your colony. The Cowhand breeds, raises, and butchers cows. They will collect the meat and leather, as well as any drops from other mods. The Cowhand will",
+    "tier": 2
+  },
+  "crusher": {
+    "block": "minecolonies:blockhutcrusher",
+    "blueprint": "craftsmanship/masonry/crusher1.blueprint",
+    "job": "石粉砕職人",
+    "role": "ブロックを細かい素材に粉砕",
+    "desc_en": "Crushes and grinds resources into finer materials",
+    "tier": 3
+  },
+  "deliveryman": {
+    "block": "minecolonies:blockhutdeliveryman",
+    "blueprint": "craftsmanship/storage/courier1.blueprint",
+    "job": "配達員",
+    "role": "倉庫⇔職場間の資材輸送。倉庫が必要",
+    "desc_en": "Couriers are part of colony management. They are the transportation service of the colony and will pick up unneeded items from worker huts and drop them at the Warehouse, as well as gather needed item",
+    "tier": 1
+  },
+  "dyer": {
+    "block": "minecolonies:blockhutdyer",
+    "blueprint": "craftsmanship/luxury/dyer1.blueprint",
+    "job": "染色職人",
+    "role": "羊毛・革製品の染色",
+    "desc_en": "Crafts and colors items using dyes",
+    "tier": 3
+  },
+  "enchanter": {
+    "block": "minecolonies:blockhutenchanter",
+    "blueprint": "mystic/enchanterstower1.blueprint",
+    "job": "エンチャント師",
+    "role": "道具・武器のエンチャント。書架が必要",
+    "desc_en": "Enhances books with enchantments and produces magical scrolls",
+    "tier": 4
+  },
+  "farmer": {
+    "block": "minecolonies:blockhutfarmer",
+    "blueprint": "agriculture/horticulture/farm1.blueprint",
+    "job": "農夫",
+    "role": "農作物の栽培・収穫。フィールドブロックを別途配置",
+    "desc_en": "The Farmer is part of the food production of your colony. The Farmer grows crops for the colony. The Farmer can plant and harvest any crop that is planted in farmland, even from other mods.",
+    "tier": 1
+  },
+  "fisherman": {
+    "block": "minecolonies:blockhutfisherman",
+    "blueprint": "agriculture/husbandry/fisher1.blueprint",
+    "job": "漁師",
+    "role": "魚の収集",
+    "desc_en": "The Fisher is part of the food production of your colony. Simply put, the Fisher will fish as long as you provide them with a fishing rod and a big enough area of water.",
+    "tier": 2
+  },
+  "fletcher": {
+    "block": "minecolonies:blockhutfletcher",
+    "blueprint": "craftsmanship/carpentry/fletcher1.blueprint",
+    "job": "矢師",
+    "role": "矢・弓の製造",
+    "desc_en": "Crafts items using wool, string, and leather materials",
+    "tier": 2
+  },
+  "florist": {
+    "block": "minecolonies:blockhutflorist",
+    "blueprint": "agriculture/horticulture/flowershop1.blueprint",
+    "job": "花師",
+    "role": "花の栽培・収集",
+    "desc_en": "Cultivates and collects a variety of flowers for the colony",
+    "tier": 3
+  },
+  "gatehouse": {
+    "block": "minecolonies:blockhutgatehouse",
+    "blueprint": "military/gatehouse1.blueprint",
+    "job": "門番",
+    "role": "コロニーの防衛ゲート",
+    "desc_en": "Houses two guards to defend the colony and allows connecting to other colonies",
+    "tier": 4
+  },
+  "glassblower": {
+    "block": "minecolonies:blockhutglassblower",
+    "blueprint": "craftsmanship/luxury/glassblower1.blueprint",
+    "job": "ガラス職人",
+    "role": "ガラス製品の製造",
+    "desc_en": "Crafts and smelts items using glass materials",
+    "tier": 3
+  },
+  "graveyard": {
+    "block": "minecolonies:blockhutgraveyard",
+    "blueprint": "mystic/graveyard1.blueprint",
+    "job": "墓守",
+    "role": "死亡した市民の埋葬・復活",
+    "desc_en": "The Graveyard is the resting place of your fallen citizens! Without it, you'll still be able to manually collect fallen citizens' graves, but your colony will mourn longer. Each Graveyard needs an Und",
+    "tier": 4
+  },
+  "guardtower": {
+    "block": "minecolonies:blockhutguardtower",
+    "blueprint": "military/guardtower1.blueprint",
+    "job": "衛兵塔",
+    "role": "コロニー周辺を哨戒する衛兵の拠点",
+    "desc_en": "The Guard Tower is the basic hut for your military defense. Each Guard Tower employs one Guard. However, the Guard will also live in the tower, freeing up a bed for more citizens. There are two differ",
+    "tier": 2
+  },
+  "hospital": {
+    "block": "minecolonies:blockhuthospital",
+    "blueprint": "fundamentals/hospital1.blueprint",
+    "job": "医師",
+    "role": "病気の市民を治療",
+    "desc_en": "Cures diseases and treats injuries",
+    "tier": 2
+  },
+  "kitchen": {
+    "block": "minecolonies:blockhutkitchen",
+    "blueprint": "fundamentals/restaurant1.blueprint",
+    "job": "食堂",
+    "role": "市民へ食事を供給するコミュニティ食堂",
+    "desc_en": "Prepares unique and tasty dishes your citizens will appreciate",
+    "tier": 1
+  },
+  "library": {
+    "block": "minecolonies:blockhutlibrary",
+    "blueprint": "education/library1.blueprint",
+    "job": "司書",
+    "role": "市民のスキル経験値を増加させる",
+    "desc_en": "Provides a study place to improve the intelligence of adult citizens",
+    "tier": 3
+  },
+  "lumberjack": {
+    "block": "minecolonies:blockhutlumberjack",
+    "blueprint": "fundamentals/forester1.blueprint",
+    "job": "木こり",
+    "role": "木材の伐採・植林",
+    "desc_en": "The Forester is one of the production workers for your colony. Give them an axe and they'll cut down any trees around them. They'll also replant a sapling where the tree was if they have any. If you w",
+    "tier": 1
+  },
+  "mechanic": {
+    "block": "minecolonies:blockhutmechanic",
+    "blueprint": "craftsmanship/metallurgy/mechanic1.blueprint",
+    "job": "機械職人",
+    "role": "レッドストーン装置・特殊アイテムの製造",
+    "desc_en": "Crafts advanced devices using redstone and handles unique recipes",
+    "tier": 2
+  },
+  "miner": {
+    "block": "minecolonies:blockhutminer",
+    "blueprint": "fundamentals/mine1.blueprint",
+    "job": "坑夫",
+    "role": "地下採掘・資源収集",
+    "desc_en": "The Miner is one of the production workers for your colony. They will need a pickaxe to mine stone, a shovel to mine dirt and gravel, and sometimes even an axe if they run into a mineshaft. They will ",
+    "tier": 1
+  },
+  "netherworker": {
+    "block": "minecolonies:blockhutnetherworker",
+    "blueprint": "mystic/nethermine1.blueprint",
+    "job": "ネザー作業員",
+    "role": "ネザー資源の収集",
+    "desc_en": "Gathers resources from the dangerous Nether, with necessary supplies and precautions",
+    "tier": 3
+  },
+  "plantation": {
+    "block": "minecolonies:blockhutplantation",
+    "blueprint": "agriculture/horticulture/plantation1.blueprint",
+    "job": "農園主",
+    "role": "サトウキビ・竹・カカオ等の特殊作物栽培",
+    "desc_en": "Cultivates plants such as bamboo, cactus, and sugarcane, and crafts items from these materials",
+    "tier": 3
+  },
+  "rabbithutch": {
+    "block": "minecolonies:blockhutrabbithutch",
+    "blueprint": "agriculture/husbandry/rabbithutch1.blueprint",
+    "job": "兎飼い",
+    "role": "ウサギ肉・皮・足の収集",
+    "desc_en": "Handles rabbits to produce rabbit drops",
+    "tier": 4
+  },
+  "sawmill": {
+    "block": "minecolonies:blockhutsawmill",
+    "blueprint": "craftsmanship/carpentry/sawmill1.blueprint",
+    "job": "製材職人",
+    "role": "木材加工品(ハーフブロック・階段等)の製造",
+    "desc_en": "Crafts various items using wooden materials",
+    "tier": 1
+  },
+  "school": {
+    "block": "minecolonies:blockhutschool",
+    "blueprint": "education/school1.blueprint",
+    "job": "教師",
+    "role": "子供市民の教育・スキル育成",
+    "desc_en": "Educates children, enhancing their intelligence and knowledge",
+    "tier": 2
+  },
+  "shepherd": {
+    "block": "minecolonies:blockhutshepherd",
+    "blueprint": "agriculture/husbandry/shepherd1.blueprint",
+    "job": "羊飼い",
+    "role": "羊毛・羊肉の収集",
+    "desc_en": "The Shepherd is part of the food production of your colony. The Shepherd breeds, raises, shears, and butchers sheep. They will collect the meat and wool, as well as any drops from other mods. The Shep",
+    "tier": 2
+  },
+  "sifter": {
+    "block": "minecolonies:blockhutsifter",
+    "blueprint": "craftsmanship/masonry/sifter1.blueprint",
+    "job": "ふるい職人",
+    "role": "砂・砂利をふるって希少素材を抽出",
+    "desc_en": "Sifts through soil to find valuable resources like gems and ingots",
+    "tier": 4
+  },
+  "smeltery": {
+    "block": "minecolonies:blockhutsmeltery",
+    "blueprint": "craftsmanship/metallurgy/smeltery1.blueprint",
+    "job": "製錬職人",
+    "role": "鉱石の製錬・金属インゴット生産",
+    "desc_en": "Processes ore to produce ingots through smelting",
+    "tier": 2
+  },
+  "stable": {
+    "block": "minecolonies:blockhutstable",
+    "blueprint": null,
+    "job": "厩舎",
+    "role": "馬の飼育。Colonialパックにblueprintなし(使用不可)",
+    "desc_en": "Stable cares for cavarly mounts",
+    "tier": 4
+  },
+  "stonemason": {
+    "block": "minecolonies:blockhutstonemason",
+    "blueprint": "craftsmanship/masonry/stonemason1.blueprint",
+    "job": "石工",
+    "role": "石材加工品の製造",
+    "desc_en": "Crafts tools and items using stone materials",
+    "tier": 1
+  },
+  "stonesmeltery": {
+    "block": "minecolonies:blockhutstonesmeltery",
+    "blueprint": "craftsmanship/masonry/stonesmeltery1.blueprint",
+    "job": "石製錬職人",
+    "role": "砂→ガラス等の焼成",
+    "desc_en": "Processes and refines various stone blocks through smelting in a furnace",
+    "tier": 3
+  },
+  "swineherder": {
+    "block": "minecolonies:blockhutswineherder",
+    "blueprint": "agriculture/husbandry/swineherd1.blueprint",
+    "job": "養豚家",
+    "role": "豚肉・皮革の収集",
+    "desc_en": "The Swineherd is part of the food production of your colony. The Swineherd breeds, raises, and butchers pigs. They will collect the meat, as well as any drops from other mods. The Swineherd will keep ",
+    "tier": 2
+  },
+  "tavern": {
+    "block": "minecolonies:blockhuttavern",
+    "blueprint": "fundamentals/tavern1.blueprint",
+    "job": "酒場",
+    "role": "新市民の募集(移民)・食事・宿泊場所",
+    "desc_en": "Provides housing quarters for citizens and serves as a gathering spot for visitors",
+    "tier": 1
+  },
+  "townhall": {
+    "block": "minecolonies:blockhuttownhall",
+    "blueprint": "fundamentals/townhall1.blueprint",
+    "job": "市庁舎",
+    "role": "コロニー設立の核。最初に建てる必須建物",
+    "desc_en": "Central Administration for Colony Management",
+    "tier": 0
+  },
+  "university": {
+    "block": "minecolonies:blockhutuniversity",
+    "blueprint": "education/university1.blueprint",
+    "job": "大学",
+    "role": "技術研究のアンロック。市庁舎レベル3以上が必要",
+    "desc_en": "Enables technology research led by skilled researchers",
+    "tier": 2
+  },
+  "warehouse": {
+    "block": "minecolonies:blockhutwarehouse",
+    "blueprint": "craftsmanship/storage/warehouse1.blueprint",
+    "job": "倉庫",
+    "role": "コロニーの中央在庫管理。配達員が資材を搬送する",
+    "desc_en": "The Warehouse is part of colony management. It's where all of your excess supplies are stored. There are no workers assigned to the Warehouse, but Couriers use the Warehouse.",
+    "tier": 1
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "schema": "voyager-appraisal-v2-config",
+    "version": 2,
+    "status": "experimental-unvalidated",
+    "note": "Weights are explicit research parameters, not empirically validated psychological constants. Version 2 centers bounded signals at the neutral point 0.5 before utility scoring."
+  },
+  "help": {
+    "compassionEvidence": 1.1,
+    "reciprocityEvidence": 0.75,
+    "relationshipEvidence": 0.45,
+    "normEvidence": 0.5,
+    "controlEvidence": 0.35,
+    "gratitude": 0.3,
+    "prideEvidence": 0.2,
+    "selfCost": -0.75,
+    "resentment": -0.45,
+    "infeasible": -4.0
+  },
+  "refuse": {
+    "healthProtectionEvidence": 0.65,
+    "resourceProtectionEvidence": 0.4,
+    "autonomyEvidence": 0.25,
+    "reluctanceEvidence": 0.8,
+    "resentment": 0.35,
+    "lowCompassionEvidence": 0.45,
+    "guiltEvidence": -0.55,
+    "noResource": 1.2
+  }
+}

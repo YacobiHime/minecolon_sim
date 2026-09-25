@@ -1,0 +1,40 @@
+# 通常(非フラット)ワールド移行用 server.properties 差分テンプレート (2026-07-11 作成)
+# ------------------------------------------------------------------------------
+# 使い方(次の作業セッションで実行、このセッションでは適用しない):
+#   1. サーバー停止(cmd_pipe に stop → プロセス消滅を確認)
+#   2. 旧worldを退避:  mv /root/mc-server-forge/world /root/mc-server-forge/world_backup_<epoch>
+#   3. /root/mc-server-forge/server.properties の下記キーを本テンプレートの値へ書き換え
+#   4. start_server.sh を起動(新worldが生成される)
+#   5. spawnバイオーム確認 → plains でなければ level-seed を変えて 2〜4 をやり直し
+#
+# 旧スーパーフラット基盤コロニー(検証用)は別ディレクトリのworldとして退避保存する。
+# 上書きせず必ず mv で残すこと(=「壊さない」の掟)。
+# ------------------------------------------------------------------------------
+
+# フラット→通常ワールド。1.20.1 Forge の既定ジェネレータ。
+level-type=minecraft\:normal
+
+# 通常ワールドでは generator-settings は空。
+generator-settings={}
+
+# 村・構造物は生成する(MineColonies とは無関係だが通常ワールドの前提)。
+generate-structures=true
+
+# level-name はそのまま world でよい(旧worldは手順2で退避済みのため衝突しない)。
+level-name=world
+
+# ★spawnバイオーム plains 固定の要:
+#   server.properties にバイオーム直接指定は無い。plains スポーンの seed を選ぶ、
+#   または datapack/worldgen で spawn を固定する。まずは既知の plains-spawn seed を
+#   ここに設定して手順4で目視確認するのが最小コスト。決定したら値を記入。
+#   (未決定=保留。次の作業セッションのタスク1で確定させる。)
+level-seed=
+
+# ------------------------------------------------------------------------------
+# 新worldでの座標パラメータ(下ごしらえ済み・2026-07-11):
+#   council.js / verify_suite.js は env COLONY_ID・ANCHOR_X/Y/Z で上書き可(既定は旧値)。
+#   start_server.sh は env FORCELOAD_CX/CZ/R で forceload 中心・半径を上書き可(既定 200/200/72)。
+#   通常ワールドは町役場を建てた実座標が中心になる。founding 後に町役場座標を確定し、
+#   ANCHOR_* と FORCELOAD_C* をその値に合わせて council/verify/start_server を起動する。
+#   例:  COLONY_ID=1 ANCHOR_X=<x> ANCHOR_Y=<地表y> ANCHOR_Z=<z> node council.js
+# ------------------------------------------------------------------------------

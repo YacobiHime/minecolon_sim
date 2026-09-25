@@ -1,0 +1,50 @@
+# eclipse
+bin
+*.launch
+.settings
+.metadata
+.classpath
+.project
+
+# idea
+out
+*.ipr
+*.iws
+*.iml
+.idea
+
+# gradle
+build
+.gradle
+
+# other
+eclipse
+run
+
+# Files from Forge MDK
+forge*changelog.txt
+cmd_pipe
+
+# runtime artifacts (per-session state, not source)
+demand.json
+taper_state.json
+*.log
+personas.json
+persona_daemon.pid
+social_state.json
+social_graph_events.jsonl
+social_observer.pid
+social_dynamics.json
+runtime_backups/
+social_action_events.jsonl
+social_help_events.jsonl
+social_help_runtime.json
+social_help.pid
+social_experiment_results/
+social_information_results/
+social_information_events.jsonl
+social_information_runtime.json
+social_information.pid
+persona_profile_results/
+social_cognition_results/
+food_allocation_results/

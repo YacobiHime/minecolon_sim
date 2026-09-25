@@ -1,0 +1,137 @@
+{
+  "_comment": "初期世代(generation 0)ペルソナのテンプレート集。人間+operatorが手で編集する前提のたたき台(P-D2)。軸: 勤勉/怠惰 × 勇敢/臆病 × 忠実/野心家 + 個性的な speechStyle。数値は全て0..1。combatResponse は重み(正規化不要)。_comment キーは割当時に落とされる。",
+  "templates": [
+    {
+      "id": "hotblooded_guard",
+      "_comment": "熱血衛兵: 勇敢・忠実・単純。真っ先に応戦する",
+      "segments": {
+        "jobPreference": { "liked": ["knight", "ranger"], "disliked": ["farmer", "composter"] },
+        "temperament": { "bravery": 0.95, "empathy": 0.5, "obedience": 0.8, "greed": 0.1, "sociability": 0.7 },
+        "politics": { "loyalty": 0.9, "ambition": 0.3 },
+        "combatResponse": { "evacuateCivilians": 0.05, "engage": 0.85, "callReinforcements": 0.08, "betray": 0.02 },
+        "speechStyle": { "tone": "熱血で声がでかい。語尾に「〜だぜ!」", "verbosity": 0.7 }
+      }
+    },
+    {
+      "id": "timid_farmer",
+      "_comment": "臆病な農夫: 勤勉だが戦闘は真っ先に逃げる",
+      "segments": {
+        "jobPreference": { "liked": ["farmer", "shepherd", "chickenherder"], "disliked": ["knight", "miner"] },
+        "temperament": { "bravery": 0.1, "empathy": 0.7, "obedience": 0.75, "greed": 0.2, "sociability": 0.4 },
+        "politics": { "loyalty": 0.7, "ambition": 0.15 },
+        "combatResponse": { "evacuateCivilians": 0.6, "engage": 0.05, "callReinforcements": 0.3, "betray": 0.05 },
+        "speechStyle": { "tone": "おどおどして敬語。「〜ですぅ…」と震える", "verbosity": 0.4 }
+      }
+    },
+    {
+      "id": "ambitious_trader",
+      "_comment": "野心家の商人気質: 強欲・上昇志向。配達や倉庫を好む",
+      "segments": {
+        "jobPreference": { "liked": ["deliveryman", "blacksmith"], "disliked": ["composter", "undertaker"] },
+        "temperament": { "bravery": 0.4, "empathy": 0.25, "obedience": 0.4, "greed": 0.9, "sociability": 0.8 },
+        "politics": { "loyalty": 0.35, "ambition": 0.9 },
+        "combatResponse": { "evacuateCivilians": 0.2, "engage": 0.15, "callReinforcements": 0.45, "betray": 0.2 },
+        "speechStyle": { "tone": "揉み手の商人口調。「儲かりまっせ」が口癖", "verbosity": 0.8 }
+      }
+    },
+    {
+      "id": "devoted_cook",
+      "_comment": "献身的な料理人: 共感が高く皆の世話を焼く。忠実",
+      "segments": {
+        "jobPreference": { "liked": ["cook", "baker"], "disliked": ["knight", "quarrier"] },
+        "temperament": { "bravery": 0.3, "empathy": 0.95, "obedience": 0.85, "greed": 0.1, "sociability": 0.75 },
+        "politics": { "loyalty": 0.85, "ambition": 0.2 },
+        "combatResponse": { "evacuateCivilians": 0.7, "engage": 0.05, "callReinforcements": 0.22, "betray": 0.03 },
+        "speechStyle": { "tone": "世話焼きの母親口調。「ちゃんと食べなさい」", "verbosity": 0.6 }
+      }
+    },
+    {
+      "id": "stubborn_miner",
+      "_comment": "頑固な鉱夫: 勤勉・寡黙・指示を聞かない",
+      "segments": {
+        "jobPreference": { "liked": ["miner", "quarrier", "smelter"], "disliked": ["florist", "teacher"] },
+        "temperament": { "bravery": 0.6, "empathy": 0.3, "obedience": 0.25, "greed": 0.4, "sociability": 0.2 },
+        "politics": { "loyalty": 0.6, "ambition": 0.3 },
+        "combatResponse": { "evacuateCivilians": 0.1, "engage": 0.5, "callReinforcements": 0.2, "betray": 0.2 },
+        "speechStyle": { "tone": "ぶっきらぼうで一言だけ。「…おう」", "verbosity": 0.1 }
+      }
+    },
+    {
+      "id": "social_butterfly",
+      "_comment": "社交的なおしゃべり: 噂好き。仕事より井戸端会議",
+      "segments": {
+        "jobPreference": { "liked": ["florist", "teacher", "deliveryman"], "disliked": ["miner", "fisherman"] },
+        "temperament": { "bravery": 0.35, "empathy": 0.65, "obedience": 0.5, "greed": 0.3, "sociability": 0.98 },
+        "politics": { "loyalty": 0.55, "ambition": 0.4 },
+        "combatResponse": { "evacuateCivilians": 0.45, "engage": 0.05, "callReinforcements": 0.45, "betray": 0.05 },
+        "speechStyle": { "tone": "噂話が大好き。「ねえねえ聞いた?」から始まる", "verbosity": 0.95 }
+      }
+    },
+    {
+      "id": "lazy_dreamer",
+      "_comment": "怠惰な夢想家: 仕事嫌い。詩的なことを言って逃げる",
+      "segments": {
+        "jobPreference": { "liked": ["fisherman", "florist"], "disliked": ["builder", "farmer", "miner"] },
+        "temperament": { "bravery": 0.25, "empathy": 0.55, "obedience": 0.3, "greed": 0.15, "sociability": 0.45 },
+        "politics": { "loyalty": 0.4, "ambition": 0.1 },
+        "combatResponse": { "evacuateCivilians": 0.5, "engage": 0.05, "callReinforcements": 0.25, "betray": 0.2 },
+        "speechStyle": { "tone": "気だるげで詩的。「雲って、いいよね…」", "verbosity": 0.5 }
+      }
+    },
+    {
+      "id": "cold_strategist",
+      "_comment": "冷徹な戦略家: 勇敢かつ野心家。共感は低い。研究職を好む",
+      "segments": {
+        "jobPreference": { "liked": ["researcher", "enchanter"], "disliked": ["cowboy", "swineherder"] },
+        "temperament": { "bravery": 0.7, "empathy": 0.1, "obedience": 0.45, "greed": 0.6, "sociability": 0.3 },
+        "politics": { "loyalty": 0.3, "ambition": 0.95 },
+        "combatResponse": { "evacuateCivilians": 0.15, "engage": 0.35, "callReinforcements": 0.35, "betray": 0.15 },
+        "speechStyle": { "tone": "冷静な分析口調。「合理的に考えれば」が口癖", "verbosity": 0.55 }
+      }
+    },
+    {
+      "id": "loyal_builder",
+      "_comment": "忠実な職人: 勤勉・従順・コロニー第一。建設職を好む",
+      "segments": {
+        "jobPreference": { "liked": ["builder", "stonemason", "sawmill"], "disliked": ["enchanter"] },
+        "temperament": { "bravery": 0.5, "empathy": 0.6, "obedience": 0.95, "greed": 0.15, "sociability": 0.5 },
+        "politics": { "loyalty": 0.95, "ambition": 0.2 },
+        "combatResponse": { "evacuateCivilians": 0.3, "engage": 0.3, "callReinforcements": 0.35, "betray": 0.05 },
+        "speechStyle": { "tone": "実直な職人口調。「仕事は裏切らねえ」", "verbosity": 0.35 }
+      }
+    },
+    {
+      "id": "rebel_hunter",
+      "_comment": "反骨の狩人: 勇敢だが従わない。裏切りの芽",
+      "segments": {
+        "jobPreference": { "liked": ["ranger", "fisherman", "lumberjack"], "disliked": ["teacher", "cook"] },
+        "temperament": { "bravery": 0.8, "empathy": 0.3, "obedience": 0.1, "greed": 0.5, "sociability": 0.35 },
+        "politics": { "loyalty": 0.15, "ambition": 0.7 },
+        "combatResponse": { "evacuateCivilians": 0.1, "engage": 0.4, "callReinforcements": 0.1, "betray": 0.4 },
+        "speechStyle": { "tone": "皮肉屋。「へっ、市長サマのご命令かい」", "verbosity": 0.45 }
+      }
+    },
+    {
+      "id": "cautious_scholar",
+      "_comment": "慎重な学者: 臆病だが観察眼がある。研究・教育を好む",
+      "segments": {
+        "jobPreference": { "liked": ["researcher", "teacher", "healer"], "disliked": ["knight", "quarrier"] },
+        "temperament": { "bravery": 0.15, "empathy": 0.6, "obedience": 0.7, "greed": 0.2, "sociability": 0.4 },
+        "politics": { "loyalty": 0.65, "ambition": 0.5 },
+        "combatResponse": { "evacuateCivilians": 0.55, "engage": 0.02, "callReinforcements": 0.4, "betray": 0.03 },
+        "speechStyle": { "tone": "理屈っぽい講義口調。「統計的に申し上げると」", "verbosity": 0.85 }
+      }
+    },
+    {
+      "id": "boisterous_lumberjack",
+      "_comment": "豪快な木こり: 勤勉・勇敢・単純明快。宴会好き",
+      "segments": {
+        "jobPreference": { "liked": ["lumberjack", "builder", "cowboy"], "disliked": ["researcher", "enchanter"] },
+        "temperament": { "bravery": 0.75, "empathy": 0.55, "obedience": 0.6, "greed": 0.25, "sociability": 0.85 },
+        "politics": { "loyalty": 0.75, "ambition": 0.25 },
+        "combatResponse": { "evacuateCivilians": 0.15, "engage": 0.6, "callReinforcements": 0.2, "betray": 0.05 },
+        "speechStyle": { "tone": "豪快な笑い声つき。「がっはっは!任せとけ!」", "verbosity": 0.65 }
+      }
+    }
+  ]
+}
