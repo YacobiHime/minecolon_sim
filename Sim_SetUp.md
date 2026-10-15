@@ -228,11 +228,11 @@ curl -fsS -X POST 'http://127.0.0.1:8089/requestBuild?x=BUILDER_X&y=BUILDER_Y&z=
 curl -fsS -X POST 'http://127.0.0.1:8089/spawnCitizen?colonyId=1'
 ```
 
-シミュレーション速度を10倍へ設定します。
+シミュレーション速度を適応ガバナー(auto)に設定します。tick処理時間に余裕がある範囲で倍率を自動調整します(最大40倍)。サーバー再起動で1倍に戻るので、起動のたびに実行します。固定倍率が必要なときだけ `?multiplier=N` を使います(autoは解除されます)。
 
 ```bash
-curl -fsS -X POST 'http://127.0.0.1:8089/tickrate?multiplier=10'
-curl -fsS http://127.0.0.1:8089/tickrate | jq
+curl -fsS -X POST 'http://127.0.0.1:8089/tickrate?auto=true'
+curl -fsS http://127.0.0.1:8089/tickrate
 ```
 
 ## 8. 初期建築を完成させてLLMエージェントを開始する

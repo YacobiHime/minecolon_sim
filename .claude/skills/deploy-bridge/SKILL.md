@@ -28,7 +28,7 @@ build.gradle が参照する MineColonies 等の jar は既定で `/root/mc-serv
      council.js / supply_bot.js を自動再起動するため、動いたままでは `--no-agents` が成立しない。
    - 現行コロニー(スーパーフラット、id=1、中心0,-60,0)の検証起動:
      `FORCELOAD_CX=0 FORCELOAD_CZ=0 FORCELOAD_R=72 bash /root/mc-server-forge/start_server.sh --no-agents`
-     (start_server.sh の既定値は旧 200/200/72 なので、FORCELOAD_* は必ず明示する)
+     (start_server.sh の既定値も 0/0/72 に変更済み(2026-10-15)。コロニー中心を変えたときは FORCELOAD_* を明示する)
      コロニーが広がって建物が範囲外に出たら、`/status` の全建物境界をチャンク座標へ丸め、
      `forceload remove all` → `forceload add <minX> <minZ> <maxX> <maxZ>` で全建物を覆う。
      Minecraft の上限は256チャンクなので、矩形の包含チャンク数を事前に確認すること。
