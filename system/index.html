@@ -1,0 +1,1128 @@
+
+<!doctype html>
+<html lang="ja" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="LLM市長エージェントによるMinecraft社会シミュレーション(卒業研究wiki)">
+      
+      
+        <meta name="author" content="atsushi-chiba">
+      
+      
+        <link rel="canonical" href="https://yacobihime.github.io/minecolon_sim/system/">
+      
+      
+        <link rel="prev" href="../about/">
+      
+      
+        <link rel="next" href="../handoff/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.44">
+    
+    
+      
+        <title>システム構成 - MineColonies 自律コロニー実験</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.0253249f.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          コンテンツにスキップ
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="ヘッダー">
+    <a href=".." title="MineColonies 自律コロニー実験" class="md-header__button md-logo" aria-label="MineColonies 自律コロニー実験" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            MineColonies 自律コロニー実験
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              システム構成
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="ダークモードに切り替え"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="ダークモードに切り替え" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="ライトモードに切り替え"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="ライトモードに切り替え" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="検索" placeholder="検索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="検索">
+        
+        <button type="reset" class="md-search__icon md-icon" title="クリア" aria-label="クリア" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            検索を初期化
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/YacobiHime/minecolon_sim" title="リポジトリへ" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YacobiHime/minecolon_sim
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="ナビゲーション" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="MineColonies 自律コロニー実験" class="md-nav__button md-logo" aria-label="MineColonies 自律コロニー実験" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    MineColonies 自律コロニー実験
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/YacobiHime/minecolon_sim" title="リポジトリへ" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    YacobiHime/minecolon_sim
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    はじめに
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../about/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    研究の位置づけ
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    システム構成
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    システム構成
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目次">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目次
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-minecolonies-mod" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. MineColonies mod
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. MineColonies mod">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      コロニー
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      市民
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      建物と建設
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      リクエスト経済
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      研究
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-voyagerbridge-forge-mod" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. VoyagerBridge (Forge mod)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. VoyagerBridge (Forge mod)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      役割
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      主なエンドポイント (抜粋)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      特殊対応
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. 外部エージェント層
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 外部エージェント層">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      社会シミュレーション層
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-counciljs-supply_botjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      LLM 市長 (council.js) と供給デーモン (supply_bot.js)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#counciljs-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      council.js — LLM 市長
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supply_botjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      supply_bot.js — 供給デーモン
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#colony_watch" class="md-nav__link">
+    <span class="md-ellipsis">
+      colony_watch — 監視スクリプト
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      データフロー (1 サイクル)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      ソースの在処 (要点)
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../handoff/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    引き継ぎ
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目次">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目次
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-minecolonies-mod" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. MineColonies mod
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. MineColonies mod">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      コロニー
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      市民
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      建物と建設
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      リクエスト経済
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      研究
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-voyagerbridge-forge-mod" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. VoyagerBridge (Forge mod)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. VoyagerBridge (Forge mod)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      役割
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      主なエンドポイント (抜粋)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      特殊対応
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. 外部エージェント層
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. 外部エージェント層">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      社会シミュレーション層
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#llm-counciljs-supply_botjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      LLM 市長 (council.js) と供給デーモン (supply_bot.js)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#counciljs-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      council.js — LLM 市長
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supply_botjs" class="md-nav__link">
+    <span class="md-ellipsis">
+      supply_bot.js — 供給デーモン
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#colony_watch" class="md-nav__link">
+    <span class="md-ellipsis">
+      colony_watch — 監視スクリプト
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      データフロー (1 サイクル)
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      ソースの在処 (要点)
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+<h1 id="_1">システム構成<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
+<p>自律コロニー実験は 3 つのレイヤーで動いています。</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────────────────────────────────────┐
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│  LLM 市長 (council.js) + 供給デーモン (supply_bot.js)│  … Node.js 常駐エージェント
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│                        ↕ HTTP (port 8089)          │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>├─────────────────────────────────────────────────┤
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  VoyagerBridge (Forge mod)                       │  … サーバー内 JVM
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>│                        ↕ Java API                 │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>├─────────────────────────────────────────────────┤
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>│  MineColonies + Structurize + Domum Ornamentum  │  … 既存の街づくり mod
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>│                        ↕                          │
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  Minecraft Forge 1.20.1 サーバー                  │
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>└─────────────────────────────────────────────────┘
+</code></pre></div>
+<p>以下、下のレイヤーから順に説明します。</p>
+<hr />
+<h2 id="1-minecolonies-mod">1. MineColonies mod<a class="headerlink" href="#1-minecolonies-mod" title="Permanent link">&para;</a></h2>
+<p>MineColonies は Minecraft 上に「町 (コロニー)」を作り、<strong>市民 (colonist) と呼ばれる NPC に自律的に建設・生産・戦闘をさせる</strong>街づくり mod です。プレイヤーの役割は都市計画者であり、実際にブロックを積むのは市民です。</p>
+<h3 id="_2">コロニー<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>町役場 (Town Hall)</strong> を設置して "found" することで 1 つのコロニーが生まれる</li>
+<li>町役場周辺のチャンクを自動で claim (領有) し、コロニー拡大とともに領域を広げる</li>
+<li>町役場レベル (1〜5) がコロニー全体の "天井": すべての建物は町役場レベルを超えて成長できない</li>
+<li>人口上限は「ベッド数 + 研究進捗」で決まる (基本 25 人、大学の研究チェーンで拡張)</li>
+</ul>
+<h3 id="_3">市民<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<p>各市民は独立した NPC エージェントで、以下の内部状態を持ちます。</p>
+<ul>
+<li><strong>空腹</strong> (0〜20): 労働で減り、食事で回復。住居レベルが高いほど食事の質要件が厳しくなる</li>
+<li><strong>幸福度</strong>: 住環境・食・安全・過労から算出、生産性に影響</li>
+<li><strong>健康</strong>: 病気になると病院と治療アイテムが必要</li>
+<li><strong>睡眠</strong>: 夜は住居のベッドで寝る、労働は昼のみ</li>
+<li><strong>スキル</strong>: Athletics / Dexterity / Focus 等 11 種。職ごとの主・副スキルが作業速度と品質を決める</li>
+<li><strong>住居と職場</strong>: 通勤距離が短いほど生産性が上がる</li>
+</ul>
+<p>市民の行動は <strong>優先度つき状態機械</strong> で決まります (病気 → 食事 → 睡眠 → 労働 → 余暇)。</p>
+<h3 id="_4">建物と建設<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>小屋ブロック</strong> (例: Builder's Hut) を置くと、その種類の建物がレベル 0 で生成される</li>
+<li>実際の建設は <strong>Work Order</strong> として発行され、<strong>建築家 (Builder)</strong> が blueprint (Structurize が管理) 通りにブロックを 1 つずつ設置</li>
+<li>建築家自身の建物レベルが施工可能な建物レベルの上限になる</li>
+<li>建築家は自小屋から半径 100 ブロック以内・かつロード済みチャンクのみで施工可能</li>
+<li>資材が不足すれば <strong>Request (要求)</strong> を発行し、下記のリクエスト経済で解決される</li>
+</ul>
+<h3 id="_5">リクエスト経済<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p>コロニー内の経済ロジックは Request System と呼ばれ、リゾルバ連鎖で解決されます。</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>市民/建物が要求発行
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    ↓
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>① 本人/建物内の在庫を探す
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    ↓ なければ
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>② 倉庫 (Warehouse) を探し、配達員 (Courier) が搬送
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    ↓ なければ
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>③ 対応するクラフター (Sawmill, Smeltery 等) が生産
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    ↓ なければ
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>④ プレイヤー供給 (creativeresolve = true なら自動、この研究では下記の supply_bot が代替)
+</code></pre></div>
+<h3 id="_6">研究<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>大学 (University)</strong> に研究者を配置して研究を進行</li>
+<li>二層構造: 全コロニー共通の研究ツリー × 各コロニーの進捗状態</li>
+<li><strong>人口上限拡張</strong> (keen → outpost → hamlet → village → city) や、建物・機能の解禁がここに紐づく</li>
+<li>研究者が本棚を巡って実時間で進行、大学レベル = 同時進行スロット数</li>
+</ul>
+<hr />
+<h2 id="2-voyagerbridge-forge-mod">2. VoyagerBridge (Forge mod)<a class="headerlink" href="#2-voyagerbridge-forge-mod" title="Permanent link">&para;</a></h2>
+<p><code>mineflayer</code> などの標準的な LLM-Minecraft 連携ライブラリは Forge サーバーに接続できないため、独自の Forge mod をサーバー JVM 内に組み込む方式を採用しました。</p>
+<h3 id="_7">役割<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>HTTP サーバーを起動</strong> (port 8089) して LLM 側からのリクエストを受け付ける</li>
+<li>サーバー内部から MineColonies / Structurize / Domum Ornamentum の Java API を直接呼び出す</li>
+<li>単純ラッパーではなく、既存 mod のバグ・落とし穴を吸収する層としても機能</li>
+</ul>
+<h3 id="_8">主なエンドポイント (抜粋)<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>エンドポイント</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/ping</code></td>
+<td>疎通確認</td>
+</tr>
+<tr>
+<td><code>/status</code></td>
+<td>全コロニーの建物・市民・在庫を JSON で返却</td>
+</tr>
+<tr>
+<td><code>/citizenInventory</code></td>
+<td>指定市民が実際に所持するアイテムと個数を集計</td>
+</tr>
+<tr>
+<td><code>/transferCitizenItem</code></td>
+<td>距離・在庫・受取容量を検証し、市民間で既存アイテムを移転</td>
+</tr>
+<tr>
+<td><code>/place</code></td>
+<td>指定座標に小屋ブロックを設置 (既存建物との衝突を事前チェック)</td>
+</tr>
+<tr>
+<td><code>/found</code></td>
+<td>町役場をコロニーとして設立</td>
+</tr>
+<tr>
+<td><code>/spawnCitizen</code></td>
+<td>市民を 1 人スポーン</td>
+</tr>
+<tr>
+<td><code>/requestBuild</code></td>
+<td>建物に Work Order を発行 (着工指示)</td>
+</tr>
+<tr>
+<td><code>/giveToCitizen</code></td>
+<td>市民インベントリにアイテムを直接挿入</td>
+</tr>
+<tr>
+<td><code>/resolveRequest</code></td>
+<td>市民のオープンリクエストを解決 (Domum Ornamentum フレームブロックは素材消費 → 完成品挿入 → OVERRULED)</td>
+</tr>
+<tr>
+<td><code>/openRequests</code></td>
+<td>市民の未解決リクエスト一覧</td>
+</tr>
+<tr>
+<td><code>/surfaceY</code>, <code>/heightmap</code></td>
+<td>地表 Y を返す (地形対応 placeNext 用)</td>
+</tr>
+<tr>
+<td><code>/tickrate</code></td>
+<td>サーバー tick 倍率を制御 (auto ガバナー付き)</td>
+</tr>
+</tbody>
+</table>
+<p><code>/status</code>の市民情報には、社会行動の身体性を検証するためライブ位置も含まれます。</p>
+<p>エンドポイント全体像は <code>IMPLEMENTATION_NOTES.md</code> またはメモリ <code>minecolonies-bridge-api</code> を参照してください。</p>
+<h3 id="_9">特殊対応<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<p>MineColonies 本体のバグや癖に対して、bridge 側で以下のような補正を入れています。</p>
+<ul>
+<li><code>/place</code> — 建物間の footprint 衝突を事前チェック (MineColonies 本体はチェックしないため、静かに既存建物を破壊する)</li>
+<li><code>/requestBuild</code> — 全建築家 hut を検索して有効な builder を渡す (未指定だと Work Order が発行されない)</li>
+<li><code>/resolveRequest</code> — Domum Ornamentum フレームブロックの完成品を実インベントリに挿入 (状態フラグを立てるだけだと建築家 AI が同じリクエストを無限再発行する)</li>
+<li>適応 tickrate ガバナー — サーバー負荷 (mspt) を測定して自動で tick 倍率を調整</li>
+</ul>
+<hr />
+<h2 id="3">3. 外部エージェント層<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
+<h3 id="_10">社会シミュレーション層<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>persona_daemon.js</code>: 安定した個体IDにP1ペルソナと家系を対応させる</li>
+<li><code>social_observer.js</code>: 同居・親子・職場などの関係グラフと、感情・信頼・義理の動的状態を更新する</li>
+<li><code>social_help_daemon.js</code>: 困窮を検出し、関係者から援助者を選び、appraisalの判断根拠を保存する。実行時は
+  援助者を相手まで歩かせ、所持している食料だけを移転する</li>
+<li><code>social_cognition.js</code>: P1から価値、動機、欲求優先度、規範、対処、感情力学、意思決定傾向を
+  寄与trace付きで導出する。これらは心理測定値ではなく比較実験用の操作的構成概念</li>
+<li><code>social_appraisal_v2.js</code>: 詳細認知profile、関係、困窮、距離、資源を状況依存goalと予期感情へ変換し、
+  help/refuseの各寄与を保存する実験モデル。未較正のため運用既定はv1</li>
+<li><code>persona_profile_report.js</code>: 生存市民の認知profileと次元別の平均・標準偏差・最小・最大を出力する</li>
+<li><code>social_cognition_experiment.js</code>: 同じ場面と乱数でappraisal v1/v2の確率的・決定論的判断を比較する</li>
+<li><code>social_action_queue.js</code>: 行動結果をappend-onlyで受け渡し、observerがoffsetにより一度だけ関係へ反映する</li>
+<li><code>social_experiment.js</code>: 同じ市民ペアを全員同一／ペルソナ／関係／時間的記憶の4条件で比較する</li>
+<li><code>social_information.js</code>: 脅威警報を社会グラフ上で局所伝播し、受容・再伝達・経路を記録する</li>
+<li><code>social_information_daemon.js</code>: <code>/threats</code>を読むshadow層。現段階では移動・戦闘命令を出さない</li>
+</ul>
+<p>関係は対称な辺だけでなく、AからBへのtrust/affinity/obligationとBからAへの値を別々に持ちます。
+これにより、援助を受けた側だけが強い信頼や返礼義務を持つ状態を表現できます。現在、援助daemonは
+限定試験のみで、連続自動実行は係数較正前のため停止しています。Phase 3.5以降は相手別のgratitude、
+resentment、援助・拒否履歴も保持し、感情はgameTimeに基づいて減衰、恩義は返礼行動で消費します。</p>
+<p>詳細認知層はP1の7特性を正本のまま使うため、既存市民と遺伝履歴を変更しません。導出次元が増えても
+独立な人格自由度が増えたとは解釈せず、各次元の入力と重みを追跡できる点を研究上の利点とします。</p>
+<h3 id="llm-counciljs-supply_botjs">LLM 市長 (council.js) と供給デーモン (supply_bot.js)<a class="headerlink" href="#llm-counciljs-supply_botjs" title="Permanent link">&para;</a></h3>
+<p>サーバー外部で常駐する 2 つの Node.js プロセスが実際の "統治" を担います。</p>
+<h3 id="counciljs-llm">council.js — LLM 市長<a class="headerlink" href="#counciljs-llm" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>市長ペルソナ</strong>が定期的に「今のコロニーを見て、次に何をすべきか」を判断する</li>
+<li>現在は 1 コロニー・1 市長ペルソナ (実験フェーズ次第で複数化予定 = 目標①)</li>
+<li><strong>入力</strong>: <code>/status</code>, <code>/openRequests</code>, <code>/debugWorkOrders</code> から集めた現在のコロニー状態を JSON で渡す</li>
+<li><strong>出力</strong>: 「この座標にこの建物を建てる」「この市民をこの職業に配属する」「この建物をアップグレードする」といった構造化コマンド</li>
+<li><strong>LLM</strong>: 現在はローカル ollama サーバー (<code>192.168.15.150:11434</code>) の <code>gemma4:e4b</code> を使用。<code>think: false</code> + スキーマ強制 + メニュー選択方式で応答の暴走を防いでいる</li>
+<li><strong>建物配置 (placeNext)</strong>: グリッドを走査してフットプリントごとに <code>/surfaceY</code> で地表 Y をサンプル → 代表 Y (mode) と平坦さ (max-min) を計算 → 平坦さゲートを通過すれば配置。水域は除外</li>
+</ul>
+<h3 id="supply_botjs">supply_bot.js — 供給デーモン<a class="headerlink" href="#supply_botjs" title="Permanent link">&para;</a></h3>
+<ul>
+<li>市民のオープンリクエストを 6 秒ごとに巡回し、未解決の物 (建材・食料・道具・種) を自動供給する</li>
+<li>MineColonies の <code>creativeresolve = true</code> 設定と同等の役割だが、サーバー再起動時に設定が消える問題を回避するため独立プロセス化</li>
+<li><strong>テーパー機能</strong>: アイテムごとの生産経路の稼働を検知し、生産が立ち上がったアイテムは自動供給を停止 → コロニーが自前生産で回るようになる (自給自足への移行を仕組みで担保)</li>
+</ul>
+<h3 id="colony_watch">colony_watch — 監視スクリプト<a class="headerlink" href="#colony_watch" title="Permanent link">&para;</a></h3>
+<ul>
+<li>サーバーとエージェントの死活を定期的にチェック</li>
+<li>落ちていれば通知 (現状は監視 = 通知のみ、自動再起動は operator 判断)</li>
+</ul>
+<hr />
+<h2 id="1">データフロー (1 サイクル)<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>1. council.js が /status を呼ぶ  → コロニー全体の状態を取得
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>2. council.js が LLM に問い合わせ → 次アクションの構造化コマンドを得る
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>3. council.js が /place, /requestBuild, /assignCitizen 等を呼ぶ
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>   → VoyagerBridge が MineColonies API を叩く
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>   → 市民 NPC が Work Order を受け取り、建設/生産を実行
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>4. supply_bot.js が /openRequests を巡回 → 不足資材を /giveToCitizen で補充
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>   (生産経路が稼働していれば、そのアイテムはスキップ = テーパー)
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>5. サーバー tick が進み、次サイクルへ
+</code></pre></div>
+<h2 id="_11">ソースの在処 (要点)<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>対象</th>
+<th>パス</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VoyagerBridge Java ソース</td>
+<td><code>minecolonies-bridge/src/main/java/com/voyagerbridge/VoyagerBridge.java</code></td>
+</tr>
+<tr>
+<td>council.js (市長)</td>
+<td><code>minecolonies-bridge/council.js</code></td>
+</tr>
+<tr>
+<td>supply_bot.js (供給)</td>
+<td><code>minecolonies-bridge/supply_bot.js</code></td>
+</tr>
+<tr>
+<td>建物レジストリ</td>
+<td><code>minecolonies-bridge/building_registry.json</code></td>
+</tr>
+<tr>
+<td>MineColonies 本体ソース</td>
+<td><a href="https://github.com/ldtteam/minecolonies">ldtteam/minecolonies</a> の <code>src/main/java/com/minecolonies/core/</code></td>
+</tr>
+</tbody>
+</table>
+<p>より深い設計判断は <a href="../handoff/">引き継ぎ</a> と、リポジトリ内の <code>DESIGN_DECISIONS_normal_world.md</code>, <code>IMPLEMENTATION_NOTES.md</code> を参照してください。</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  ページトップへ戻る
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="フッター" >
+        
+          
+          <a href="../about/" class="md-footer__link md-footer__link--prev" aria-label="前: 研究の位置づけ">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                前
+              </span>
+              <div class="md-ellipsis">
+                研究の位置づけ
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../handoff/" class="md-footer__link md-footer__link--next" aria-label="次: 引き継ぎ">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                次
+              </span>
+              <div class="md-ellipsis">
+                引き継ぎ
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        <div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/atsushi-chiba/Voyager" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.top", "navigation.footer", "toc.follow", "content.code.copy", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f", "clipboard.copy": "\u30af\u30ea\u30c3\u30d7\u30dc\u30fc\u30c9\u3078\u30b3\u30d4\u30fc", "search.result.more.one": "\u3053\u306e\u30da\u30fc\u30b8\u5185\u306b\u3082\u30461\u4ef6\u898b\u3064\u304b\u308a\u307e\u3057\u305f", "search.result.more.other": "\u3053\u306e\u30da\u30fc\u30b8\u5185\u306b\u3042\u3068#\u4ef6\u898b\u3064\u304b\u308a\u307e\u3057\u305f", "search.result.none": "\u4f55\u3082\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f", "search.result.one": "1\u4ef6\u898b\u3064\u304b\u308a\u307e\u3057\u305f", "search.result.other": "#\u4ef6\u898b\u3064\u304b\u308a\u307e\u3057\u305f", "search.result.placeholder": "\u691c\u7d22\u30ad\u30fc\u30ef\u30fc\u30c9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044", "search.result.term.missing": "\u691c\u7d22\u306b\u542b\u307e\u308c\u306a\u3044", "select.version": "\u30d0\u30fc\u30b8\u30e7\u30f3\u5207\u308a\u66ff\u3048"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.83f73b43.min.js"></script>
+      
+    
+  </body>
+</html>
