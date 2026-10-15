@@ -3,7 +3,7 @@
 # event; self-heals the node agents (they are safe to restart), only reports
 # server/bridge problems (those need investigation, not blind restarts).
 BRIDGE=http://localhost:8089
-DIR=/home/mine-admin/minecolon_sim/minecolonies-bridge
+DIR=/root/minecolon_sim/minecolonies-bridge
 POLL=120
 HEARTBEAT_EVERY=30   # polls -> 30*120s = 60 min
 IDLE_THRESHOLD=3     # emit an event only when >= this many staffed-but-idle workplaces
@@ -71,7 +71,7 @@ except Exception:
   fi
 
   # --- keepalive failure (colony brain freeze) ---
-  if tail -200 /home/mine-admin/mc-server-forge/console.log 2>/dev/null | grep -q 'keepColoniesActive failed'; then
+  if tail -200 "${MC_DIR:-/root/mc-server-forge}/console.log" 2>/dev/null | grep -q 'keepColoniesActive failed'; then
     echo "PROBLEM: keepColoniesActive failing (unattended colony will freeze)"
   fi
 

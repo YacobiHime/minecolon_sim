@@ -64,9 +64,8 @@ const MODEL = process.env.LLM_MODEL || "gemma4:e4b";
 const BRIDGE_HOST = "localhost";
 const BRIDGE_PORT = 8089;
 // Keep the console pipe configurable because the server location differs
-// between deployments.  The current mine-server installation lives under
-// mine-admin's home directory.
-const CMD_PIPE = process.env.CMD_PIPE || "/home/mine-admin/mc-server-forge/cmd_pipe";
+// between deployments.  Default: the panama installation (/root/mc-server-forge).
+const CMD_PIPE = process.env.CMD_PIPE || "/root/mc-server-forge/cmd_pipe";
 const COLONY_ID = parseInt(process.env.COLONY_ID || "1", 10);
 // Infinity = resident daemon. The 300-cycle cap predates the colony_watch
 // supervisor; with the cap, council exited every ~75min and the watch's

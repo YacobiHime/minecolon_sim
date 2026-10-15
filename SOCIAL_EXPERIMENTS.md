@@ -19,7 +19,7 @@
 各条件には同じ市民ペアと同じ乱数drawを与える。実行例:
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 node social_experiment.js \
   --repeats=50 --seed=phase35-final-v1 \
   --output=social_experiment_results/phase35_final_v1.json

@@ -20,9 +20,9 @@ Minecraft (Forge 1.20.1) と MineColonies mod を使い、**LLM (大規模言語
 
 ## リポジトリ
 
-- ソースコード: <https://github.com/atsushi-chiba/Voyager>
-- ブランチ: `minecolonies-experiment`
-- ライセンス: MIT (本家 [MineDojo/Voyager](https://github.com/MineDojo/Voyager) からのフォーク)
+- ソースコード: <https://github.com/YacobiHime/minecolon_sim>
+- ブランチ: `main`
+- ライセンス: MIT (かつては本家 [MineDojo/Voyager](https://github.com/MineDojo/Voyager) のフォーク上で開発)
 
 ## 現在の状態 (2026-07)
 

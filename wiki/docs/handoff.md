@@ -12,12 +12,12 @@
 
 | パス | 内容 |
 |---|---|
-| `/home/mine-admin/minecolon_sim/` | このリポジトリ (branch: `minecolonies-experiment`) |
-| `/home/mine-admin/minecolon_sim/minecolonies-bridge/` | Bridge mod ソース + Node.js エージェント |
-| `/home/mine-admin/mc-server-forge/` | Forge 1.20.1 サーバー本体 |
-| `/home/mine-admin/mc-server-forge/mods/voyagerbridge-*.jar` | ビルド済み Bridge mod |
-| `/home/mine-admin/mc-server-forge/console.log` | サーバーログ (追記) |
-| `/home/mine-admin/mc-server-forge/cmd_pipe` | 名前付き FIFO (サーバー stdin 代わり) |
+| `/root/minecolon_sim/` | このリポジトリ (branch: `main`) |
+| `/root/minecolon_sim/minecolonies-bridge/` | Bridge mod ソース + Node.js エージェント |
+| `/root/mc-server-forge/` | Forge 1.20.1 サーバー本体 |
+| `/root/mc-server-forge/mods/voyagerbridge-*.jar` | ビルド済み Bridge mod |
+| `/root/mc-server-forge/console.log` | サーバーログ (追記) |
+| `/root/mc-server-forge/cmd_pipe` | 名前付き FIFO (サーバー stdin 代わり) |
 
 ## 必要な環境
 
@@ -28,13 +28,14 @@
 | JDK (サーバー起動用) | 21 (システム) |
 | Node.js | 16+ |
 | LLM 推論サーバー | ollama (`192.168.15.150:11434`, モデル `gemma4:e4b`) |
-| サーバーポート | 25566 (Minecraft), 8089 (Bridge HTTP API) |
+| 実験マシン | panama (LAN 192.168.15.102 / Tailscale 100.88.86.71、2026-10-15 に mine-server から移設) |
+| サーバーポート | 25565 (Minecraft), 8089 (Bridge HTTP API) |
 
 ## サーバー起動と停止
 
 ```bash
 # 起動 (エージェント含む全部立ち上げ)
-cd /home/mine-admin/mc-server-forge
+cd /root/mc-server-forge
 bash start_server.sh
 
 # エージェントなしで起動 (デバッグ用)
@@ -45,9 +46,9 @@ bash stop_server.sh
 ```
 
 !!! warning "座標に依存する起動オプション"
-    現在のコロニーは spawn から離れた場所にあるため、起動時に forceload 範囲を環境変数で指定する必要があります。
+    start_server.sh の forceload 既定値は旧コロニー (200,200) 向けのため、起動時に現行コロニー中心 (0,-60,0) を環境変数で指定する必要があります。
     ```
-    FORCELOAD_CX=501 FORCELOAD_CZ=-319 FORCELOAD_R=80 bash start_server.sh
+    FORCELOAD_CX=0 FORCELOAD_CZ=0 FORCELOAD_R=72 bash start_server.sh
     ```
     起動後は必ず tick 適応ガバナーを ON にしてください。
     ```
@@ -76,12 +77,12 @@ skill として `deploy-bridge` を用意しているので、`/deploy-bridge` �
 ```bash
 # supply_bot の再起動
 pkill -f 'node supply_bot.js'
-(cd /home/mine-admin/minecolon_sim/minecolonies-bridge && \
+(cd /root/minecolon_sim/minecolonies-bridge && \
   setsid nohup node supply_bot.js >> supply_bot.log 2>&1 &)
 
 # council の再起動
 pkill -f 'node council.js'
-(cd /home/mine-admin/minecolon_sim/minecolonies-bridge && \
+(cd /root/minecolon_sim/minecolonies-bridge && \
   setsid nohup node council.js >> council.log 2>&1 &)
 ```
 
@@ -110,8 +111,8 @@ curl -s http://localhost:8089/tickrate
 curl -s "http://localhost:8089/openRequests?x=<hutX>&y=<hutY>&z=<hutZ>&citizenId=<id>" | jq .
 
 # サーバーコンソールにコマンドを送る
-echo '/gamerule doDaylightCycle false' > /home/mine-admin/mc-server-forge/cmd_pipe
-tail -f /home/mine-admin/mc-server-forge/console.log
+echo '/gamerule doDaylightCycle false' > /root/mc-server-forge/cmd_pipe
+tail -f /root/mc-server-forge/console.log
 ```
 
 ## トラブルシューティング
@@ -142,7 +143,7 @@ ollama サーバー (`192.168.15.150:11434`) の疎通と、`think: false` + ス
 ## Git の運用
 
 - 節目ごとに `progress_report_<日付>.md` を追加/更新
-- **origin と fork の両方に push** (`origin`: 元の卒研リポジトリ、`fork`: 現行の atsushi-chiba/Voyager)
+- `main` ブランチにコミットし `origin` (YacobiHime/minecolon_sim) に push (単独リポジトリ。`fork` リモートはない)
 - コミットメッセージは英語基調・短く
 
 ## この wiki を更新するには
@@ -151,7 +152,7 @@ wiki は `wiki/` 配下で MkDocs Material を使ってビルドし、GitHub Act
 
 ```bash
 # ローカルプレビュー
-cd /home/mine-admin/minecolon_sim/wiki
+cd /root/minecolon_sim/wiki
 pip install -r requirements.txt
 mkdocs serve  # http://127.0.0.1:8000
 
@@ -159,4 +160,4 @@ mkdocs serve  # http://127.0.0.1:8000
 mkdocs build --strict
 ```
 
-`minecolonies-experiment` ブランチに `wiki/**` の変更を push すると、自動的にビルド → デプロイされます。
+`main` ブランチに `wiki/**` の変更を push すると、自動的にビルド → デプロイされます。

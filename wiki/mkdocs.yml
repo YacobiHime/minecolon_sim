@@ -1,11 +1,11 @@
 site_name: MineColonies 自律コロニー実験
 site_description: LLM市長エージェントによるMinecraft社会シミュレーション(卒業研究wiki)
 site_author: atsushi-chiba
-site_url: https://atsushi-chiba.github.io/Voyager/
+site_url: https://yacobihime.github.io/minecolon_sim/
 
-repo_name: atsushi-chiba/Voyager
-repo_url: https://github.com/atsushi-chiba/Voyager
-edit_uri: edit/minecolonies-experiment/wiki/docs/
+repo_name: YacobiHime/minecolon_sim
+repo_url: https://github.com/YacobiHime/minecolon_sim
+edit_uri: edit/main/wiki/docs/
 
 docs_dir: docs
 site_dir: site

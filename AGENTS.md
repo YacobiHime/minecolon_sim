@@ -1,7 +1,7 @@
 # エージェント向け指示 (MineColonies bridge 実験)
 
-このリポジトリは Voyager のフォークで、LLM エージェントが MineColonies コロニーを
-運営する実験(`minecolonies-experiment` ブランチ)を含む。実験の実体は
+このリポジトリ(単独リポジトリ、`main` ブランチ、リモートは `origin` のみ)は、LLM エージェントが
+MineColonies コロニーを運営する実験を含む。かつては Voyager のフォーク上で開発していた。実験の実体は
 `minecolonies-bridge/`(Forge mod + Node.js エージェント群)。
 
 ## 手順書 (skills)
@@ -18,17 +18,19 @@
 
 ## 基本事実(実験マシン上)
 
-- Minecraft サーバー: `/home/mine-admin/mc-server-forge`(Forge 1.20.1、ゲーム port 25566)
+- 実験マシン: panama(LAN 192.168.15.102、Tailscale 100.88.86.71、user root)。
+  2026-10-15 に mine-server から移設した。
+- Minecraft サーバー: `/root/mc-server-forge`(Forge 1.20.1、ゲーム port 25565)
+- 本リポジトリ: `/root/minecolon_sim`、ワールドのバックアップ: `/root/simulation-backups`
 - bridge HTTP API: `http://localhost:8089`(エンドポイント実装は
   `minecolonies-bridge/src/main/java/com/voyagerbridge/VoyagerBridge.java`)
-- サーバーコンソール入力: `echo '<cmd>' > /home/mine-admin/mc-server-forge/cmd_pipe`、
-  出力は `/home/mine-admin/mc-server-forge/console.log`
+- サーバーコンソール入力: `echo '<cmd>' > /root/mc-server-forge/cmd_pipe`、
+  出力は `/root/mc-server-forge/console.log`
 - ビルドには JDK17 (`/opt/jdk-17.0.19+10`) が必要
 
 ## ルール
 
-- 検証が取れた変更は `minecolonies-experiment` ブランチにコミットし、
-  `origin` と `fork` の両方に push する。
+- 検証が取れた変更は `main` ブランチにコミットし、`origin` に push する。
 - 手順そのものを変えたら、同じコミットで該当 SKILL.md も更新する。
 
 ## 週次進捗報告

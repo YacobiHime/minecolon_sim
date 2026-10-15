@@ -80,7 +80,7 @@ MineColoniesのblueprintには `domum_ornamentum:framed` のような**テクス
 ### ファイル・ディレクトリ構成
 
 ```
-/home/mine-admin/mc-server-forge/          ← Forge 1.20.1 サーバー本体
+/root/mc-server-forge/          ← Forge 1.20.1 サーバー本体
   run.sh                        ← Forge 標準起動スクリプト(直接使わない)
   start_server.sh               ← ★ 通常の起動エントリポイント
   stop_server.sh                ← ★ 通常の停止エントリポイント
@@ -97,7 +97,7 @@ MineColoniesのblueprintには `domum_ornamentum:framed` のような**テクス
   config/
     minecolonies-common.toml    ← MineColonies 設定(creativeresolveは未設定)
 
-/home/mine-admin/minecolon_sim/minecolonies-bridge/   ← Bridge mod ソース + エージェント
+/root/minecolon_sim/minecolonies-bridge/   ← Bridge mod ソース + エージェント
   VoyagerBridge.java            ← Bridge mod 唯一のソースファイル
     (src/main/java/com/voyagerbridge/)
   council.js                    ← ★ メインエージェント(LLM知事2人が議論してコロニー運営)
@@ -110,7 +110,7 @@ MineColoniesのblueprintには `domum_ornamentum:framed` のような**テクス
 
 ```bash
 # ===== 通常起動 =====
-cd /home/mine-admin/mc-server-forge
+cd /root/mc-server-forge
 bash start_server.sh
 # → サーバー起動 + Bridge 待機 + supply_bot + council が全部自動で立ち上がる
 # → ログ: /tmp/supply_bot.log  /tmp/council.log
@@ -128,7 +128,7 @@ bash rebuild_bridge.sh   # JDK17 でビルド → mods/ に自動配備
 bash start_server.sh
 
 # ===== council だけ再起動したい場合 =====
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 OPENROUTER_API_KEY=sk-... node council.js > /tmp/council.log 2>&1 &
 ```
 
@@ -136,7 +136,7 @@ OPENROUTER_API_KEY=sk-... node council.js > /tmp/council.log 2>&1 &
 
 | 項目 | 値 |
 |---|---|
-| サーバーポート | 25566 (vanilla は 25565 で別) |
+| サーバーポート | 25565 |
 | Bridge HTTP API | http://localhost:8089 |
 | ワールド | スーパーフラット、y=-60 が地表 |
 | JDK | `/opt/jdk-17.0.19+10`(ビルド用) / システムJDK21(サーバー起動用) |

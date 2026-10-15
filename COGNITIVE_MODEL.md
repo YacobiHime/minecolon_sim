@@ -97,7 +97,7 @@ Bridgeの近接制約を保った身体化実行である。
 ## 再現コマンド
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 
 # 現在人口の詳細profileと分布（結果JSONはgitignore）
 node persona_profile_report.js --output=persona_profile_results/current_v1.json

@@ -1,15 +1,24 @@
 # MineColonies シミュレーション セットアップ手順
 
-この文書は、`mine-server` 上でMineColoniesのLLMシミュレーションを開始し、Minecraftプレイヤーとして観察するための手順です。現在の構成は次のとおりです。
+この文書は、実験マシン上でMineColoniesのシミュレーションを開始し、Minecraftプレイヤーとして観察するための手順です。
+
+> **2026-10-15 移設:** 実験マシンは旧 `mine-server`(192.168.15.10、`/home/mine-admin`)から `panama`(LAN 192.168.15.102、Tailscale 100.88.86.71、ユーザー `root`)へ恒久的に移りました。以下のパスはすべて panama 上のものです。
+
+現在の構成は次のとおりです。
+
+- 実験マシン: `panama`(LAN `192.168.15.102` / Tailscale `100.88.86.71`、ユーザー `root`)
 
 - Minecraft: 1.20.1
 - Forge: 1.20.1-47.1.3
-- Minecraftサーバー: `/home/mine-admin/mc-server-forge`
-- 本リポジトリ: `/home/mine-admin/minecolon_sim`
+- Minecraftサーバー: `/root/mc-server-forge`
+- 本リポジトリ: `/root/minecolon_sim`
+- ワールドのバックアップ: `/root/simulation-backups`
+- JDK17(bridgeビルド用): `/opt/jdk-17.0.19+10`
 - ゲームポート: `25565`
 - Voyager Bridge API: `127.0.0.1:8089`
 - コロニー中心: `X=0, Y=-60, Z=0`
 - コロニーID: `1`
+- 稼働エージェント: `supply_bot.js` のみ(LLM市長 `council.js` は任意。2026年度の計画では使用しない)
 
 ## 1. クライアントの準備
 
@@ -39,6 +48,8 @@ caramelChat-mc1.20.1-forge-1.2.0.jar
 
 ## 2. Tailscale踏み台経由で接続する
 
+> **同じTailscaleネットワークにいるクライアントの場合:** トンネル不要です。Minecraftの「マルチプレイ」から `100.88.86.71:25565` へ直接接続できます。以下のSSHトンネル手順は、Tailscaleに参加していないクライアント向けです。
+
 クライアントPCの `~/.ssh/config` に以下を設定します。
 
 ```sshconfig
@@ -48,9 +59,10 @@ Host lab-raspi
     IdentityFile ~/.ssh/id_lab
     Port 22
 
+# 2026-10-15 以降の実験マシンは panama(エイリアス名は従来どおり mine-server)
 Host mine-server
-    HostName 192.168.15.10
-    User mine-admin
+    HostName 192.168.15.102
+    User root
     ProxyJump lab-raspi
     IdentityFile ~/.ssh/id_lab
 ```
@@ -78,7 +90,7 @@ ssh mine-server
 Forgeは必ず `start_server.sh` から起動します。このスクリプトが `cmd_pipe` をForgeの標準入力へ接続するため、LLMの発言がゲーム内チャットへ表示されます。
 
 ```bash
-tmux new-session -d -s mc-server '/home/mine-admin/mc-server-forge/start_server.sh'
+tmux new-session -d -s mc-server '/root/mc-server-forge/start_server.sh'
 ```
 
 起動完了を確認します。
@@ -101,19 +113,19 @@ tmuxから抜けるときは `Ctrl-B`、続けて `D` を押します。`Ctrl-C`
 サーバー側からプレイヤーをOPレベル4に登録します。
 
 ```bash
-printf 'op YacobiHime\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+printf 'op YacobiHime\n' > /root/mc-server-forge/cmd_pipe
 ```
 
 登録状態は次のファイルで確認できます。
 
 ```bash
-jq . /home/mine-admin/mc-server-forge/ops.json
+jq . /root/mc-server-forge/ops.json
 ```
 
 権限を取り消す場合:
 
 ```bash
-printf 'deop YacobiHime\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+printf 'deop YacobiHime\n' > /root/mc-server-forge/cmd_pipe
 ```
 
 ## 5. 新しいシミュレーション用にワールドをリセットする
@@ -125,7 +137,7 @@ printf 'deop YacobiHime\n' > /home/mine-admin/mc-server-forge/cmd_pipe
 ```bash
 pkill -f 'node council\.js$' || true
 pkill -f 'node supply_bot\.js$' || true
-/home/mine-admin/mc-server-forge/stop_server.sh
+/root/mc-server-forge/stop_server.sh
 ```
 
 Javaプロセスが終了したことを確認します。
@@ -140,17 +152,17 @@ done
 
 ```bash
 backup_stamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup_dir="/home/mine-admin/simulation-backups/$backup_stamp"
+backup_dir="/root/simulation-backups/$backup_stamp"
 mkdir -p "$backup_dir"
-mv /home/mine-admin/mc-server-forge/world "$backup_dir/world"
-cp /home/mine-admin/mc-server-forge/server.properties "$backup_dir/server.properties"
+mv /root/mc-server-forge/world "$backup_dir/world"
+cp /root/mc-server-forge/server.properties "$backup_dir/server.properties"
 ```
 
 必要に応じて、エージェントのログも保存します。
 
 ```bash
-cp /home/mine-admin/minecolon_sim/minecolonies-bridge/council5.log "$backup_dir/council5.log"
-cp /home/mine-admin/minecolon_sim/minecolonies-bridge/supply_bot.log "$backup_dir/supply_bot.log"
+cp /root/minecolon_sim/minecolonies-bridge/council5.log "$backup_dir/council5.log"
+cp /root/minecolon_sim/minecolonies-bridge/supply_bot.log "$backup_dir/supply_bot.log"
 ```
 
 その後、手順3の方法でサーバーを起動します。`world` ディレクトリが自動生成され、`/status` が `[]` なら空のワールドです。
@@ -162,7 +174,7 @@ cp /home/mine-admin/minecolon_sim/minecolonies-bridge/supply_bot.log "$backup_di
 新規ワールド生成後は、サーバー側でワールドスポーンと観察者の個人スポーンを明示的に原点へ設定します。
 
 ```bash
-printf 'setworldspawn 0 -60 0\nspawnpoint YacobiHime 0 -60 0\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+printf 'setworldspawn 0 -60 0\nspawnpoint YacobiHime 0 -60 0\n' > /root/mc-server-forge/cmd_pipe
 ```
 
 ```mcfunction
@@ -191,7 +203,7 @@ printf 'setworldspawn 0 -60 0\nspawnpoint YacobiHime 0 -60 0\n' > /home/mine-adm
 最初に予定地周辺を常時読み込み対象にします。
 
 ```bash
-printf 'forceload add -16 -16 15 15\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+printf 'forceload add -16 -16 15 15\n' > /root/mc-server-forge/cmd_pipe
 ```
 
 Town Hallを配置してコロニーを創設します。
@@ -225,10 +237,12 @@ curl -fsS http://127.0.0.1:8089/tickrate | jq
 
 ## 8. 初期建築を完成させてLLMエージェントを開始する
 
+> **注:** Council(`council.js`、LLM市長)は任意です。2026年度の計画ではLLM(Ollama)を使わず、コロニーは Supply Bot だけで運用します。Councilのコードは残してあるので、LLM実験を行う場合のみ以下の Council 起動手順を実行してください。
+
 最初にSupply Botだけを起動します。Builder's Hutの建築中にCouncilを起動すると、稼働中の建築家がいない状態で次の建物を計画する可能性があるため、Councilはまだ起動しません。
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 
 setsid -f node supply_bot.js >> supply_bot.log 2>&1 </dev/null
 ```
@@ -248,9 +262,9 @@ curl -fsS -X POST 'http://127.0.0.1:8089/requestBuild?x=0&y=-60&z=0'
 再び `/status` を確認し、`blockhuttownhall` が `"level": 1`、`"operational": true` になったらCouncilを起動します。
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 
-setsid -f env CMD_PIPE=/home/mine-admin/mc-server-forge/cmd_pipe \
+setsid -f env CMD_PIPE=/root/mc-server-forge/cmd_pipe \
     node council.js >> council5.log 2>&1 </dev/null
 ```
 
@@ -263,7 +277,7 @@ pgrep -fa 'node (supply_bot|council)\.js'
 ログを観察します。
 
 ```bash
-tail -f /home/mine-admin/minecolon_sim/minecolonies-bridge/council5.log
+tail -f /root/minecolon_sim/minecolonies-bridge/council5.log
 ```
 
 ゲーム内チャットにAldric、Mira、市民の発言が表示され、建物が順次配置・建築されれば開始成功です。
@@ -286,7 +300,7 @@ Minecraftサーバー:
 
 ```bash
 pgrep -fa 'libraries/net/minecraftforge/forge/1\.20\.1-47\.1\.3/unix_args\.txt'
-tail -n 100 /home/mine-admin/mc-server-forge/logs/latest.log
+tail -n 100 /root/mc-server-forge/logs/latest.log
 ```
 
 ## 10. 社会シミュレーション実験を実行する
@@ -295,7 +309,7 @@ tail -n 100 /home/mine-admin/mc-server-forge/logs/latest.log
 関係状態を変更しません。
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 
 node experiment_runner.js \
   --source=live \
@@ -325,7 +339,7 @@ node experiment_runner.js \
 ```bash
 pkill -f 'node council\.js$' || true
 pkill -f 'node supply_bot\.js$' || true
-/home/mine-admin/mc-server-forge/stop_server.sh
+/root/mc-server-forge/stop_server.sh
 ```
 
 ワールド保存完了前にJavaプロセスを強制終了しないでください。
@@ -337,7 +351,7 @@ pkill -f 'node supply_bot\.js$' || true
 Forgeを `run.sh` から直接起動せず、`start_server.sh` から起動してください。また、Councilに現在のFIFOを指定します。
 
 ```bash
-CMD_PIPE=/home/mine-admin/mc-server-forge/cmd_pipe node council.js
+CMD_PIPE=/root/mc-server-forge/cmd_pipe node council.js
 ```
 
 ### 建設が資材待ちで止まる
@@ -346,14 +360,14 @@ Supply Botが1プロセス動作しているか確認します。
 
 ```bash
 pgrep -fa 'node supply_bot\.js'
-tail -n 100 /home/mine-admin/minecolon_sim/minecolonies-bridge/supply_bot.log
+tail -n 100 /root/minecolon_sim/minecolonies-bridge/supply_bot.log
 ```
 
 ### Minecraftから接続できない
 
 - クライアントのMinecraft、Forge、必須MODのバージョンを確認する
 - クライアントPC側のSSHトンネルが動作中か確認する
-- 接続先が `localhost:25566` になっているか確認する
+- 接続先が `localhost:25566`(SSHトンネル経由)または `100.88.86.71:25565`(Tailscale直結)になっているか確認する
 - サーバー側で `ss -ltn | grep 25565` を実行する
 
 ### 管理者コマンドが使えない
@@ -361,5 +375,5 @@ tail -n 100 /home/mine-admin/minecolon_sim/minecolonies-bridge/supply_bot.log
 プレイヤー名の大文字・小文字を正確に指定して、もう一度OP登録します。
 
 ```bash
-printf 'op YacobiHime\n' > /home/mine-admin/mc-server-forge/cmd_pipe
+printf 'op YacobiHime\n' > /root/mc-server-forge/cmd_pipe
 ```

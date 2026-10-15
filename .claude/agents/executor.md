@@ -10,17 +10,17 @@ model: sonnet
 
 ## プロジェクト地図
 
-- リポジトリ: `/home/mine-admin/minecolon_sim`(ブランチ minecolonies-experiment。コミット後は origin と fork の両方に push)
-- bridge mod ソース: `/home/mine-admin/minecolon_sim/minecolonies-bridge/src/main/java/com/voyagerbridge/VoyagerBridge.java`
+- リポジトリ: `/root/minecolon_sim`(単独リポジトリ、ブランチ main。push 先は origin のみ)
+- bridge mod ソース: `/root/minecolon_sim/minecolonies-bridge/src/main/java/com/voyagerbridge/VoyagerBridge.java`
 - Node エージェント: 同ディレクトリの `supply_bot.js` / `council.js`(ログ: supply_bot.log / council5.log)
-- サーバー: `/home/mine-admin/mc-server-forge`(Forge 1.20.1、bridge HTTP `localhost:8089`、ゲーム port 25566)
-  - コンソール送信: `echo '<cmd>' > /home/mine-admin/mc-server-forge/cmd_pipe`、出力は console.log
+- サーバー: `/root/mc-server-forge`(Forge 1.20.1、bridge HTTP `localhost:8089`、ゲーム port 25565)
+  - コンソール送信: `echo '<cmd>' > /root/mc-server-forge/cmd_pipe`、出力は console.log
 - skills(手順書): deploy-bridge(ビルド→配備→再起動→ヘルスチェック)、colony-diag(診断ランブック)。該当作業ではskillの手順に従う
 - 一時ファイルは自分のscratchpadへ
 
 ## 鉄則(過去の事故由来)
 
-1. サーバー再起動後は必ず `curl -s -X POST 'http://localhost:8089/tickrate?multiplier=10'`(常時10倍速)
+1. サーバー再起動後は必ず `curl -s -X POST 'http://localhost:8089/tickrate?auto=true'`(適応ガバナー。固定倍率が要る時だけ `?multiplier=N`)
 2. gradle ビルドは `set -o pipefail` 必須(`| tail` が失敗をマスクし古いjarを配備した事故あり)
 3. プロセス停止は pkill 禁止。`ps -eo pid,args | awk '$2=="node" && $3~/supply_bot\.js$/ {print $1}'` のように特定して kill(文字列一致は自分のラッパーシェルを殺す)
 4. supply_bot は常にちょうど1プロセス

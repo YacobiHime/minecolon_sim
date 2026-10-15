@@ -17,7 +17,7 @@ const fs = require("fs");
 // the no-worker building set) for the boot-time taper below.
 const workStats = require("./work_stats.js");
 
-const CMD_PIPE = "/home/mine-admin/mc-server-forge/cmd_pipe";
+const CMD_PIPE = process.env.CMD_PIPE || "/root/mc-server-forge/cmd_pipe";
 
 // Non-blocking console command (mirrors council.js sayInGame): O_NONBLOCK so
 // a wedged pipe can never hang the supply loop.

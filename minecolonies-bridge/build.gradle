@@ -148,9 +148,11 @@ dependencies {
     // MineColonies/Structurize compile-time API access, so we can call their
     // own (non-obfuscated) classes like IColonyManager.createColony directly,
     // instead of going through the client GUI/network messages.
-    compileOnly fg.deobf(files('/home/mine-admin/mc-server-forge/mods/minecolonies-1.20.1-1.1.1231.jar'))
-    compileOnly fg.deobf(files('/home/mine-admin/mc-server-forge/mods/structurize-1.20.1-1.0.816.jar'))
-    compileOnly fg.deobf(files('/home/mine-admin/mc-server-forge/mods/domum_ornamentum-1.20.1-1.0.296-universal.jar'))
+    // mods dir: -PmcModsDir=... / env MC_MODS_DIR / default (panama)
+    def mcModsDir = project.findProperty('mcModsDir') ?: (System.getenv('MC_MODS_DIR') ?: '/root/mc-server-forge/mods')
+    compileOnly fg.deobf(files("${mcModsDir}/minecolonies-1.20.1-1.1.1231.jar"))
+    compileOnly fg.deobf(files("${mcModsDir}/structurize-1.20.1-1.0.816.jar"))
+    compileOnly fg.deobf(files("${mcModsDir}/domum_ornamentum-1.20.1-1.0.296-universal.jar"))
     // Mixin annotation processor: generates voyagerbridge.refmap.json which maps
     // official Mojang field/method names to their obfuscated SRG equivalents.
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"

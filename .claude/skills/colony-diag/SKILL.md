@@ -6,8 +6,8 @@ description: MineColonies コロニーの状態確認と、市民・建設が止
 # コロニー診断ランブック
 
 bridge API は `http://localhost:8089`。サーバーコンソールは
-`echo '<コマンド>' > /home/mine-admin/mc-server-forge/cmd_pipe` で送信、出力は
-`/home/mine-admin/mc-server-forge/console.log` を tail して読む。
+`echo '<コマンド>' > /root/mc-server-forge/cmd_pipe` で送信、出力は
+`/root/mc-server-forge/console.log` を tail して読む。
 
 ## クイック状態確認(セッション開始時など)
 
@@ -16,13 +16,13 @@ bridge API は `http://localhost:8089`。サーバーコンソールは
 2. supply_bot 稼働確認: `pgrep -fa supply_bot.js` — 停止中だと建設は資材待ちで全停止(creativeresolve=false)。多重起動も不可。
 3. work order 一覧: `curl -s 'http://localhost:8089/debugWorkOrders?colonyId=1'`
    (id / 種別 / 位置 / claimedBy / stage / blueprintLoaded)
-4. 直近エラー: `grep -iE "error|exception" /home/mine-admin/mc-server-forge/console.log | tail -20`
+4. 直近エラー: `grep -iE "error|exception" /root/mc-server-forge/console.log | tail -20`
 
 ## 市民が働かないときのチェック順
 
 個別診断はまずこれ(出力は console.log):
 ```bash
-echo 'minecolonies citizens info <colonyId> <citizenId>' > /home/mine-admin/mc-server-forge/cmd_pipe
+echo 'minecolonies citizens info <colonyId> <citizenId>' > /root/mc-server-forge/cmd_pipe
 ```
 
 1. **空腹** — AI 状態が `CHECK_FOR_FOOD` で止まる。対処: `/giveToCitizen` で食べ物を渡す。
@@ -106,7 +106,7 @@ echo 'minecolonies citizens info <colonyId> <citizenId>' > /home/mine-admin/mc-s
 
 ## 「働いていない職場」の一括診断(2026-07-07 実装)
 
-- `node /home/mine-admin/minecolon_sim/minecolonies-bridge/work_stats.js [samples] [intervalMs]`
+- `node /root/minecolon_sim/minecolonies-bridge/work_stats.js [samples] [intervalMs]`
   — /status を複数回サンプリングして職場ごとの実働率を出す(単発スナップショットは
   通勤・就寝で誤判定するため)。0%が並ぶ職場の典型原因と対処:
   - **牧畜系(swineherder等)が DECIDE 空回り** → superflatは動物が湧かない。

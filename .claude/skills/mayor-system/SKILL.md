@@ -69,20 +69,20 @@ council.js 側の `.replace()` も足すこと。
 ## 運用(起動・監視・再起動)
 
 `council.js` のゲーム内発言は `CMD_PIPE` 環境変数で指定した FIFO へ書く。未指定時は
-現行 mine-server 配置の `/home/mine-admin/mc-server-forge/cmd_pipe` を使う。Forge 側も
+現行 panama 配置(2026-10-15〜)の `/root/mc-server-forge/cmd_pipe` を使う。Forge 側も
 同じ FIFO を標準入力として読む必要があるため、現行配置では直接 `run.sh` を起動せず
-`/home/mine-admin/mc-server-forge/start_server.sh` を使う。
+`/root/mc-server-forge/start_server.sh` を使う。
 
 ```bash
 # 再起動(必ずサブシェル内cd。裸起動は即死)
 pkill -f 'node council\.js$'; sleep 2
-(cd /home/mine-admin/minecolon_sim/minecolonies-bridge && \
-  setsid -f env CMD_PIPE=/home/mine-admin/mc-server-forge/cmd_pipe \
+(cd /root/minecolon_sim/minecolonies-bridge && \
+  setsid -f env CMD_PIPE=/root/mc-server-forge/cmd_pipe \
   node council.js >> council5.log 2>&1 </dev/null)
 # 稼働確認(ちょうど1プロセス)
 pgrep -fc 'node council\.js$'
 # 挙動確認(統治者の choice と say が出る)
-tail -f /home/mine-admin/minecolon_sim/minecolonies-bridge/council5.log
+tail -f /root/minecolon_sim/minecolonies-bridge/council5.log
 ```
 
 - **常駐化済み**(MAX_CYCLES=Infinity)。colony_watch が異常死時のみ自動再起動

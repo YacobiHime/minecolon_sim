@@ -72,7 +72,7 @@ runnerは実際のpersonaと社会graphから、家族辺と家族以外の辺�
 ## 再現方法
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 node test_food_allocation_scenario.js
 node food_allocation_scenario.js \
   --output=food_allocation_results/pilot_v1.json
@@ -87,7 +87,7 @@ runnerはoffline専用でBridge APIを呼ばず、Minecraftのworldや市民在�
 `/status`は読み取るだけで、worldは変更しない。
 
 ```bash
-cd /home/mine-admin/minecolon_sim/minecolonies-bridge
+cd /root/minecolon_sim/minecolonies-bridge
 node experiment_runner.js \
   --source=live \
   --conditions=uniform,persona,persona_relation,temporal \
