@@ -34,6 +34,34 @@ pointing at the already-installed mod jars.
   (mirrors the `/mc citizens spawnNew <id>` console command).
 - `GET /ping` - health check.
 
+## 実験時間の記録(experiment_clock.js)
+
+倍率は適応ガバナーで自動的に変わるので、実験の長さを実時間だけで記録すると、
+あとで一定倍率の場合に換算できない。`experiment_clock.js` は `GET /tickrate` を
+一定間隔で読み(書き込みはしない)、ゲーム内の時刻とその時点の倍率を JSONL に1行ずつ追記する。
+
+- 1行の中身: `wallTime`(ISO8601)、`wallMs`(エポックミリ秒)、`gameTime`(オーバーワールドの
+  通算 tick)、`dayTime`(ゲーム内の日時 tick)、`multiplier`、`auto`、`msptMs`。
+  bridge に繋がらないときは `error` 付きの行を書いて続ける。
+- `gameTime`・`dayTime` は bridge 側の `GET /tickrate` に追加した項目。古い bridge では `null` になる。
+
+記録(`--interval` の既定は5秒。`--duration` を省くと Ctrl-C / SIGTERM まで続ける):
+
+```bash
+node experiment_clock.js --out=experiment_logs/A-1_clock.jsonl --interval=5
+# 接続先は環境変数 BRIDGE_HOST / BRIDGE_PORT(既定 localhost / 8089)
+```
+
+集計(`--fixed` の既定は10):
+
+```bash
+node experiment_clock.js --summarize=experiment_logs/A-1_clock.jsonl --fixed=10
+```
+
+経過実時間、経過 tick、倍率の最小・最大・時間加重平均、実効倍率を JSON で出す。
+一定倍率 M のときの換算時間は **経過 tick から** `経過tick / (20 × M)` 秒として計算する
+(`equivalentWallSecAtFixed`)。テストは `node test_experiment_clock.js`。
+
 ## Known gotchas hit while building this
 
 - Gradle 8.1.1 (bundled in the Forge MDK) cannot run on JDK 21

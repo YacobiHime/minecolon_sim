@@ -3869,7 +3869,8 @@ public class VoyagerBridge {
                     + ",\"auto\":" + autoTickrate
                     + ",\"msptMs\":" + Math.round(currentMspt() * 100.0) / 100.0
                     + ",\"autoMax\":" + autoTickMax
-                    + ",\"headroom\":" + autoTickHeadroom + "}");
+                    + ",\"headroom\":" + autoTickHeadroom
+                    + overworldClockJson() + "}");
                 return;
             }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -3896,6 +3897,35 @@ public class VoyagerBridge {
         }
     }
 
+    // Appended to GET /tickrate so experiment records (experiment_clock.js)
+    // can pair the multiplier with the game clock: the adaptive governor
+    // changes the speed, so durations are converted to fixed-speed
+    // equivalents from elapsed ticks. Read on the server thread like the other
+    // handlers, but with a short timeout so a stalled tick never hangs this
+    // GET; if the server/overworld isn't ready (or times out) both are null.
+    private String overworldClockJson() {
+        String nulls = ",\"gameTime\":null,\"dayTime\":null";
+        MinecraftServer srv = server;
+        if (srv == null) return nulls;
+        try {
+            java.util.concurrent.CompletableFuture<long[]> result = new java.util.concurrent.CompletableFuture<>();
+            srv.execute(() -> {
+                try {
+                    ServerLevel level = srv.overworld();
+                    result.complete(level == null ? null
+                        : new long[] { level.getGameTime(), level.getDayTime() });
+                } catch (Exception e) {
+                    result.complete(null);
+                }
+            });
+            long[] t = result.get(2, java.util.concurrent.TimeUnit.SECONDS);
+            if (t == null) return nulls;
+            return ",\"gameTime\":" + t[0] + ",\"dayTime\":" + t[1];
+        } catch (Exception e) {
+            return nulls;
+        }
+    }
+
     private static volatile boolean autoTickrate = false;
     private static volatile int autoTickMax = 40;
     private static volatile double autoTickHeadroom = 0.8;
@@ -3904,6 +3934,7 @@ public class VoyagerBridge {
     // Average of the server's own per-tick execution times (the /forge tps
     // mspt). tickTimes is nanoseconds over the last 100 ticks.
     private double currentMspt() {
+        if (server == null) return 50.0;
         long[] times = server.tickTimes;
         if (times == null || times.length == 0) return 50.0;
         long sum = 0;
