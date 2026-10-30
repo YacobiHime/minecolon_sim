@@ -242,7 +242,7 @@ MineColonies `version/main`（1.20.1）のソースで確認。研究室の 1.1.
 
 実験マシンを panama に移したのに合わせて、ユーザーが決めた運用方針。
 
-- **LLM は今年は使わない。** LLM 市長（`council.js`、Ollama）は動かさず、コロニーは `supply_bot` だけで動かす。
+- ~~**LLM は今年は使わない。** LLM 市長（`council.js`、Ollama）は動かさず、コロニーは `supply_bot` だけで動かす。~~ → 撤回（ユーザーの訂正、2026-10-30）。必要があれば使う。使い方は12章。
 - **シミュレーションの倍率は自動調整（適応ガバナー）にする。** 10倍に固定する運用はやめる。
 - **サーバーの MOD は今の版のまま固定する**（MineColonies 1.20.1-1.1.1231 など）。接続するクライアントをサーバーに合わせる。サーバーが問題なく動くことを最も重視する。
 - **セッションの分担**: panama で開く Claude Code が実装セッション。方針・仕様把握・論文読み込みのセッションは Web 側で進め、リポジトリの文書を通じて連携する。
@@ -426,3 +426,48 @@ MineColonies `version/main`（1.20.1）のソースで確認。研究室の 1.1.
 - [UN-Habitat Block by Block Playbook](https://unhabitat.org/the-block-by-block-playbook-using-minecraft-as-a-participatory-design-tool-in-urban-design-and)
 - [Adaptive Urban Planning (arXiv:2412.15349)](https://arxiv.org/pdf/2412.15349)
 - Project Sid: Altera.AL (2024), arXiv:2411.00114（`docs/research/minecolonies-esa-article.md` 8.4 の記述による）
+
+---
+
+## 12. 計算資源と LLM の使い方（2026-10-22〜10-30 決定）
+
+先生から「LLM エージェントをワールドにどのくらい載せられるかで研究の規模を変えたい」「研究室の PC を使ってサーバーを分散できるか調べて」と言われたのを受けて、ユーザーと決めたこと。
+
+### 使ってよいマシン（研究室の Proxmox クラスタ）
+
+| ノード | CPU | メモリ | GPU（RTX 4060 Ti 16GB）の渡し先 | 扱い |
+| --- | --- | --- | --- | --- |
+| alexandria | Ryzen 9 9900X（12コア24スレッド） | 186 GiB | 102 llm-server、120 minestudio | 使う |
+| cyprus | Core i5-12600K | 62.6 GiB | 106 mine-server | 使う |
+| panama | Core i5-12600K | 62.6 GiB | 107 gpu-server | 使う |
+| hampton | Core i5-12600K | 62.6 GiB | 108 robot-rl-rm | **使わない**（robot-rl-rm はほかの人が使う） |
+
+- **gpu-server（107）は残す。** GPU は LLM の推論に使ってよいが、ほかの用途で使うときは、一時的に推論から外せるようにする。
+- **llm-server（102）は残す。** 前期にマイクラで使っていた llama-server を流用する。モデルは変える見込み。
+- **mine-server（106）は何も残さなくてよい**（前の実験マシン）。
+- それ以外の VM（hampton のものを除く）は使わないので、消してもよい。話に出たのは 120 minestudio、111 sns-simulation、101 oasis-server、103 searxng。panama の 100 simulation-node01 は話に出ていない。消すと戻せないので、消す前に中身を確かめる。
+- 推論に使える GPU は4枚（alexandria 2、cyprus 1、panama 1。gpu-server を外しているときは3枚）。
+
+### Minecraft のサーバー
+
+- **alexandria に移す。** ボトルネックは Minecraft 側で、alexandria の CPU のほうが1スレッドの性能が高いため。
+- 1つのワールドを複数の PC に分散させるのは現実的でない（ワールドの処理は基本1スレッド。Folia・MultiPaper などは Paper 系で、Forge の MineColonies は動かない。並列化は再現性も落とす）。分散するのは役割（Minecraft は1台、LLM の推論は GPU のある複数台）と、条件の違う実験を別々のワールドで同時に回すこと。
+- 設定はできるだけ軽くする。モブはシミュレーションの課題によるが、ほとんど要らない。動かす範囲（チャンク）は広いほうがよいので、範囲を絞っての軽量化は難しい。画質の設定はクライアント側のもので、サーバーは軽くならない。
+- 軽くするための MOD（ModernFix など）や、重さを測る spark を入れるかは決めていない（7章「MOD は今の版のまま固定」との関係）。
+
+### LLM の使い方
+
+- **開発・試験は手元の GPU、本番の実験は OpenRouter** で使い分ける。
+- エージェント（議論・意思決定）はゲームの外で動かし、決定だけをワールドに入れる。エージェントの数と、ゲームの中の市民の数は切り離す。
+
+### 規模の見積もり（未実測）
+
+- LLM エージェント: 1人の1回の発言を、読む 1,500・書く 200 トークンと仮定。手元の GPU 4枚なら、議論のときだけ話させる（その間ゲームを止める）形で、1,000人の1巡に 3〜8分（8B）／1〜3分（3〜4B）。常に行動させるなら 150〜400人（8B）／400〜1,000人（3〜4B）。OpenRouter では、制約は速さではなく費用とリクエストの上限になる。
+- ゲームの中の市民: MineColonies の研究で上げられる上限は 500人前後。快適に動くのは 100〜200人くらいと見込む。重くなると、自動調整の倍率が下がる。
+- 自動の倍率が高いと、LLM の議論が追いつかない（40倍ではゲーム内の1日が約30秒）。議論の間はゲームを止めるか遅くする仕組みが要る。
+
+### 実装セッションへの申し送り
+
+- Minecraft のサーバーを alexandria に移す（deploy-bridge の手順書、AGENTS.md、`docs/research/implementation-session.md` の「動かす場所」の更新も伴う）。
+- 推論サーバーを GPU ごとに立て、エージェントの要求を振り分ける。gpu-server を外したり戻したりできるようにする。
+- 実測: ① 推論の速さ（モデルの大きさ別に、同時に 1・8・32 人分の要求を出したときの毎秒のトークン数）、② 市民の数（50〜400人）と範囲の広さを変えたときの tick の処理時間と、到達する倍率。
