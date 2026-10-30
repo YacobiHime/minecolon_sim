@@ -44,6 +44,18 @@
 - placement-reviewer は、PR #4 がマージされたあとに始めたセッションから使える。まだ一度も動かしていない。
 - サブエージェントの使用を作業記録へ自動で残すフック(`SubagentStop`)は、まだ作っていない。
 
+## 2026-10-30
+
+### 方針セッションへの申し送り
+
+- ユーザーの訂正(2026-10-30): 方針メモ7章の「LLM は今年は使わない」は撤回。**使うかもしれない**。まず、LLM で発言する市民を何人動かせるかを試したい(深い設計は後回しで、結果を早めに見たい)。研究室の PC は使える分だけ使う。
+
+### 研究室のマシンの調べ(読み取りのみ、Proxmox クラスタの情報から)
+
+- ノード4台: panama(16コア・63GB)、hampton(16コア・63GB)、cyprus(16コア・63GB)、alexandria(24コア・186GB)。GPU はすべて RTX 4060 Ti で、panama・hampton・cyprus に1枚ずつ、alexandria に2枚。
+- GPU を割り当てた VM: gpu-server(panama、192.168.15.30、稼働中)、llm-server(alexandria、192.168.15.150、稼働中)、minestudio(alexandria の2枚目、停止中)、mine-server(cyprus、192.168.15.10、稼働中)、robot-rl-rm(hampton、稼働中)。
+- llm-server の Ollama(11434番)は停止中。LAN 上に今動いている LLM の窓口はない。llm-server へは鍵では入れず、パスワードでのログインが要る。
+
 ---
 
 ## サブエージェントの使用記録
