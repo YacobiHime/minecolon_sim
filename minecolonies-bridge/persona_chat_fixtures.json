@@ -1,0 +1,2125 @@
+{
+  "_meta": {
+    "schema": "persona-chat-fixtures-v1",
+    "_comment": "persona_chat_experiment.js の固定キャスト。node persona_chat_experiment.js --write-fixtures で再生成(決定論的)。personas.js / social_dynamics.js の実関数で作る。",
+    "seed": "persona-chat-fixtures-v1",
+    "evalGameTime": 6000,
+    "relationScript": [
+      {
+        "type": "help_succeeded",
+        "helperId": 3,
+        "recipientId": 8,
+        "note": "ミナがカイトに食事を分けた(1回目)"
+      },
+      {
+        "type": "help_succeeded",
+        "helperId": 3,
+        "recipientId": 8,
+        "note": "ミナがカイトに食事を分けた(2回目)"
+      },
+      {
+        "type": "help_succeeded",
+        "helperId": 2,
+        "recipientId": 5,
+        "note": "ハルトが寝込んだユイに肉を届けた(1回目)"
+      },
+      {
+        "type": "help_succeeded",
+        "helperId": 2,
+        "recipientId": 5,
+        "note": "ハルトが寝込んだユイに肉を届けた(2回目)"
+      },
+      {
+        "type": "help_refused",
+        "helperId": 6,
+        "recipientId": 1,
+        "note": "レンがアオイの頼みを断った(1回目)"
+      },
+      {
+        "type": "help_refused",
+        "helperId": 6,
+        "recipientId": 1,
+        "note": "レンがアオイの頼みを断った(2回目)"
+      }
+    ]
+  },
+  "citizens": [
+    {
+      "id": 1,
+      "name": "アオイ",
+      "gender": "female",
+      "age": 24,
+      "job": "deliveryman",
+      "jobLabel": "配達人",
+      "background": "村中を荷物を持って走り回るので、誰の噂もすぐ耳に入る。",
+      "thinPersonality": "陽気でおしゃべり。冗談が好き。",
+      "persona": {
+        "citizenId": 1,
+        "name": "アオイ",
+        "generation": 0,
+        "parents": [],
+        "templateId": "social_butterfly",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "florist",
+              "teacher",
+              "deliveryman"
+            ],
+            "disliked": [
+              "miner",
+              "fisherman"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.35,
+            "empathy": 0.65,
+            "obedience": 0.5,
+            "greed": 0.3,
+            "sociability": 0.98
+          },
+          "politics": {
+            "loyalty": 0.55,
+            "ambition": 0.4
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.45,
+            "engage": 0.05,
+            "callReinforcements": 0.45,
+            "betray": 0.05
+          },
+          "speechStyle": {
+            "tone": "噂話が大好き。「ねえねえ聞いた?」から始まる",
+            "verbosity": 0.95
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "ハルト",
+      "gender": "male",
+      "age": 31,
+      "job": "ranger",
+      "jobLabel": "狩人",
+      "background": "森で獲物を追う一匹狼。市長の命令には従いたがらない。",
+      "thinPersonality": "皮肉屋だが根は優しい。",
+      "persona": {
+        "citizenId": 2,
+        "name": "ハルト",
+        "generation": 0,
+        "parents": [],
+        "templateId": "rebel_hunter",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "ranger",
+              "fisherman",
+              "lumberjack"
+            ],
+            "disliked": [
+              "teacher",
+              "cook"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.8,
+            "empathy": 0.3,
+            "obedience": 0.1,
+            "greed": 0.5,
+            "sociability": 0.35
+          },
+          "politics": {
+            "loyalty": 0.15,
+            "ambition": 0.7
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.1,
+            "engage": 0.4,
+            "callReinforcements": 0.1,
+            "betray": 0.4
+          },
+          "speechStyle": {
+            "tone": "皮肉屋。「へっ、市長サマのご命令かい」",
+            "verbosity": 0.45
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "ミナ",
+      "gender": "female",
+      "age": 45,
+      "job": "cook",
+      "jobLabel": "料理人",
+      "background": "食堂を切り盛りしていて、腹をすかせた人を放っておけない。",
+      "thinPersonality": "世話好き。困っている人に声をかける。",
+      "persona": {
+        "citizenId": 3,
+        "name": "ミナ",
+        "generation": 0,
+        "parents": [],
+        "templateId": "devoted_cook",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "cook",
+              "baker"
+            ],
+            "disliked": [
+              "knight",
+              "quarrier"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.3,
+            "empathy": 0.95,
+            "obedience": 0.85,
+            "greed": 0.1,
+            "sociability": 0.75
+          },
+          "politics": {
+            "loyalty": 0.85,
+            "ambition": 0.2
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.7,
+            "engage": 0.05,
+            "callReinforcements": 0.22,
+            "betray": 0.03
+          },
+          "speechStyle": {
+            "tone": "世話焼きの母親口調。「ちゃんと食べなさい」",
+            "verbosity": 0.6
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "ソウタ",
+      "gender": "male",
+      "age": 48,
+      "job": "miner",
+      "jobLabel": "鉱夫",
+      "background": "村ができた頃から鉱山を掘り続けている古参。",
+      "thinPersonality": "働き者で無口。仕事の話ばかりする。",
+      "persona": {
+        "citizenId": 4,
+        "name": "ソウタ",
+        "generation": 0,
+        "parents": [],
+        "templateId": "stubborn_miner",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "miner",
+              "quarrier",
+              "smelter"
+            ],
+            "disliked": [
+              "florist",
+              "teacher"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.6,
+            "empathy": 0.3,
+            "obedience": 0.25,
+            "greed": 0.4,
+            "sociability": 0.2
+          },
+          "politics": {
+            "loyalty": 0.6,
+            "ambition": 0.3
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.1,
+            "engage": 0.5,
+            "callReinforcements": 0.2,
+            "betray": 0.2
+          },
+          "speechStyle": {
+            "tone": "ぶっきらぼうで一言だけ。「…おう」",
+            "verbosity": 0.1
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "ユイ",
+      "gender": "female",
+      "age": 29,
+      "job": "researcher",
+      "jobLabel": "研究者",
+      "background": "研究所で村の記録をつけている。体が弱く、よく寝込む。",
+      "thinPersonality": "慎重で心配性。食料の備蓄が気になる。",
+      "persona": {
+        "citizenId": 5,
+        "name": "ユイ",
+        "generation": 0,
+        "parents": [],
+        "templateId": "cautious_scholar",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "researcher",
+              "teacher",
+              "healer"
+            ],
+            "disliked": [
+              "knight",
+              "quarrier"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.15,
+            "empathy": 0.6,
+            "obedience": 0.7,
+            "greed": 0.2,
+            "sociability": 0.4
+          },
+          "politics": {
+            "loyalty": 0.65,
+            "ambition": 0.5
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.55,
+            "engage": 0.02,
+            "callReinforcements": 0.4,
+            "betray": 0.03
+          },
+          "speechStyle": {
+            "tone": "理屈っぽい講義口調。「統計的に申し上げると」",
+            "verbosity": 0.85
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "レン",
+      "gender": "male",
+      "age": 35,
+      "job": "blacksmith",
+      "jobLabel": "鍛冶屋",
+      "background": "鍛冶仕事のかたわら、品物の売り買いで一儲けを狙っている。",
+      "thinPersonality": "野心家。村をもっと大きくしたい。",
+      "persona": {
+        "citizenId": 6,
+        "name": "レン",
+        "generation": 0,
+        "parents": [],
+        "templateId": "ambitious_trader",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "deliveryman",
+              "blacksmith"
+            ],
+            "disliked": [
+              "composter",
+              "undertaker"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.4,
+            "empathy": 0.25,
+            "obedience": 0.4,
+            "greed": 0.9,
+            "sociability": 0.8
+          },
+          "politics": {
+            "loyalty": 0.35,
+            "ambition": 0.9
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.2,
+            "engage": 0.15,
+            "callReinforcements": 0.45,
+            "betray": 0.2
+          },
+          "speechStyle": {
+            "tone": "揉み手の商人口調。「儲かりまっせ」が口癖",
+            "verbosity": 0.8
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "サクラ",
+      "gender": "female",
+      "age": 17,
+      "job": "farmer",
+      "jobLabel": "農家",
+      "background": "ミナとソウタの娘。畑仕事を任されたばかりで、何でも知りたがる。",
+      "thinPersonality": "好奇心旺盛。新しい建物に興味がある。",
+      "persona": {
+        "citizenId": 7,
+        "name": "サクラ",
+        "generation": 1,
+        "parents": [
+          3,
+          4
+        ],
+        "parentsSynthesized": false,
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "miner",
+              "quarrier",
+              "smelter"
+            ],
+            "disliked": [
+              "florist",
+              "teacher"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.3,
+            "empathy": 0.95,
+            "obedience": 0.85,
+            "greed": 0.1,
+            "sociability": 0.75
+          },
+          "politics": {
+            "loyalty": 0.6,
+            "ambition": 0.3
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.1,
+            "engage": 0.5,
+            "callReinforcements": 0.2,
+            "betray": 0.2
+          },
+          "speechStyle": {
+            "tone": "世話焼きの母親口調。「ちゃんと食べなさい」",
+            "verbosity": 0.46
+          }
+        },
+        "segmentOrigins": {
+          "jobPreference": "B",
+          "temperament": "A",
+          "politics": "B",
+          "combatResponse": "B",
+          "speechStyle": "A"
+        },
+        "mutatedSegments": [
+          "speechStyle"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "name": "カイト",
+      "gender": "male",
+      "age": 22,
+      "job": "fisherman",
+      "jobLabel": "漁師",
+      "background": "川辺で釣り糸を垂れながら雲を眺めている時間が一番好き。",
+      "thinPersonality": "のんびり屋。天気と昼寝の話が好き。",
+      "persona": {
+        "citizenId": 8,
+        "name": "カイト",
+        "generation": 0,
+        "parents": [],
+        "templateId": "lazy_dreamer",
+        "deceased": false,
+        "deceasedAt": null,
+        "createdAt": "2026-10-30T00:00:00.000Z",
+        "segments": {
+          "jobPreference": {
+            "liked": [
+              "fisherman",
+              "florist"
+            ],
+            "disliked": [
+              "builder",
+              "farmer",
+              "miner"
+            ]
+          },
+          "temperament": {
+            "bravery": 0.25,
+            "empathy": 0.55,
+            "obedience": 0.3,
+            "greed": 0.15,
+            "sociability": 0.45
+          },
+          "politics": {
+            "loyalty": 0.4,
+            "ambition": 0.1
+          },
+          "combatResponse": {
+            "evacuateCivilians": 0.5,
+            "engage": 0.05,
+            "callReinforcements": 0.25,
+            "betray": 0.2
+          },
+          "speechStyle": {
+            "tone": "気だるげで詩的。「雲って、いいよね…」",
+            "verbosity": 0.5
+          }
+        }
+      }
+    }
+  ],
+  "dynamics": {
+    "_meta": {
+      "version": 2,
+      "phase": 3.5,
+      "colonyId": 0,
+      "updatedAt": null
+    },
+    "citizens": {
+      "1": {
+        "citizenId": 1,
+        "name": "アオイ",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.55,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      },
+      "2": {
+        "citizenId": 2,
+        "name": "ハルト",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.15,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      },
+      "3": {
+        "citizenId": 3,
+        "name": "ミナ",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.85,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      },
+      "4": {
+        "citizenId": 4,
+        "name": "ソウタ",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.6,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      },
+      "5": {
+        "citizenId": 5,
+        "name": "ユイ",
+        "active": true,
+        "fear": 0,
+        "stress": 0.15,
+        "satisfaction": 0.4,
+        "actualLoyalty": 0.65,
+        "nutritionBand": "fed",
+        "sick": true,
+        "disease": "風邪",
+        "lastEventGameTime": 0
+      },
+      "6": {
+        "citizenId": 6,
+        "name": "レン",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.35,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      },
+      "7": {
+        "citizenId": 7,
+        "name": "サクラ",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.6,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      },
+      "8": {
+        "citizenId": 8,
+        "name": "カイト",
+        "active": true,
+        "fear": 0,
+        "stress": 0,
+        "satisfaction": 0.5,
+        "actualLoyalty": 0.4,
+        "nutritionBand": "fed",
+        "sick": false,
+        "disease": null,
+        "lastEventGameTime": null
+      }
+    },
+    "relations": {
+      "1:2": {
+        "a": 1,
+        "b": 2,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 2,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "2": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "1:3": {
+        "a": 1,
+        "b": 3,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 3,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "3": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "1:4": {
+        "a": 1,
+        "b": 4,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "4": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "1:5": {
+        "a": 1,
+        "b": 5,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "5": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "1:6": {
+        "a": 1,
+        "b": 6,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.44,
+        "affinity": 0.47,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 6,
+            "trust": 0.38,
+            "affinity": 0.44,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0.32,
+              "lastGameTime": 0
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 2,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": "request_refused"
+            },
+            "lastEventGameTime": 0
+          },
+          "6": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": 0
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 2,
+              "repayments": 0,
+              "lastOutcome": "refused_request"
+            },
+            "lastEventGameTime": 0
+          }
+        },
+        "lastEventGameTime": 0
+      },
+      "1:7": {
+        "a": 1,
+        "b": 7,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "7": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "1:8": {
+        "a": 1,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "1": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "8": {
+            "toward": 1,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "2:3": {
+        "a": 2,
+        "b": 3,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "2": {
+            "toward": 3,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "3": {
+            "toward": 2,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "2:4": {
+        "a": 2,
+        "b": 4,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "2": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "4": {
+            "toward": 2,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "2:5": {
+        "a": 2,
+        "b": 5,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.58,
+        "affinity": 0.57,
+        "debt": 0.2,
+        "perspectives": {
+          "2": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.54,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": 0
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 2,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": "gave_help"
+            },
+            "lastEventGameTime": 0
+          },
+          "5": {
+            "toward": 2,
+            "trust": 0.66,
+            "affinity": 0.6,
+            "obligation": 0.2,
+            "affect": {
+              "gratitude": 0.36,
+              "resentment": 0,
+              "lastGameTime": 0
+            },
+            "memory": {
+              "helpReceived": 2,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": "received_help"
+            },
+            "lastEventGameTime": 0
+          }
+        },
+        "lastEventGameTime": 0
+      },
+      "2:6": {
+        "a": 2,
+        "b": 6,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "2": {
+            "toward": 6,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "6": {
+            "toward": 2,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "2:7": {
+        "a": 2,
+        "b": 7,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "2": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "7": {
+            "toward": 2,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "2:8": {
+        "a": 2,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "2": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "8": {
+            "toward": 2,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "3:4": {
+        "a": 3,
+        "b": 4,
+        "structurallyActive": true,
+        "sources": [
+          "co_resident",
+          "neighbor",
+          "partner"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "3": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "4": {
+            "toward": 3,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "3:5": {
+        "a": 3,
+        "b": 5,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "3": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "5": {
+            "toward": 3,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "3:6": {
+        "a": 3,
+        "b": 6,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "3": {
+            "toward": 6,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "6": {
+            "toward": 3,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "3:7": {
+        "a": 3,
+        "b": 7,
+        "structurallyActive": true,
+        "sources": [
+          "co_resident",
+          "neighbor",
+          "parent_child"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "3": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "7": {
+            "toward": 3,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "3:8": {
+        "a": 3,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.58,
+        "affinity": 0.57,
+        "debt": 0.2,
+        "perspectives": {
+          "3": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.54,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": 0
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 2,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": "gave_help"
+            },
+            "lastEventGameTime": 0
+          },
+          "8": {
+            "toward": 3,
+            "trust": 0.66,
+            "affinity": 0.6,
+            "obligation": 0.2,
+            "affect": {
+              "gratitude": 0.36,
+              "resentment": 0,
+              "lastGameTime": 0
+            },
+            "memory": {
+              "helpReceived": 2,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": "received_help"
+            },
+            "lastEventGameTime": 0
+          }
+        },
+        "lastEventGameTime": 0
+      },
+      "4:5": {
+        "a": 4,
+        "b": 5,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "4": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "5": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "4:6": {
+        "a": 4,
+        "b": 6,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "4": {
+            "toward": 6,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "6": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "4:7": {
+        "a": 4,
+        "b": 7,
+        "structurallyActive": true,
+        "sources": [
+          "co_resident",
+          "neighbor",
+          "parent_child"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "4": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "7": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "4:8": {
+        "a": 4,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "4": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "8": {
+            "toward": 4,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "5:6": {
+        "a": 5,
+        "b": 6,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "5": {
+            "toward": 6,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "6": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "5:7": {
+        "a": 5,
+        "b": 7,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "5": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "7": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "5:8": {
+        "a": 5,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "5": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "8": {
+            "toward": 5,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "6:7": {
+        "a": 6,
+        "b": 7,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "6": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "7": {
+            "toward": 6,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "6:8": {
+        "a": 6,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "6": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "8": {
+            "toward": 6,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      },
+      "7:8": {
+        "a": 7,
+        "b": 8,
+        "structurallyActive": true,
+        "sources": [
+          "neighbor"
+        ],
+        "trust": 0.5,
+        "affinity": 0.5,
+        "debt": 0,
+        "perspectives": {
+          "7": {
+            "toward": 8,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          },
+          "8": {
+            "toward": 7,
+            "trust": 0.5,
+            "affinity": 0.5,
+            "obligation": 0,
+            "affect": {
+              "gratitude": 0,
+              "resentment": 0,
+              "lastGameTime": null
+            },
+            "memory": {
+              "helpReceived": 0,
+              "helpGiven": 0,
+              "refusalsReceived": 0,
+              "requestsRefused": 0,
+              "repayments": 0,
+              "lastOutcome": null
+            },
+            "lastEventGameTime": null
+          }
+        },
+        "lastEventGameTime": null
+      }
+    }
+  }
+}
