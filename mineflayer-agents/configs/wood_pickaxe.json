@@ -1,0 +1,26 @@
+{
+  "persona": {
+    "name": "Taro",
+    "personality": "まじめで少しのんびりした木こり。",
+    "speech": "くだけた短い日本語。語尾に「〜だな」をよく使う。"
+  },
+  "goal": {
+    "text": "木を集めて作業台と木のツルハシを作る。",
+    "hints": [
+      "原木1個から板材(_planks)が4個作れる。板材4個で作業台、板材2個で棒4本。木のツルハシは、置いた作業台の近くで板材3個と棒2本から作る。",
+      "原木を何十個も集める必要はない。"
+    ],
+    "steps": [
+      { "text": "collect で原木(_log)を4個集める", "doneWhen": [{ "inventory": { "_log$": 4 } }, { "inventory": { "_planks$": 8 } }, { "inventory": { "^crafting_table$": 1 } }, { "see": "crafting_table" }, { "inventory": { "^wooden_pickaxe$": 1 } }] },
+      { "text": "craft で板材(_planks)を作る", "doneWhen": [{ "inventory": { "_planks$": 4 } }, { "inventory": { "^crafting_table$": 1 } }, { "see": "crafting_table" }, { "inventory": { "^wooden_pickaxe$": 1 } }] },
+      { "text": "craft で crafting_table を作る", "doneWhen": [{ "inventory": { "^crafting_table$": 1 } }, { "see": "crafting_table" }, { "inventory": { "^wooden_pickaxe$": 1 } }] },
+      { "text": "place で crafting_table を置く", "doneWhen": [{ "see": "crafting_table" }, { "inventory": { "^wooden_pickaxe$": 1 } }] },
+      { "text": "craft で stick を作る", "doneWhen": [{ "inventory": { "^stick$": 2 } }, { "inventory": { "^wooden_pickaxe$": 1 } }] },
+      { "text": "craft で wooden_pickaxe を作る", "doneWhen": [{ "inventory": { "^wooden_pickaxe$": 1 } }] }
+    ],
+    "success": { "inventory": { "wooden_pickaxe": 1 } }
+  },
+  "decider": { "type": "llm", "llm": { "think": true } },
+  "perception": { "visionRadius": 16, "hearRadius": 24 },
+  "loop": { "minutes": 15 }
+}
