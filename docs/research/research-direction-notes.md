@@ -643,3 +643,35 @@ MineColonies `version/main`（1.20.1）のソースで確認。研究室の 1.1.
 
 - **2B の資源の使い方が大切**（ユーザーの考え）。実装の手間を気にしなくても、2B が一度に扱える量の制約は残る（約 1,200 トークンで手順を追えなかった。14章）。部品を足すほどプロンプトが長くなり、呼び出しも増えるので、上の分担（状態はプログラムが数値で持ち、更新はルールか Jev、2B には短い言葉だけを渡す）を守る。人間らしさの上限は、部品の数より、2B がそれをどこまで言葉と行動に出せるかで決まりそう。賢いモデルを少し混ぜる（14章）と、その差も観察できる。
 - 出典: [MindForge (arXiv:2411.12977)](https://arxiv.org/html/2411.12977v6)、[Project Sid](https://raw.githubusercontent.com/altera-al/project-sid/main/README.md)、[CitySim (arXiv:2506.21805)](https://arxiv.org/html/2506.21805)、Park et al. (2024) Generative Agent Simulations of 1,000 People（arXiv:2411.10109）
+
+---
+
+## 16. 進め方: まず全体を1つの設定で動かし、部品を1つずつ替えて試す（2026-11-02 決定）
+
+### 進め方
+
+- **まず全体（行動・会話・記憶・社会性・周りに聞く仕組み）を、1つの設定で通して動かす。** そのあと、**部品を1つずつ替えながら試す**（モデル、Jev の使い方、記憶、社会性の部品、外からの助けなど）。
+- 今週中に実装して、進捗を出す必要がある（ユーザーの状況）。
+
+### 2B のモデルの比較（部品を替える試しの1つ目の候補）
+
+2B 前後（おおよそ 1.5〜2B）だけで比べる。Jev が行動を受け持つので、2B の主な仕事は会話と考えごと。日本語の自然さと、人物を演じる力が効く。
+
+| 候補 | 大きさ | 特徴 | 気になる点 |
+| --- | --- | --- | --- |
+| Gemma 4 E2B（今） | 約2B（実効） | 段階1のモデル。比べる基準 | 同じ言い回しの繰り返しが多かった |
+| Qwen3.5 2B | 2B | 同じ大きさで評価が高い（開発元の数字）。考えてから答えるモードがある。Apache-2.0 | 日本語の会話の質は動かして確かめる |
+| Qwen3 1.7B | 1.7B | 日本語のチャットでバランスが良いとする比較記事がある | 一世代前 |
+| llm-jp-3 1.8B（国立情報学研究所） | 1.8B | 日本語のデータで一から学習した国産のモデル | 指示に従う力・出力の形を守る力は分からない |
+| TinySwallow 1.5B（Sakana AI） | 1.5B | 日本語に特化。大きいモデルから知識を移したもの | 少し小さい。ライセンスに「研究・開発目的」と書かれた版があり、確認が要る |
+
+- 外したもの: Sarashina2.2（1B と 3B のみで 2B がない）、Gemma 4 E4B・Qwen3.5 4B（4B）、LFM2.5-JP（1.2B）。
+- 比べ方: 実装セッションのペルソナの会話の比較実験の仕組み（`persona_chat_experiment.js`。固定した8人・台本の出来事・seed 5通り）で、モデルだけを替える。プロンプトの長さもそろえる。
+- 比べるもの: 速さ（GPU で 30人分を回せるか）、繰り返しの少なさ・語彙の多様さ、人物像が発言に出るか、「LLM っぽさ」（すぐ同意する・迷わない・癖がない）、ユーザーが読んで人間らしいと感じるか。
+- 会話の質（ロールプレイ・話しぶり）を比べた公開の評価は、どのモデルにも見つからなかった。公開の点数は知識・推論の試験が中心で、開発元の数字が多い。
+- 出典: [BentoML (2026)](https://www.bentoml.com/blog/the-best-open-source-small-language-models)、[PromptQuorum](https://www.promptquorum.com/local-llms/small-local-llm-models)、[日本語で使えるローカルLLMおすすめ 2026年10月版](https://todoonada.co.jp/blog/japanese-local-llm-recommendations/)、[TinySwallow 1.5B](https://huggingface.co/SakanaAI/TinySwallow-1.5B)、[Sarashina2.2 の評価表](https://huggingface.co/sbintuitions/sarashina2.2-1b-instruct-v0.1)、[9 Japanese LLMs in April 2026 compared](https://lilting.ch/en/articles/japanese-llm-options-compared)
+
+### 実装セッションへの申し送り
+
+- まず、13〜15章の部品を1つの設定で通して動かす。そのあと、部品を1つずつ替えて試す。
+- 2B のモデルの比較は、上の5つで行う。
