@@ -22,6 +22,7 @@ persona_profile_results/
 social_cognition_results/
 food_allocation_results/
 experiment_results/
+persona_chat_results/
 
 # gradle / forge build
 build/
