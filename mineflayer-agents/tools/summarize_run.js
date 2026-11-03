@@ -162,6 +162,61 @@ function conversation(all, n) {
   return lines.slice(0, n).map((l) => `[${hhmmss(l.ts)}] ${l.text}`);
 }
 
+// 生き延びる設定の集計: 死んだ回数・死因・各日の終わりに (それまで一度も死なずに) 生きていた人数・3日生き延びた人数
+function survivalStats(agents, all, days = 3) {
+  const deaths = all.filter((r) => r.event === 'death');
+  const causes = {};
+  for (const d of deaths) causes[d.cause || 'unknown'] = (causes[d.cause || 'unknown'] || 0) + 1;
+  const maxDay = (name) => maxOf(all.filter((r) => r._name === name && r.loop && r.day != null).map((r) => r.day));
+  const firstDeathDay = (name) => { const ds = deaths.filter((d) => d._name === name && d.day != null).map((d) => d.day); return ds.length ? Math.min(...ds) : null; };
+  const aliveAtDayEnd = [];
+  for (let d = 0; d < days; d++) {
+    const reached = agents.filter((a) => (maxDay(a.name) ?? -1) > d);
+    aliveAtDayEnd.push({ day: d + 1, reached: reached.length, alive: reached.filter((a) => { const f = firstDeathDay(a.name); return f == null || f > d; }).length });
+  }
+  const survived = agents.filter((a) => (maxDay(a.name) ?? -1) >= days && !deaths.some((d) => d._name === a.name)).map((a) => a.name);
+  return {
+    deaths: deaths.length, causes, perAgent: Object.fromEntries(agents.map((a) => [a.name, deaths.filter((d) => d._name === a.name).length])),
+    deathList: deaths.map((d) => ({ who: d._name, day: d.day, timeOfDay: d.timeOfDay, cause: d.cause, message: d.message })),
+    aliveAtDayEnd, survivedNoDeath: survived,
+  };
+}
+
+// 自分で決めた目標の移り変わり (抜粋)
+function goalTimeline(all, n = 12) {
+  return all.filter((r) => r.event === 'self_goal').sort((a, b) => (a.ts < b.ts ? -1 : 1))
+    .map((r) => `[${hhmmss(r.ts)}] ${r._name} #${r.loop} (${r.reason})${r.ok ? ` ${r.goal} / ${(r.steps || []).join(' → ')}` : ' (書けなかった)'}`)
+    .slice(0, n);
+}
+
+// 協力に関わる出来事: 聞く・答える・話す・同じ所 (近さ near 以内) に同じ時間帯 (bucketSec) に居た組
+function cooperationStats(all, { near = 8, bucketSec = 10 } = {}) {
+  const loops = all.filter((r) => r.loop && r.pos && r.ts);
+  const byBucket = new Map();
+  for (const r of loops) {
+    const b = Math.floor(new Date(r.ts).getTime() / (bucketSec * 1000));
+    if (!byBucket.has(b)) byBucket.set(b, new Map());
+    byBucket.get(b).set(r._name, r.pos);
+  }
+  const pairs = {};
+  let together = 0;
+  for (const m of byBucket.values()) {
+    const ent = [...m.entries()];
+    for (let i = 0; i < ent.length; i++) {
+      for (let j = i + 1; j < ent.length; j++) {
+        const [a, pa] = ent[i]; const [b, pb] = ent[j];
+        if (Math.hypot(pa.x - pb.x, pa.y - pb.y, pa.z - pb.z) <= near) { const k = [a, b].sort().join('-'); pairs[k] = (pairs[k] || 0) + 1; together += 1; }
+      }
+    }
+  }
+  return {
+    asked: all.filter((r) => r.event === 'ask').length, answered: all.filter((r) => r.event === 'answer').length,
+    talked: all.filter((r) => r.event === 'talk' && r.say).length,
+    togetherBuckets: together, togetherPairs: pairs, bucketSec, near,
+    setBase: all.filter((r) => r.event === 'set_base').map((r) => ({ who: r._name, loop: r.loop, base: r.base })),
+  };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const target = args.find((a) => !a.startsWith('--'));
@@ -218,6 +273,10 @@ function main() {
       estimatedCalls: jev.estimatedCalls, costUsd: jev.costUsd ?? Number(((jev.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)),
       avgMs: jev.avgMs, rateLimited: jev.rateLimited, retries: jev.retries, errors: jev.errors ?? null, exceeded: jev.exceeded ?? null,
     },
+    survival: survivalStats(agents, all),
+    selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
+    cooperation: cooperationStats(all),
+    placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
     perAgent: agents,
     conversation: conversation(all, nEx),
   };
@@ -236,6 +295,14 @@ function main() {
     const bs = (k, f) => sum(agents.map((a) => a.build[k][f]));
     console.log(`build で置いた物: 原木 ${bs('log', 'placed')} 個 (${bs('log', 'n')} 回)・板材 ${bs('planks', 'placed')} 個 (${bs('planks', 'n')} 回)・そのほか ${bs('other', 'placed')} 個 (${bs('other', 'n')} 回)`);
     console.log(`pillar ${acts('pillar')} 回 (成功 ${actsOk('pillar')})、pick_up ${acts('pick_up')} 回 (成功 ${actsOk('pick_up')})、go_to ${acts('go_to')} 回 (成功 ${actsOk('go_to')})`);
+    const sv = out.survival;
+    if (sv.deaths || all.some((r) => r.event === 'self_goal')) {
+      console.log(`死んだ ${sv.deaths} 回 (${Object.entries(sv.causes).map(([k, v]) => `${k} ${v}`).join('・') || 'なし'})、各日の終わりに一度も死なずに生きていた人数 ${sv.aliveAtDayEnd.map((d) => `${d.day}日目 ${d.alive}/${d.reached}`).join('・')}、3日生き延びた (一度も死ななかった) ${sv.survivedNoDeath.length} 人`);
+      console.log(`攻撃 ${acts('attack')} 回 (成功 ${actsOk('attack')})・逃げる ${acts('flee')}・焼く ${acts('smelt')} (成功 ${actsOk('smelt')})・寝る ${acts('sleep')} (成功 ${actsOk('sleep')})・置いた ${JSON.stringify(out.placed)}・拠点を決めた ${out.cooperation.setBase.length} 回`);
+      console.log(`自分で決めた目標 ${out.selfGoals.count} 回 (${JSON.stringify(out.selfGoals.byReason)})`);
+      for (const l of out.selfGoals.timeline.slice(0, 6)) console.log(`  ${l}`);
+      console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
+    }
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
     console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);
   }

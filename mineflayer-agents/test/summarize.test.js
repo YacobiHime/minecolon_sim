@@ -58,3 +58,39 @@ test('2人分の記録と run.json を集計する', () => {
   const txt = execFileSync('node', [TOOL, dir, '--text'], { encoding: 'utf8' });
   assert.match(txt, /週次報告用/);
 });
+
+test('生き延びる設定: 死んだ回数・死因・各日の終わりの人数・3日生き延びた人数・目標の移り変わり・同じ所に居た組', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-'));
+  const t = (s) => new Date(Date.UTC(2026, 10, 3, 1, 0, 0) + s * 1000).toISOString();
+  const step = (loop, s, day, pos, extra = {}) => ({ ts: t(s), loop, day, timeOfDay: 1000, pos, action: 'explore', arg: 'north_far', result: { ok: true, msg: 'ok' }, decideMs: 300, parseOk: true, valid: true, inventory: [], foodCount: 0, jev: { inputTokens: 2500, inputChars: 4000, ms: 300 }, ...extra });
+  // Taro: 3日目まで一度も死なない。Hanako: 2日目に死ぬ
+  fs.writeFileSync(path.join(dir, 'Taro-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Taro' }, help: { selfGoal: true }, day: 0 }),
+    L({ ts: t(1), event: 'self_goal', loop: 1, reason: 'start', ok: true, goal: '木を集める', steps: ['原木を集める', '道具を作る'] }),
+    L(step(1, 1, 0, { x: 0, y: 64, z: 0 })),
+    L(step(2, 12, 1, { x: 3, y: 64, z: 0 }, { action: 'attack', arg: 'zombie', result: { ok: true, msg: '倒した' } })),
+    L({ ts: t(20), event: 'self_goal', loop: 3, reason: 'done', ok: true, goal: '肉を焼く', steps: ['かまどを作る', '焼く'] }),
+    L(step(3, 22, 3, { x: 100, y: 64, z: 0 }, { action: 'place', arg: 'furnace', result: { ok: true, msg: '置いた' } })),
+  ].join('\n'));
+  fs.writeFileSync(path.join(dir, 'Hanako-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Hanako' }, help: { selfGoal: true }, day: 0 }),
+    L(step(1, 2, 0, { x: 2, y: 64, z: 1 })),
+    L(step(2, 11, 1, { x: 4, y: 64, z: 1 }, { action: 'sleep', arg: 'red_bed', result: { ok: true, msg: '寝た' } })),
+    L({ ts: t(15), event: 'death', day: 1, timeOfDay: 15000, cause: 'death.attack.zombie', message: 'Hanako was slain by Zombie' }),
+    L(step(3, 23, 3, { x: 4, y: 64, z: 1 })),
+  ].join('\n'));
+  const out = JSON.parse(execFileSync('node', [TOOL, dir], { encoding: 'utf8' }));
+  assert.strictEqual(out.survival.deaths, 1);
+  assert.deepStrictEqual(out.survival.causes, { 'death.attack.zombie': 1 });
+  assert.deepStrictEqual(out.survival.aliveAtDayEnd, [{ day: 1, reached: 2, alive: 2 }, { day: 2, reached: 2, alive: 1 }, { day: 3, reached: 2, alive: 1 }]);
+  assert.deepStrictEqual(out.survival.survivedNoDeath, ['Taro']);
+  assert.strictEqual(out.selfGoals.count, 2);
+  assert.deepStrictEqual(out.selfGoals.byReason, { start: 1, done: 1 });
+  assert.match(out.selfGoals.timeline[1], /Taro #3 \(done\) 肉を焼く \/ かまどを作る → 焼く/);
+  assert.deepStrictEqual(out.placed, { furnace: 1 });
+  assert.ok(out.cooperation.togetherPairs['Hanako-Taro'] >= 2); // 1秒・2秒と11秒・12秒に近くに居た
+  const txt = execFileSync('node', [TOOL, dir, '--text'], { encoding: 'utf8' });
+  assert.match(txt, /死んだ 1 回 \(death\.attack\.zombie 1\)/);
+  assert.match(txt, /3日生き延びた \(一度も死ななかった\) 1 人/);
+  assert.match(txt, /攻撃 1 回/);
+});
