@@ -156,7 +156,7 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 
 ## Jev への1回の呼び出し
 
-`state` (JSON): `you`・`personality`・`goal`・`knowledge` (① goal.hints)・`plan` (②③ 手順と「済」「次はこれ」)・`now` (観測の文)・
+`state` (JSON): `you`・`personality`・`goal`・`knowledge` (① goal.hints と facts.json の関係するもの)・`actions` (行動の説明表)・`plan` (②③ 手順と「済」「次はこれ」)・`now` (観測の文)・
 `feelings` (社会性の言葉)・`memory` (選んだ記憶)・`last_result` (直前の行動の結果)・`heard_now`・`troubled` (困りごと、あるときだけ)。
 質問の文は英語 (公式の資料で英語が一番正確とある)、状態は日本語のまま。
 
@@ -168,6 +168,27 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 | rel_0.. | score (0〜4) | 今聞こえた相手ごとに、その人への気持ちがどう変わったか → 好感 ±12 |
 
 使用量は `usage.input_tokens` (返らなければ文字数から推定し、推定と記録)。費用は入力 100万トークンあたり $0.042。
+
+### 選択肢の文と2段の呼び出し (`decider.jev.twoStage`)
+
+- 行動の説明は `state.actions` (`{ 行動: 説明 }`) に種類ごとに1回だけ書き、選択肢の文は `行動: label` だけにする
+  (前は選択肢ごとに説明を繰り返し、1回 約3,900トークンのうち6割強が選択肢と質問だった)。
+- 対象が `maxDirect` (3) 個以下の行動と `direct` の行動 (eat・sleep・flee・set_base・ask) は1回目にそのまま並べる。
+  ほかは分類1つ (`collect:*` など、文は「collect: 7個から選ぶ (stone, jungle_log, ...)」) にまとめ、選ばれたら2回目の呼び出し
+  (`target` の choice だけ) で対象を選ぶ。2回目の state は `goal`・`plan`・`action` (その行動の説明)・`inventory`・`knowledge`
+  (その行動か対象の名前に当たる事実、`knowledge.stage2Max` 個まで)・`last_result`・`troubled` (その行動のものだけ)。
+  remember・talk・goal_done・rel は1回目だけ。2回目が失敗・一覧にない答えなら分類の先頭の対象にする (`jev.stage2.fallback`)。
+- 記録の `jev.calls` (1か2)・`jev.inputTokens` (合計)・`jev.stage1`・`jev.stage2`。使用量 (run.json の `usage.jev`) に
+  `byStage`・`decisions`・`callsPerDecision`・`inputTokensPerDecision`。`twoStage: { "enabled": false }` で1段に戻る。
+- 状態が変わらなかった重み: 分類は中の対象の回数の一番少ないもの、2回目は対象ごとに掛ける。
+
+### 知っていること (`knowledge`、`knowledge/facts.json`)
+
+`[{ id, text, items, actions, always }]`。`items` は名前 (先頭 `*` は後方一致 `*_planks`、末尾 `*` は前方一致 `wooden_*`)。
+持ち物・見えているブロック/生き物/落ちている物・選択肢の対象・plan の英語名に当たる事実と `always` の事実を、1回に `knowledge.max` (8) 個まで
+`state.knowledge` に出す (`goal.hints` に残したものは別に出し、同じ文は二重に出さない)。設定に `knowledge` が無ければ使わない
+(first_setting などは goal.hints のまま)。ファイルが無い・空・壊れていても動く。聞かれたときの答えの材料にも使う。
+仕様の事実だけを書き、評価語・使い方の指示は書かない (test/knowledge.test.js で確かめる)。記録の `factsShown` に出した id。
 実行の合計が `usage.maxJevInputTokens` (既定 300万) に達したら全員を止めて終える (`token_cap` を記録)。
 
 ## 2B を呼ぶとき
@@ -211,7 +232,7 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 行ったことのある場所を 16×16 のマス (`memory.limits.exploreCell`) で覚える (`memory.cells`: マスごとに入った回数・最後にいたループ)。
 毎ループの観測で今いるマスを記録し、前のループと違うマスに入ったときだけ回数を増やす。時間で忘れる (記憶と同じ強さの式。忘れた数は `forgotten` に入れない)。
 マスの件数や一覧はプロンプトに入れず、explore の選択肢の文にだけ使う。summarize_run は記録の位置から「訪れたマスの数」を数える (忘れとは関係なし)。
-少し前の状態に戻る往復の検出は、まだ入れていない。
+少し前の状態に戻る往復は、下の「状態が変わらない繰り返し」の正味の変化 (`noChange.net`) で見る。
 
 ## 状態が変わらない繰り返し (実験的、`help.noChange`)
 
@@ -225,6 +246,13 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
   いちばん高いものを選び直す。Jev の元の答えは `jev.choice`、選び直しは `jev.reweight` (`from` / `to` / `changed` / 掛けた回数) に残る。
   state に文を足す方法 (b) にしなかったのは、プロンプトが増えず、重みが効いたかが記録で1件ずつ追えるため。
 - say・ask は数えない。summarize_run の `noChange` と `--text` の行に回数が出る。
+- **正味の変化** (`noChange.net`、既定 true): 1回ごとの判定は、毎回 持ち物±1・高さ±1 変わる繰り返し (足場を積む → その足場を掘る、
+  作業台を置く → 掘る) をすり抜ける。そこで直近 `netWindow` (10) 回前の状態と今を比べ、持ち物の差の合計 ≤ `invTol` (1)・
+  位置の差 < `moveDist` (8m)・新しいマスに入っていない・|置いた − 掘った| ≤ `blockTol` (1) なら、その間に `netRepeat` (2) 回以上出た行動を
+  「何度やっても何も変わらなかった」扱いにする (困りごと・負の重みは上と同じ。重みの回数は窓の中の回数)。窓全体では何か変わっていても、
+  繰り返した行動1つか2つの組だけを足して正味0 (回数の合計 `netMinLoops` (4) 以上) なら、その行動だけを同じ扱いにする。
+  attack・flee・sleep・say・ask は数えない (`netExempt`)。記録の `netNoChange` (`keys`・`counts`・`scope`)。
+  記録を読み直して確かめる: `node tools/replay_nochange.js runs/<時刻>/`。
 
 ## 外からの助けの記録
 

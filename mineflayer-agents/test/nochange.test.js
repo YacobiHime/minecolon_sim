@@ -59,7 +59,7 @@ test('JevDecider: ctx.noChange があれば Jev の確率に重みを掛けて�
     const probabilities = Object.fromEntries(keys.map((k) => [k, k === 'explore:north' ? 0.8 : 0.2 / (keys.length - 1)]));
     return { ok: true, status: 200, headers: new Map(), json: async () => ({ answers: { next_action: { type: 'choice', choice: 'explore:north', confidence: 0.8, probabilities }, remember: { type: 'score', score: 1 } }, usage: { input_tokens: 10, output_tokens: 1 } }) };
   };
-  const d = new JevDecider({ client: new JevClient({ apiKey: 'k', fetch }) });
+  const d = new JevDecider({ client: new JevClient({ apiKey: 'k', fetch }), twoStage: false }); // 1段 (対象をそのまま並べる)
   const r = await d.decide(c);
   assert.notStrictEqual(`${r.action}:${r.arg}`, 'explore:north');
   assert.strictEqual(r.jev.reweight.from, 'explore:north');

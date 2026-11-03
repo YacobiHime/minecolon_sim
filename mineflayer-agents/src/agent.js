@@ -17,6 +17,7 @@ const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
 const nochange = require('./nochange');
 const { SelfGoal } = require('./selfgoal');
+const knowledge = require('./knowledge');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
@@ -25,6 +26,15 @@ const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: fals
 
 function helpOf(cfg) { return { ...DEFAULT_HELP, ...(cfg.help || {}) }; }
 function noChangeCfg(cfg) { return { ...nochange.DEFAULTS, ...(cfg.noChange || {}) }; }
+// 知っていること (knowledge/facts.json) の設定。cfg.knowledge が無ければ使わない (first_setting などは goal.hints のまま)
+function knowledgeCfg(cfg) {
+  if (!cfg.knowledge || cfg.knowledge.enabled === false) return null;
+  return { ...knowledge.DEFAULTS, ...cfg.knowledge };
+}
+function loadKnowledge(cfg) {
+  const k = knowledgeCfg(cfg);
+  return k ? { facts: knowledge.loadFacts(k.file || knowledge.DEFAULT_FILE), max: k.max, stage2Max: k.stage2Max } : null;
+}
 
 // 観測と記憶から、decider に渡す材料を作る (bot に依存しない)
 function buildContext(raw, memory, cfg, extra = {}) {
@@ -48,7 +58,16 @@ function buildContext(raw, memory, cfg, extra = {}) {
   let prog = '';
   if (steps) prog = help.progress ? progressText(steps, raw) : steps.map((s, i) => `(${i + 1})${s.text}`).join(' ');
   if (help.selfGoal) prog = extra.planText || ''; // 自分で決めた目標と段取り (selfgoal.js)
-  const goal = help.hints ? cfg.goal : { ...cfg.goal, hints: [] };
+  // 知っていること: goal.hints (残っているもの) + facts.json のうち今に関係するもの (持ち物・見えている物・選択肢の対象・plan の名前)
+  const kn = help.hints ? (extra.knowledge !== undefined ? extra.knowledge : loadKnowledge(cfg)) : null;
+  let factsShown = [];
+  if (kn && kn.facts.length) {
+    const hints = new Set(cfg.goal.hints || []);
+    factsShown = knowledge.selectFacts(kn.facts, { names: knowledge.namesInView({ raw, actions, plan: prog }), max: kn.max, exclude: hints });
+  }
+  const goal = help.hints ? { ...cfg.goal, hints: [...(cfg.goal.hints || []), ...factsShown.map((f) => f.text)] } : { ...cfg.goal, hints: [] };
+  // 正味の変化で見た繰り返し (agent が extra.net で渡す) の回数を、1回ごとの penalties に合わせる
+  const pens = nc ? nochange.mergePenalties(nochange.penalties(memory.events, nc.weightWindow), extra.net ? extra.net.counts : null) : null;
   return {
     persona: cfg.persona,
     goal,
@@ -63,7 +82,9 @@ function buildContext(raw, memory, cfg, extra = {}) {
     memText: memory.toPromptText(here, { places: memPlaces }),
     socialText: extra.socialText || '',
     lastResult: extra.lastResult || '',
-    noChange: nc ? { penalties: nochange.penalties(memory.events, nc.weightWindow), weight: nc.weight } : null,
+    noChange: nc ? { penalties: pens, weight: nc.weight } : null,
+    knowledge: kn,
+    factsShown: factsShown.map((f) => f.id),
   };
 }
 
@@ -116,6 +137,8 @@ class Agent {
     this.lastGoalDoneP = null;
     this.deaths = [];
     this.lastDeathMsg = null;
+    this.knowledge = loadKnowledge(cfg);
+    this.loopHist = []; // 行動の後の状態の履歴 (nochange.netNoChange 用。netWindow + 1 件)
   }
 
   connect() {
@@ -304,7 +327,8 @@ class Agent {
     try {
       while (this.questionQueue.length && !this.stopped) {
         const q = this.questionQueue.shift();
-        const mems = ask.relevantMemories(this.memory, q.question, { hints: this.help.hints ? (this.cfg.goal.hints || []) : [] });
+        const hints = this.help.hints ? [...(this.cfg.goal.hints || []), ...(this.knowledge ? this.knowledge.facts.map((f) => f.text) : [])] : [];
+        const mems = ask.relevantMemories(this.memory, q.question, { hints });
         let text;
         let twoB = null;
         if (!mems.length) text = 'ごめん、それは分からない';
@@ -365,7 +389,10 @@ class Agent {
     // 困りごと: 同じものを最近聞いたばかりなら、しばらく聞かない
     const cool = (cfg.ask && cfg.ask.cooldown) || 10;
     const nc = this.help.noChange ? noChangeCfg(cfg) : null;
-    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, nc).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
+    // 直近 netWindow 回をさかのぼった正味の変化がほぼ0なら、その間に繰り返した行動も「何も変わらなかった」扱い
+    const net = nc && nc.net !== false ? nochange.netNoChange(this.loopHist, nc) : null;
+    const ncT = nc && net && net.keys.size ? { ...nc, netKeys: net.keys } : nc;
+    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, ncT).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
     // 自分で決めた拠点: 近くに居れば記憶を新しくする。記憶から消えたら (忘れたら) 拠点も無くなる
     if (cfg.world && cfg.world.base === 'self' && this.base) {
       const bp = this.memory.places.find((q) => q.kind === BASE_KIND);
@@ -373,14 +400,14 @@ class Agent {
       else if (dist3(raw.self.pos, this.base) <= (cfg.perception.visionRadius ?? 16)) this.memory.notePlace(BASE_KIND, this.base, { imp: 1 });
     }
     const socialText = this.social.words();
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, lastResult: this.lastResult, planText: this.selfGoal ? this.selfGoal.planText() : '' });
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, planText: this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
     if (this.selfGoal) {
       const reason = this.selfGoal.needs(tick, { doneP: this.lastGoalDoneP, troubles });
       if (reason) {
         goalUpdate = await this.selfGoal.update({
-          persona: cfg.persona, goalText: cfg.goal.text, hints: this.help.hints ? (cfg.goal.hints || []) : [],
+          persona: cfg.persona, goalText: cfg.goal.text, hints: this.help.hints ? (ctx.goal.hints || []) : [],
           obsText: ctx.obsText, memText: ctx.memText, socialText, troubles,
         }, reason, tick);
         this.lastGoalDoneP = null;
@@ -429,6 +456,12 @@ class Agent {
     const stateChanged = nochange.changed(before, after);
     const ev = this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
     ev.nc = !stateChanged; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
+    if (nc) {
+      const p = bot.entity.position;
+      const { cx, cz } = this.memory.cellOf(p);
+      this.loopHist.push(nochange.histEntry({ action: resolved.action, arg: resolved.arg, inventory: inv, pos: p, newCell: !this.memory.cellAt(cx, cz), result }));
+      if (this.loopHist.length > (nc.netWindow ?? 10) + 1) this.loopHist.splice(0, this.loopHist.length - ((nc.netWindow ?? 10) + 1));
+    }
     this.social.onActionResult(resolved.action, result.ok, { repeatedFail: !result.ok && troubles.some((t) => t.key === key) });
     this.lastResult = `${plannedText}→${result.ok ? '成功' : '失敗'}: ${result.msg}`;
 
@@ -461,6 +494,8 @@ class Agent {
       troubles: troubles.map((t) => t.key),
       troubleKinds: troubles.map((t) => t.kind),
       stateChanged,
+      netNoChange: net && net.keys.size ? { keys: [...net.keys], counts: net.counts, scope: net.scope } : null,
+      factsShown: ctx.factsShown && ctx.factsShown.length ? ctx.factsShown : null,
       actions: ctx.actions.map((a) => (a.choices ? `${a.name}:${a.choices.length}` : a.name)),
       progress: ctx.progress || null,
       goalUpdated: goalUpdate ? goalUpdate.reason : null,

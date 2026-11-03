@@ -1,0 +1,16 @@
+[
+  { "id": "planks_from_log", "text": "原木1個から板材(_planks)が4個作れる(作業台は要らない)。", "items": ["*_log", "*_planks"], "actions": ["craft"], "always": false },
+  { "id": "stick", "text": "板材2個から棒(stick)が4本作れる(作業台は要らない)。", "items": ["*_planks", "stick"], "actions": ["craft"], "always": false },
+  { "id": "crafting_table", "text": "板材4個から作業台(crafting_table)が1個作れる(作業台は要らない)。", "items": ["*_planks", "crafting_table"], "actions": ["craft"], "always": false },
+  { "id": "tools_at_table", "text": "作業台の近くで作れる物: 木のツルハシ・木の斧(板材3と棒2)、木の剣(板材2と棒1)。石のツルハシ・石の斧(丸石3と棒2)、石の剣(丸石2と棒1)。", "items": ["crafting_table", "stick", "cobblestone", "wooden_*", "stone_pickaxe", "stone_axe", "stone_sword"], "actions": ["craft"], "always": false },
+  { "id": "furniture_at_table", "text": "作業台の近くで作れる物: かまど(furnace、丸石8)、チェスト(chest、板材8)、ベッド(_bed、羊毛3と板材3)。", "items": ["crafting_table", "cobblestone", "furnace", "chest", "*_bed", "*_wool"], "actions": ["craft"], "always": false },
+  { "id": "torch", "text": "松明(torch)は石炭か木炭1個と棒1本から4本作れる(作業台は要らない)。", "items": ["coal", "charcoal", "torch", "coal_ore", "deepslate_coal_ore"], "actions": [], "always": false },
+  { "id": "stone", "text": "石(stone)はツルハシで掘ると丸石(cobblestone)になる。素手では石は取れない。鉄の鉱石は石のツルハシ以上で取れる。", "items": ["stone", "cobblestone", "*_pickaxe", "iron_ore", "deepslate_iron_ore", "raw_iron"], "actions": [], "always": false },
+  { "id": "furnace", "text": "かまどに燃料(石炭・木炭・板材・原木・棒)を入れると物を焼ける。生の肉は焼くと焼いた肉になる。原木を焼くと木炭になる。", "items": ["furnace", "beef", "porkchop", "mutton", "chicken", "rabbit", "charcoal"], "actions": ["smelt"], "always": false },
+  { "id": "meat", "text": "牛・豚・羊・鶏を倒すと生の肉が手に入る。羊を倒すと羊毛も手に入る。生の肉も焼いた肉も食べられる。焼いた肉は生の肉より満腹度が多く戻る。", "items": ["cow", "pig", "sheep", "chicken", "beef", "porkchop", "mutton", "cooked_*"], "actions": ["attack", "eat"], "always": false },
+  { "id": "hostile", "text": "敵(ゾンビ・スケルトン・クモ・クリーパーなど)は暗い所と夜に出る。ゾンビとスケルトンは日に当たると燃える。クリーパーは近くで爆発する。", "items": [], "actions": [], "always": true },
+  { "id": "hunger", "text": "満腹度が0になると体力が減る。満腹度が高いと体力が少しずつ戻る。", "items": [], "actions": [], "always": true },
+  { "id": "bed", "text": "夜にベッドで寝ると、そこが生き返る地点になる。寝ている人がこの世界の人の半分以上になると夜が明ける。", "items": ["*_bed", "*_wool"], "actions": ["sleep"], "always": false },
+  { "id": "death", "text": "死ぬと持ち物はその場に落ち、生き返る地点で生き返る。", "items": [], "actions": [], "always": true },
+  { "id": "day_length", "text": "1日はおよそ20分で、昼がおよそ10分、夕方と夜がおよそ10分。", "items": [], "actions": [], "always": true }
+]

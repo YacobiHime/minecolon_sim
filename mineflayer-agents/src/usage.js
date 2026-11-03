@@ -15,7 +15,8 @@ function estimateTokens(text) {
 }
 
 function emptyJev() {
-  return { calls: 0, errors: 0, rateLimited: 0, retries: 0, inputChars: 0, inputTokens: 0, estimatedCalls: 0, outputTokens: 0, ms: 0, questions: 0 };
+  return { calls: 0, errors: 0, rateLimited: 0, retries: 0, inputChars: 0, inputTokens: 0, estimatedCalls: 0, outputTokens: 0, ms: 0, questions: 0,
+    byStage: {}, decisions: 0, decisionCalls: 0, decisionInputTokens: 0 };
 }
 
 function emptyTwoB() {
@@ -48,11 +49,24 @@ class UsageMeter {
     j.outputTokens += r.outputTokens || 0;
     j.ms += r.ms || 0;
     j.questions += r.questions || 0;
+    // 1回目 (行動の分類まで) / 2回目 (対象を選ぶ) の別
+    const st = (j.byStage[r.stage || 1] = j.byStage[r.stage || 1] || { calls: 0, inputChars: 0, inputTokens: 0 });
+    st.calls += 1;
+    st.inputChars += r.inputChars || 0;
+    if (!r.error || !est) st.inputTokens += tok;
     if (!this.exceeded && j.inputTokens >= this.maxJevInputTokens) {
       this.exceeded = true;
       for (const fn of this.listeners) { try { fn(this.summary()); } catch (_) { /* ignore */ } }
     }
     return { inputTokens: tok, estimated: est };
+  }
+
+  // 1判断 (1つの行動を決めるまで) の呼び出し数と入力トークン。r = { calls, inputTokens }
+  addDecision(r) {
+    const j = this.jev;
+    j.decisions += 1;
+    j.decisionCalls += r.calls || 0;
+    j.decisionInputTokens += r.inputTokens || 0;
   }
 
   // r = { kind: 'talk'|'answer'|'act', promptChars, promptTokens|null, completionTokens|null, ms, error? }
@@ -74,7 +88,9 @@ class UsageMeter {
   summary() {
     const j = this.jev;
     return {
-      jev: { ...j, avgInputTokens: j.calls ? Math.round(j.inputTokens / j.calls) : 0, avgMs: j.calls ? Math.round(j.ms / j.calls) : 0, costUsd: Number(((j.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)), maxInputTokens: this.maxJevInputTokens, exceeded: this.exceeded },
+      jev: { ...j, avgInputTokens: j.calls ? Math.round(j.inputTokens / j.calls) : 0,
+        callsPerDecision: j.decisions ? Number((j.decisionCalls / j.decisions).toFixed(3)) : null,
+        inputTokensPerDecision: j.decisions ? Math.round(j.decisionInputTokens / j.decisions) : null, avgMs: j.calls ? Math.round(j.ms / j.calls) : 0, costUsd: Number(((j.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)), maxInputTokens: this.maxJevInputTokens, exceeded: this.exceeded },
       twoB: { ...this.twoB, avgPromptChars: this.twoB.calls ? Math.round(this.twoB.promptChars / this.twoB.calls) : 0 },
     };
   }
