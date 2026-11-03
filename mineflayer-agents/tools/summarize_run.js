@@ -16,6 +16,9 @@ function pct(arr, p) {
 const sum = (a) => a.reduce((s, x) => s + (x || 0), 0);
 const maxOf = (a) => (a.length ? Math.max(...a) : null);
 
+// 1回の判断の行 (event の行・result の無い行は除く。answer_use などの event 行にも loop と action が付いている)
+const isStep = (r) => !!(r && r.loop && r.action && !r.event && r.result);
+
 function readJsonl(f) {
   return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
 }
@@ -53,7 +56,7 @@ function maxRun(loops) {
 }
 
 function summarizeAgent(file, rows) {
-  const loops = rows.filter((r) => r.loop && r.action);
+  const loops = rows.filter(isStep);
   const start = rows.find((r) => r.event === 'start') || {};
   const byAction = {};
   const failReasons = {};
@@ -125,8 +128,8 @@ function twoBFromRows(all) {
     k.calls += 1; k.promptChars += chars || 0; k.promptTokens += tok || 0;
   };
   for (const r of all) {
-    if (r.loop && r.action && !r.jev && r.promptChars) add('act', r.promptChars, r.promptTokens);
-    if (r.loop && r.action && r.talk) add('talk', r.talk.promptChars, null);
+    if (isStep(r) && !r.jev && r.promptChars) add('act', r.promptChars, r.promptTokens);
+    if (isStep(r) && r.talk) add('talk', r.talk.promptChars, null);
     if (r.event === 'talk') add('talk', r.promptChars, r.promptTokens);
     if (r.event === 'answer' && r.twoB) add('answer', r.twoB.promptChars, r.twoB.promptTokens);
   }
@@ -135,10 +138,11 @@ function twoBFromRows(all) {
 }
 
 function jevFromRows(all) {
-  const loops = all.filter((r) => r.loop && r.jev);
+  const loops = all.filter((r) => isStep(r) && r.jev);
   const tok = sum(loops.map((r) => r.jev.inputTokens));
+  const calls = sum(loops.map((r) => r.jev.calls || 1));
   return {
-    calls: loops.length, inputTokens: tok, inputChars: sum(loops.map((r) => r.jev.inputChars)),
+    calls, decisions: loops.length, callsPerDecision: loops.length ? Number((calls / loops.length).toFixed(3)) : null, inputTokens: tok, inputChars: sum(loops.map((r) => r.jev.inputChars)),
     estimatedCalls: loops.filter((r) => r.jev.tokensEstimated).length, rateLimited: sum(loops.map((r) => r.jev.rateLimited)),
     retries: sum(loops.map((r) => r.jev.retries)), avgMs: loops.length ? Math.round(sum(loops.map((r) => r.jev.ms)) / loops.length) : 0,
     costUsd: Number(((tok / 1e6) * JEV_USD_PER_MTOK).toFixed(6)),
@@ -151,7 +155,7 @@ function conversation(all, n) {
   const lines = [];
   for (const r of all) {
     const who = r._name;
-    if (r.loop && r.action && r.say) lines.push({ ts: r.ts, text: `${who}: ${r.say}` });
+    if (isStep(r) && r.say) lines.push({ ts: r.ts, text: `${who}: ${r.say}` });
     if (r.event === 'talk' && r.say) lines.push({ ts: r.ts, text: `${who}: ${r.say}  (talk ${r.talkP != null ? r.talkP.toFixed(2) : '-'})` });
     if (r.event === 'ask') lines.push({ ts: r.ts, text: `${who} → ${r.to} [聞く] ${r.question}` });
     if (r.event === 'answer') lines.push({ ts: r.ts, text: `${who} → ${r.to} [答える${r.known ? '' : '・知らない'}] ${r.answer}` });
@@ -167,7 +171,7 @@ function survivalStats(agents, all, days = 3) {
   const deaths = all.filter((r) => r.event === 'death');
   const causes = {};
   for (const d of deaths) causes[d.cause || 'unknown'] = (causes[d.cause || 'unknown'] || 0) + 1;
-  const maxDay = (name) => maxOf(all.filter((r) => r._name === name && r.loop && r.day != null).map((r) => r.day));
+  const maxDay = (name) => maxOf(all.filter((r) => r._name === name && isStep(r) && r.day != null).map((r) => r.day));
   const firstDeathDay = (name) => { const ds = deaths.filter((d) => d._name === name && d.day != null).map((d) => d.day); return ds.length ? Math.min(...ds) : null; };
   const aliveAtDayEnd = [];
   for (let d = 0; d < days; d++) {
@@ -191,7 +195,7 @@ function goalTimeline(all, n = 12) {
 
 // 協力に関わる出来事: 聞く・答える・話す・同じ所 (近さ near 以内) に同じ時間帯 (bucketSec) に居た組
 function cooperationStats(all, { near = 8, bucketSec = 10 } = {}) {
-  const loops = all.filter((r) => r.loop && r.pos && r.ts);
+  const loops = all.filter((r) => isStep(r) && r.pos && r.ts);
   const byBucket = new Map();
   for (const r of loops) {
     const b = Math.floor(new Date(r.ts).getTime() / (bucketSec * 1000));
@@ -217,6 +221,47 @@ function cooperationStats(all, { near = 8, bucketSec = 10 } = {}) {
   };
 }
 
+// 2人組の距離の推移: bucketSec ごとに、その時間に記録のある人の位置 (最後の行) で組ごとの距離を出し、
+// near m 以内の組の数と距離の中央値を並べる。組ごとの中央値と near 以内だった割合も
+function pairDistanceStats(all, { near = 16, bucketSec = 60 } = {}) {
+  const loops = all.filter((r) => isStep(r) && r.pos && r.ts);
+  if (!loops.length) return { near, bucketSec, timeline: [], perPair: {} };
+  const t0 = Math.min(...loops.map((r) => new Date(r.ts).getTime()));
+  const byBucket = new Map();
+  for (const r of loops) {
+    const b = Math.floor((new Date(r.ts).getTime() - t0) / (bucketSec * 1000));
+    if (!byBucket.has(b)) byBucket.set(b, new Map());
+    byBucket.get(b).set(r._name, r.pos);
+  }
+  const perPairD = {};
+  const timeline = [];
+  for (const b of [...byBucket.keys()].sort((x, y) => x - y)) {
+    const ent = [...byBucket.get(b).entries()];
+    const ds = [];
+    for (let i = 0; i < ent.length; i++) {
+      for (let j = i + 1; j < ent.length; j++) {
+        const [a, pa] = ent[i]; const [c, pc] = ent[j];
+        const d = Math.hypot(pa.x - pc.x, pa.y - pc.y, pa.z - pc.z);
+        ds.push(d);
+        const k = [a, c].sort().join('-');
+        (perPairD[k] = perPairD[k] || []).push(d);
+      }
+    }
+    timeline.push({ min: Math.round((b * bucketSec) / 6) / 10, people: ent.length, pairs: ds.length, withinNear: ds.filter((d) => d <= near).length, median: ds.length ? Math.round(pct(ds, 50)) : null });
+  }
+  const perPair = Object.fromEntries(Object.entries(perPairD).sort().map(([k, ds]) => [k, { median: Math.round(pct(ds, 50)), withinNearShare: Number((ds.filter((d) => d <= near).length / ds.length).toFixed(2)), n: ds.length }]));
+  return { near, bucketSec, timeline, perPair };
+}
+
+// go_to で人の所へ行った回数 (arg が記録にいる人の名前)
+function goToPersonStats(all, names) {
+  const set = new Set(names);
+  const rows = all.filter((r) => isStep(r) && r.action === 'go_to' && set.has(r.arg));
+  const by = {};
+  for (const r of rows) { const k = `${r._name}→${r.arg}`; by[k] = (by[k] || 0) + 1; }
+  return { n: rows.length, ok: rows.filter((r) => r.result.ok).length, byPair: by };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const target = args.find((a) => !a.startsWith('--'));
@@ -235,7 +280,7 @@ function main() {
     agents.push(s);
     for (const r of rows) all.push({ ...r, _name: s.name });
   }
-  const loops = all.filter((r) => r.loop && r.action);
+  const loops = all.filter(isStep);
   const dec = loops.map((r) => r.decideMs).filter((x) => x != null);
   const asks = all.filter((r) => r.event === 'ask');
   const answers = all.filter((r) => r.event === 'answer');
@@ -269,13 +314,19 @@ function main() {
     },
     twoB: { calls: twoB.calls, byKind: twoB.byKind, avgPromptChars: twoB.avgPromptChars ?? (twoB.calls ? Math.round(twoB.promptChars / twoB.calls) : 0), promptTokens: twoB.promptTokens },
     jev: {
-      calls: jev.calls, inputTokens: jev.inputTokens, inputTokensPerDecision: jev.calls ? Math.round(jev.inputTokens / jev.calls) : 0,
+      calls: jev.calls, inputTokens: jev.inputTokens,
+      // 1判断あたり (2段にしたので、呼び出し数 ≠ 判断の数)。古い記録は decisions が無いので calls で割る
+      decisions: jev.decisions || jev.calls, callsPerDecision: jev.callsPerDecision ?? (jev.decisions ? Number((jev.decisionCalls / jev.decisions).toFixed(3)) : 1),
+      inputTokensPerDecision: jev.inputTokensPerDecision ?? ((jev.decisions || jev.calls) ? Math.round(jev.inputTokens / (jev.decisions || jev.calls)) : 0),
+      inputTokensPerCall: jev.calls ? Math.round(jev.inputTokens / jev.calls) : 0, byStage: jev.byStage || null,
       estimatedCalls: jev.estimatedCalls, costUsd: jev.costUsd ?? Number(((jev.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)),
       avgMs: jev.avgMs, rateLimited: jev.rateLimited, retries: jev.retries, errors: jev.errors ?? null, exceeded: jev.exceeded ?? null,
     },
     survival: survivalStats(agents, all),
     selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
     cooperation: cooperationStats(all),
+    pairDistance: pairDistanceStats(all),
+    goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
     perAgent: agents,
     conversation: conversation(all, nEx),
@@ -285,7 +336,7 @@ function main() {
     console.log('\n--- 週次報告用 ---');
     console.log(`人数 ${out.agents} / 判断 ${out.decisions.count} 回 (1人 ${out.decisions.perAgent} 回、判断の時間 p50 ${out.decisions.decideMs.p50}ms・p95 ${out.decisions.decideMs.p95}ms、実行 ${out.decisions.wallMinutes} 分)`);
     console.log(`目標の達成 ${out.goal.reached}/${out.agents} 人 (夜までに ${out.goal.beforeNight})、小屋 ${hutEnd == null ? '不明' : Math.round(hutEnd * 100) + '%'}、食べ物 合計 ${foodEnd} 個`);
-    console.log(`周りに聞いた ${out.ask.asked} 回 (返事 ${out.ask.replied}・知っていた ${out.ask.answeredKnown}・使った ${out.ask.used})`);
+    console.log(`周りに聞いた ${out.ask.asked} 回 (返事 ${out.ask.replied}・返事なし ${out.ask.timeouts})・答えた ${out.ask.answered} (知っていた ${out.ask.answeredKnown})・教わったことを使った ${out.ask.used} / 使わなかった ${out.ask.notUsed}`);
     const nc = (k) => sum(agents.map((a) => (a.noChange ? a.noChange[k] : 0)));
     const acts = (n) => sum(agents.map((a) => (a.actions[n] ? a.actions[n].n : 0)));
     const actsOk = (n) => sum(agents.map((a) => (a.actions[n] ? a.actions[n].ok : 0)));
@@ -303,8 +354,14 @@ function main() {
       for (const l of out.selfGoals.timeline.slice(0, 6)) console.log(`  ${l}`);
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
     }
+    const sv2 = out.survival;
+    if (!(sv2.deaths || all.some((r) => r.event === 'self_goal'))) console.log(`死んだ 0 回`);
+    else console.log(`死んだ回数 (人ごと) ${Object.entries(sv2.perAgent).map(([k, v]) => `${k} ${v}`).join('・')}`);
+    const pdl = out.pairDistance.timeline;
+    console.log(`2人組の距離 (${out.pairDistance.bucketSec}秒ごと、${out.pairDistance.near}m 以内の組の数 / 中央値): ${pdl.filter((_, i) => i % Math.max(1, Math.ceil(pdl.length / 12)) === 0).map((x) => `${x.min}分 ${x.withinNear}/${x.pairs}組 ${x.median}m`).join('、')}`);
+    console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
-    console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);
+    console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision}・呼び出し ${out.jev.callsPerDecision} 回、1呼び出し ${out.jev.inputTokensPerCall})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);
   }
 }
 

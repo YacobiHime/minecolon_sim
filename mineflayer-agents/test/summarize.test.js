@@ -94,3 +94,39 @@ test('生き延びる設定: 死んだ回数・死因・各日の終わりの人
   assert.match(txt, /3日生き延びた \(一度も死ななかった\) 1 人/);
   assert.match(txt, /攻撃 1 回/);
 });
+
+test('event 付きの行 (answer_use など、loop と action を持つ) と result の無い行で落ちない。死亡・死因・2人組の距離・go_to(人)・1判断の呼び出し数', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-'));
+  const t = (s) => `2026-11-03T01:${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}.000Z`;
+  const step = (loop, s, pos, extra = {}) => ({ ts: t(s), loop, action: 'collect', arg: 'oak_log', pos, day: 0, result: { ok: true, msg: 'ok' }, decideMs: 300, parseOk: true, valid: true, inventory: [], foodCount: 0, jev: { inputTokens: 1000, inputChars: 2000, ms: 300, calls: 1 }, ...extra });
+  fs.writeFileSync(path.join(dir, 'Taro-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Taro' }, decider: 'jev', day: 0 }),
+    L(step(1, 1, { x: 0, y: 64, z: 0 })),
+    L({ ts: t(2), event: 'answer_use', id: 'Taro-1', from: 'Hanako', key: 'collect:oak_log', used: true, how: 'followed', loop: 1, action: 'craft', arg: 'oak_planks' }),
+    L({ ts: t(3), loop: 2, error: 'step error' }),
+    L({ ts: t(3), loop: 2, action: 'look_around' }), // result の無い行
+    L(step(3, 70, { x: 0, y: 64, z: 0 }, { action: 'go_to', arg: 'Hanako', jev: { inputTokens: 1300, inputChars: 2400, ms: 400, calls: 2 } })),
+    L({ ts: t(71), event: 'death', loop: 3, day: 0, timeOfDay: 15000, cause: 'death.attack.mob', message: 'Taro was slain by Zombie' }),
+  ].join('\n'));
+  fs.writeFileSync(path.join(dir, 'Hanako-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Hanako' }, decider: 'jev', day: 0 }),
+    L(step(1, 2, { x: 10, y: 64, z: 0 })),
+    L(step(2, 72, { x: 30, y: 64, z: 0 })),
+  ].join('\n'));
+  const out = JSON.parse(execFileSync('node', [TOOL, dir], { encoding: 'utf8' }));
+  assert.strictEqual(out.decisions.count, 4, 'event 行と result の無い行は判断に数えない');
+  assert.strictEqual(out.survival.deaths, 1);
+  assert.deepStrictEqual(out.survival.causes, { 'death.attack.mob': 1 });
+  assert.strictEqual(out.ask.used, 1);
+  assert.strictEqual(out.goToPerson.n, 1);
+  assert.deepStrictEqual(out.goToPerson.byPair, { 'Taro→Hanako': 1 });
+  assert.deepStrictEqual(out.pairDistance.timeline.map((x) => [x.withinNear, x.median]), [[1, 10], [0, 30]]);
+  assert.strictEqual(out.pairDistance.perPair['Hanako-Taro'].withinNearShare, 0.5);
+  assert.strictEqual(out.jev.decisions, 4);
+  assert.strictEqual(out.jev.calls, 5);
+  assert.strictEqual(out.jev.callsPerDecision, 1.25);
+  const txt = execFileSync('node', [TOOL, dir, '--text'], { encoding: 'utf8' });
+  assert.match(txt, /死んだ 1 回/);
+  assert.match(txt, /go_to\(人\) 1 回/);
+  assert.match(txt, /16m 以内の組の数/);
+});
