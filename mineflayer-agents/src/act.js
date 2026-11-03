@@ -68,6 +68,8 @@ const handlers = {
     let lastPos = null;
     let lastErr = '';
     const bad = new Set();
+    // 拠点の小屋の設計図の場所は掘らない (自分たちが置いた壁・屋根を素材として崩さない)
+    const hutKeys = ctx.base ? new Set(hutSlots(ctx.base, ctx.hutShape || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
     for (let i = 0; i < want + 3; i++) {
       if (dug >= want) break;
       if (ctx.signal && ctx.signal.aborted) break;
@@ -75,6 +77,7 @@ const handlers = {
       const cands = bot.findBlocks({ matching: type.id, maxDistance: ctx.visionRadius ?? 16, count: 40 })
         // 見えているもの、または今掘った所のすぐ隣 (同じ木の幹など) だけを狙う
         .filter((p) => (lastPos && p.distanceTo(lastPos) <= 2.5) || blockVisible(bot, p))
+        .filter((p) => !hutKeys || !hutKeys.has(`${p.x},${p.y},${p.z}`))
         .filter((p) => p.y - feetY <= (ctx.maxReachUp ?? 4)) // 足場を積まないので、高すぎる所は狙わない
         .sort((a, b) => {
           const pa = Math.max(0, a.y - feetY - 3) * 4; const pb = Math.max(0, b.y - feetY - 3) * 4; // 高すぎる所は後回し

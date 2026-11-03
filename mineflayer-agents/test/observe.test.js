@@ -57,6 +57,15 @@ test('collectRaw: 壁の向こうのブロックは見えない (完全情報に
   assert.strictEqual(raw.blocks.find((b) => b.name === 'birch_log').notable, true);
 });
 
+test('collectRaw: exclude の場所 (拠点の小屋) のブロックは素材として見せない', () => {
+  const blocks = new Map();
+  blocks.set('-4,65,0', 'birch_log');
+  blocks.set('0,63,0', 'grass_block');
+  const bot = mockBot({ blocks, pos: new Vec3(0.5, 64, 0.5) });
+  const raw = collectRaw(bot, { visionRadius: 16, exclude: new Set(['-4,65,0']) });
+  assert.ok(!raw.blocks.some((b) => b.name === 'birch_log'));
+});
+
 test('collectRaw: 遠いエンティティ・壁の向こうのプレイヤーは入らない', () => {
   const blocks = new Map([['2,65,0', 'stone'], ['2,64,0', 'stone']]);
   const mk = (x, z, username) => ({ type: 'player', username, position: new Vec3(x, 64, z), height: 1.8 });

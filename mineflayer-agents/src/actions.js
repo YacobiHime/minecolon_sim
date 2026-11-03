@@ -32,16 +32,19 @@ function listActions(raw, ctx = {}) {
   if (coll.length) out.push({ name: 'collect', desc: '見えているブロックを掘って拾う (近いものから数個)', argType: 'choice', choices: coll });
 
   // go_to: 見えている目印・覚えている場所・見えている人
+  // いま collect できる種類のブロックへの go_to は出さない (collect が自分で歩いて行く。
+  // 出すと「go_to(原木)」「go_to(M2=原木)」を交互に選び続けて何も掘らないことがあった)
+  const collectable = new Set(coll.map((c) => c.block));
   const go = [];
   const seenKinds = new Set();
   for (const b of raw.blocks.filter((x) => x.notable).sort((a, c) => a.nearest.d - c.nearest.d)) {
-    if (b.nearest.d < 3 || blocked.has(`go_to:${b.name}`)) continue;
+    if (b.nearest.d < 3 || blocked.has(`go_to:${b.name}`) || collectable.has(b.name)) continue;
     go.push({ id: b.name, label: `${b.name} ${relDir(here, b.nearest)}`, pos: b.nearest, kind: b.name });
     seenKinds.add(b.name);
     if (go.length >= 5) break;
   }
   for (const p of memPlaces) {
-    if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`)) continue;
+    if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`) || collectable.has(p.kind)) continue;
     go.push({ id: p.id, label: p.label, pos: p.pos, kind: p.kind, fromMemory: true });
   }
   for (const e of raw.entities.filter((x) => x.kind === 'player')) {

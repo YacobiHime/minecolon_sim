@@ -68,7 +68,9 @@ function collectRaw(bot, opts = {}) {
     count: opts.scanCount ?? 20000,
   });
   const byType = new Map();
+  const exclude = opts.exclude || null; // Set of "x,y,z" (拠点の小屋に置いたブロック。素材として見せない)
   for (const p of found) {
+    if (exclude && exclude.has(`${p.x},${p.y},${p.z}`)) continue;
     const b = bot.blockAt(p);
     if (!b || IGNORE.has(b.name)) continue;
     let t = byType.get(b.name);

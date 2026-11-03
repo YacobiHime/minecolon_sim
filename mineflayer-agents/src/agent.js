@@ -296,7 +296,8 @@ class Agent {
     const tick = this.memory.tick;
     const tObs = Date.now();
     const heard = this.heardBuf.splice(0);
-    const raw = collectRaw(bot, { ...cfg.perception, isNotable: this.isNotable, heard, craft: this.craftInfo() });
+    const hutKeys = this.base ? new Set(hutSlots(this.base, (cfg.world && cfg.world.hut) || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
+    const raw = collectRaw(bot, { ...cfg.perception, isNotable: this.isNotable, heard, craft: this.craftInfo(), exclude: hutKeys });
     raw.hut = this.hutView();
     const ex = this.extras();
     raw.foodCount = raw.inventory.filter((i) => ex.foods.has(i.name)).reduce((s, i) => s + i.count, 0);

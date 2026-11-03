@@ -32,7 +32,12 @@ test('listActions: 空腹で食べ物があるときだけ eat', () => {
 test('listActions: go_to に見えている目印・記憶の場所・人が入る', () => {
   const mem = [{ id: 'M1', kind: 'crafting_table', pos: { x: 30, y: 64, z: 0 }, d: 30, label: 'crafting_table 東30(30m)' }];
   const go = listActions(mockRaw(), { memPlaces: mem }).find((a) => a.name === 'go_to');
-  assert.deepStrictEqual(go.choices.map((c) => c.id), ['spruce_log', 'water', 'M1', 'Hanako']);
+  // spruce_log は collect できるので go_to には出さない (collect が自分で歩いて行く)
+  assert.deepStrictEqual(go.choices.map((c) => c.id), ['water', 'M1', 'Hanako']);
+  // 記憶の場所も、collect できる種類なら出さない
+  const mem2 = [...mem, { id: 'M2', kind: 'spruce_log', pos: { x: 8, y: 64, z: 0 }, d: 8, label: 'spruce_log 東8(8m)' }];
+  const go2 = listActions(mockRaw(), { memPlaces: mem2 }).find((a) => a.name === 'go_to');
+  assert.ok(!go2.choices.some((c) => c.id === 'M2'));
 });
 
 test('listActions: 常にある行動と、置ける物がないときの place', () => {
