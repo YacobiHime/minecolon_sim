@@ -273,6 +273,17 @@ summarize_run の「build で置いた物」(原木・板材・そのほかの�
 - **拠点**: `world.base: "self"`。最初は無く、`set_base` で自分で決める。大事さ 1 の記憶で、近くに居るあいだは新しくし続ける。
 - **行動** (`act.enable` で有効): attack (いちばん強い武器を自動で持つ)・flee・smelt (最大30秒待つ、終わらなければ入れたまま)・
   sleep (夜が明けなければ待ってから起きる)・equip (防具は体、道具は手)。hunt・build は `act.disabled`。collect は道具があれば石・鉱石も。
+- **マイクラでできることを広く** (`src/actions_more.js` が一覧、`src/act_more.js` が実行。`act.enable` で有効):
+  - `use_on`: 持ち物 (か素手) を見えているブロック/生き物に使う (右クリック)。候補は 持ち物+素手 × (近いブロック5種 + 目印4種 + 生き物4種)、
+    `act.maxUseChoices` (200) を超えるときは遠い対象から落とす。何が意味のある組み合わせかは絞らない。プログラムは歩いて狙い、
+    ブロックに使って何も変わらなければ、狙ったまま持ち物そのものを使う (バケツ・瓶・ボート)。結果は変わったこと (ブロック・隣・持ち物・乗り物) をそのまま返す。
+    弓・雪玉などは離れて狙って撃つ、釣り竿は投げて掛かるまで待つ (`act.fishMs`)。
+  - `use_item` (その場で使う。盾は構える)・`dismount`。
+  - GUI: `chest_put`・`chest_take` (中身を知らなければ「中を見る」。開けたときの中身を `memory.extra.containers` に覚える)・
+    `furnace_take` (出来上がった物 / 全部)・`trade` (一覧を見てから1回分。`memory.extra.trades`)・`enchant` (段を選ぶ)・`brew`・`anvil`。
+  - 協力: `follow` (`act.followMs`)・`give` (近くへ行って投げる。1個 / 全部)・`call` (「〇〇、来て (x,y,z)」と言う)。
+  - `craftables: "all"` (レシピのある物すべて)、`placeable: [".*"]` (持っているブロックすべて)。collect は作物の育ちきった所を先に掘り、
+    名前の違う落とし物 (草 → 種など) も数える。観測の作物は「wheat(育ちきった1/3)」。
 - **寝る**: `playersSleepingPercentage 50` (寝ている人が半分以上で夜が明ける、5人なら3人)。① にも事実として書いた。
 - **死んだら**: 持ち物はバニラどおり落ち、すぐ生き返って続ける。`death` (死因 = 死亡メッセージの translate・日・時刻・位置) を記録。
 - **観測**: 敵は「敵zombie 東5(5m)」、時間は「時間:夜 2日目」。置くときは置く面に視線が通り手が届く所だけ。
@@ -290,4 +301,5 @@ node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ -
 bash /root/mc-server-fabric/stop.sh && bash mineflayer-agents/server-fabric/first_setting_world.sh restore
 ```
 
-行動の実機の試験: `prepare_action_test` → start → `init_action_test` → `node mineflayer-agents/tools/action_test.js` (試験用のボット1人)。
+行動の実機の試験: `prepare_action_test` → start → `init_action_test` → `node mineflayer-agents/tools/action_test.js [--part base|more|all]` (試験用のボット1人。
+`more` は足元を平らにして右クリック・GUI・協力を試し、協力には2人目のボット `Tester2` を出す)。

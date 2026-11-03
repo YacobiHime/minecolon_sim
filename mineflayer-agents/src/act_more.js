@@ -454,8 +454,12 @@ function moreHandlers(lib) {
       let t = null;
       try {
         t = await withTimeout(bot.openEnchantmentTable(b), 8000, () => {});
-        await t.putTargetItem(target);
-        await t.putLapis(lapis);
+        // 画面の中の番号で動かす (持ち物の番号と画面の番号は違う)
+        const wTarget = t.items().find((i) => i.name === ch.item);
+        const wLapis = t.items().find((i) => i.name === 'lapis_lazuli');
+        if (!wTarget || !wLapis) { t.close(); return { ok: false, msg: '台に置く物が見つからない' }; }
+        await t.putTargetItem(wTarget);
+        await t.putLapis(wLapis);
         const t0 = Date.now();
         while (Date.now() - t0 < 4000 && t.enchantments.some((x) => x.level < 0)) await sleep(200);
         const opts = t.enchantments.map((x) => x.level);
