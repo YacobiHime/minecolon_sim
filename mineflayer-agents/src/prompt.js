@@ -23,9 +23,10 @@ function systemPrompt(persona, goal, opts = {}) {
 }
 
 // progress (目標の手順の進み具合) は、小さいモデルが最後の方をよく読むので、行動一覧の後に置く
-function userPrompt(obsText, memText, actions, progress = '') {
+function userPrompt(obsText, memText, actions, progress = '', socialText = '') {
   return [
     '## 今の様子', obsText,
+    socialText ? `## 気持ちと人間関係\n${socialText}` : '',
     '## 覚えていること', memText,
     '## できる行動', actionsToText(actions),
     progress ? `## 目標の手順 (持ち物と見えているものから判定)\n${progress}` : '',

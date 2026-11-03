@@ -58,7 +58,7 @@ class LLMDecider {
     }
     return [
       { role: 'system', content: systemPrompt(ctx.persona, ctx.goal, { allowSay: this.allowSay, think: this.think }) },
-      { role: 'user', content: userPrompt(ctx.obsText, ctx.memText, ctx.actions, ctx.progress) },
+      { role: 'user', content: userPrompt(ctx.obsText, ctx.memText, ctx.actions, ctx.progress, ctx.socialText) },
     ];
   }
 

@@ -2,6 +2,9 @@
 // その瞬間にできる行動の一覧を作る (純粋な関数) と、選ばれた引数の解決。
 // 実行は act.js。LLM / Jev などの decider は、この一覧から1つ選んで arg を埋めるだけ。
 const { relDir } = require('./util');
+const { BUILD_MATERIAL } = require('./hut');
+
+const HUNTABLE = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit']);
 
 const DIRECTIONS = ['north', 'south', 'east', 'west'];
 const PLACEABLE_HINT = new Set(['crafting_table', 'furnace', 'chest', 'torch']);
@@ -74,9 +77,36 @@ function listActions(raw, ctx = {}) {
     if (fd.length) out.push({ name: 'eat', desc: '食べる', argType: 'choice', choices: fd.map((i) => ({ id: i.name, label: i.name, item: i.name })) });
   }
 
-  // 手元でできること (craft / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
-  const first = ['craft', 'place', 'eat'];
-  out.sort((a, b) => (first.includes(b.name) - first.includes(a.name)));
+  // build: 拠点を知っていて、建てる材料を持っているとき (設計図の次の場所をプログラムが決める。座標は選ばせない)
+  if (ctx.base) {
+    const mats = raw.inventory.filter((i) => BUILD_MATERIAL.test(i.name));
+    const hut = ctx.hut && ctx.hut.ratio != null ? ` 今${Math.round(ctx.hut.ratio * 100)}%できている` : '';
+    if (mats.length) {
+      out.push({ name: 'build', desc: `拠点 (${relDir(here, ctx.base)}) に小屋を建てる。決まった形に数個ずつ置く。遠ければ歩いて行く${hut}`, argType: 'choice',
+        choices: mats.filter((i) => !blocked.has(`build:${i.name}`)).map((i) => ({ id: i.name, label: `${i.name}x${i.count}`, item: i.name })) });
+    }
+  }
+
+  // hunt: 見えている動物 (食べ物になる)
+  const seenAnimals = new Map();
+  for (const e of raw.entities.filter((x) => x.kind === 'mob' && HUNTABLE.has(x.name))) if (!seenAnimals.has(e.name)) seenAnimals.set(e.name, e);
+  const hunt = [...seenAnimals.values()].filter((e) => !blocked.has(`hunt:${e.name}`)).map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, mob: e.name }));
+  if (hunt.length) out.push({ name: 'hunt', desc: '動物を倒して肉を手に入れる (食べ物)', argType: 'choice', choices: hunt });
+
+  // ask: 困っているとき (同じ行動が続けて失敗した) だけ。聞こえる範囲に見えている人に聞く
+  const troubles = ctx.troubles || [];
+  if (troubles.length) {
+    const near = raw.entities.filter((x) => x.kind === 'player' && x.d <= (ctx.hearRadius ?? 24));
+    if (near.length) {
+      out.push({ name: 'ask', desc: `近くの人に「${troubles[0].about}」を聞く (答えを待つ)`, argType: 'choice',
+        choices: near.map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, player: e.name, trouble: troubles[0] })) });
+    }
+  }
+
+  // 手元でできること (craft / build / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
+  const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask'];
+  const rank = (n) => (first.includes(n) ? first.indexOf(n) : first.length);
+  out.sort((a, b) => rank(a.name) - rank(b.name));
 
   for (let i = out.length - 1; i >= 0; i--) if (out[i].argType === 'choice' && !out[i].choices.length) out.splice(i, 1);
 
@@ -134,4 +164,4 @@ function resolveDecision(actions, action, arg) {
   return { ok: true, action: a.name, arg: c.id, choice: c, fixed };
 }
 
-module.exports = { listActions, actionsToText, resolveDecision, DIRECTIONS };
+module.exports = { listActions, actionsToText, resolveDecision, DIRECTIONS, HUNTABLE };

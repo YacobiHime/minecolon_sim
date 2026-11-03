@@ -1,0 +1,164 @@
+'use strict';
+// 社会性の最小限 (方針メモ 15章): 感情・欲求・人間関係を、プログラムが数値で持つ。
+// 更新はルールか Jev の Score (relationScore)。2B には words() の短い日本語だけを渡す。
+//
+// AgentSociety (arXiv:2502.08691) の部品を基準にした。変えたところは README の「社会性」に書いた。
+//   感情: 6種類の基本感情 0〜10 (AgentSociety と同じ)。ルールで上下し、時間で基準値へ戻る。
+//   欲求: マズローの段階を Minecraft 向けに 5つに絞った (food・rest・safety・belonging・achievement)。0〜1。
+//   人間関係: 相手ごとの好感 0〜100 (AgentSociety の関係の強さと同じ幅)・信頼 0〜1・出来事の回数とひとこと。
+// 気質は研究室の personas.js の temperament (bravery・empathy・obedience・greed・sociability、0〜1) の形を借りる。
+
+const EMOTIONS = ['joy', 'sadness', 'anger', 'fear', 'disgust', 'surprise'];
+const EMO_BASE = { joy: 3, sadness: 1, anger: 0, fear: 1, disgust: 0, surprise: 0 };
+const EMO_WORD = {
+  joy: ['少しうれしい', 'うれしい', 'とてもうれしい'],
+  sadness: ['少し落ち込んでいる', '落ち込んでいる', 'とても落ち込んでいる'],
+  anger: ['少しいらだっている', 'いらだっている', 'かなり怒っている'],
+  fear: ['少し不安', '不安', 'とても怖い'],
+  disgust: ['少しうんざりしている', 'うんざりしている', 'ひどくうんざりしている'],
+  surprise: ['少し驚いている', '驚いている', 'とても驚いている'],
+};
+const NEED_WORD = {
+  food: 'お腹が空いてきた・食べ物が欲しい',
+  rest: '疲れている',
+  safety: '夜が近くて、安全な場所が欲しい',
+  belonging: '誰かと話したい',
+  achievement: '目標が進まず、焦っている',
+};
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function r2(v) { return Math.round(v * 100) / 100; }
+
+class Social {
+  constructor(opts = {}) {
+    const t = opts.temperament || {};
+    this.temperament = { bravery: 0.5, empathy: 0.5, obedience: 0.5, greed: 0.5, sociability: 0.5, ...t };
+    this.emotions = { ...EMO_BASE };
+    this.needs = { food: 0.2, rest: 0, safety: 0, belonging: 0.2, achievement: 0.3 };
+    this.relations = {}; // name -> { affinity, trust, talks, helpedMe, iHelped, ignoredMe, met, note }
+    this.decay = opts.decay ?? 0.85; // 1ループごとに基準値との差がこの割合に縮む
+    this.lastTalkTick = 0;
+  }
+
+  static fromJSON(d, opts = {}) {
+    const s = new Social(opts);
+    if (d && typeof d === 'object') {
+      if (d.emotions) Object.assign(s.emotions, d.emotions);
+      if (d.needs) Object.assign(s.needs, d.needs);
+      if (d.relations) s.relations = d.relations;
+      s.lastTalkTick = d.lastTalkTick || 0;
+    }
+    return s;
+  }
+
+  toJSON() { return { emotions: this.emotions, needs: this.needs, relations: this.relations, lastTalkTick: this.lastTalkTick }; }
+
+  rel(name) {
+    if (!this.relations[name]) this.relations[name] = { affinity: 50, trust: 0.5, talks: 0, helpedMe: 0, iHelped: 0, ignoredMe: 0, met: false, note: '' };
+    return this.relations[name];
+  }
+
+  bump(emo, d) { this.emotions[emo] = r2(clamp(this.emotions[emo] + d, 0, 10)); }
+
+  // 1ループに1回: 感情は基準値へ戻り、欲求はルールで変わる
+  tick({ tick = 0, raw = null, hasFood = false, progress = null } = {}) {
+    for (const e of EMOTIONS) this.emotions[e] = r2(EMO_BASE[e] + (this.emotions[e] - EMO_BASE[e]) * this.decay);
+    const n = this.needs;
+    if (raw) {
+      // 食べ物: 満腹度 (peaceful では減らない) と、食べ物を持っているか
+      const hunger = 1 - (raw.self.food ?? 20) / 20;
+      n.food = r2(clamp(Math.max(hunger, hasFood ? 0.1 : n.food + 0.02), 0, 1));
+      // 安全: 夕方〜夜に、拠点の小屋ができていないほど高い
+      const t = ((raw.self.timeOfDay ?? 6000) % 24000 + 24000) % 24000;
+      const dusk = t >= 9000 && t < 23000 ? clamp((t - 9000) / 4000, 0, 1) : 0;
+      const hut = progress && progress.hutRatio != null ? progress.hutRatio : 0;
+      n.safety = r2(clamp(dusk * (1 - hut) * (1.2 - this.temperament.bravery * 0.4), 0, 1));
+      if (n.safety > 0.6) this.bump('fear', 0.3);
+    }
+    n.rest = r2(clamp(n.rest + 0.01, 0, 1));
+    n.belonging = r2(clamp((tick - this.lastTalkTick) * 0.02 * (0.5 + this.temperament.sociability), 0, 1));
+    if (progress && progress.ratio != null) n.achievement = r2(clamp(1 - progress.ratio, 0, 1));
+  }
+
+  // 行動の結果 (ルール)
+  onActionResult(action, ok, { repeatedFail = false } = {}) {
+    if (ok) { this.bump('joy', 0.6); this.bump('anger', -0.4); if (action === 'wait' || action === 'look_around') this.needs.rest = r2(clamp(this.needs.rest - 0.1, 0, 1)); }
+    else {
+      this.bump('anger', 1.0 * (1.2 - this.temperament.obedience * 0.4));
+      if (repeatedFail) { this.bump('sadness', 0.8); this.bump('disgust', 0.5); }
+    }
+    if (action === 'eat' && ok) this.needs.food = 0;
+  }
+
+  onHeard(from, tick) {
+    const r = this.rel(from);
+    if (!r.met) { r.met = true; this.bump('surprise', 1.5); this.bump('joy', 0.5 * this.temperament.sociability); }
+    r.talks += 1;
+    this.lastTalkTick = tick;
+  }
+
+  onSpoke(tick) { this.lastTalkTick = tick; }
+
+  // 自分が聞いた相手から答えが返ってきた / 返ってこなかった
+  onAnswered(from, known) {
+    const r = this.rel(from);
+    if (known) {
+      r.helpedMe += 1;
+      r.affinity = clamp(r.affinity + 8, 0, 100);
+      r.trust = r2(clamp(r.trust + 0.1, 0, 1));
+      r.note = '前にやり方を教えてくれた';
+      this.bump('joy', 1.2);
+    } else {
+      r.affinity = clamp(r.affinity - 1, 0, 100);
+      r.note = r.note || '聞いたが知らなかった';
+    }
+  }
+
+  onIgnored(from) {
+    const r = this.rel(from);
+    r.ignoredMe += 1;
+    r.affinity = clamp(r.affinity - 5, 0, 100);
+    r.note = '聞いたのに返事がなかった';
+    this.bump('sadness', 0.6);
+  }
+
+  // 誰かに聞かれて答えた (頼られた)
+  onAsked(by, answered) {
+    const r = this.rel(by);
+    if (answered) r.iHelped += 1;
+    r.affinity = clamp(r.affinity + 2 * (0.5 + this.temperament.empathy), 0, 100);
+  }
+
+  // Jev の Score (0〜4: とても悪くなった〜とても良くなった) で好感を動かす
+  onRelationScore(name, score) {
+    if (!Number.isFinite(score)) return;
+    const r = this.rel(name);
+    r.affinity = Math.round(clamp(r.affinity + (score - 2) * 6, 0, 100));
+  }
+
+  dominantNeed() {
+    const [k, v] = Object.entries(this.needs).sort((a, b) => b[1] - a[1])[0];
+    return v >= 0.5 ? k : null;
+  }
+
+  // 2B と Jev に渡す短い言葉。数値は渡さない
+  words({ maxRelations = 3 } = {}) {
+    const out = [];
+    const emo = EMOTIONS.map((e) => [e, this.emotions[e]])
+      .filter(([e, v]) => v >= 3 && !(e === 'joy' && v < 4))
+      .sort((a, b) => b[1] - a[1]).slice(0, 2);
+    for (const [e, v] of emo) out.push(EMO_WORD[e][v >= 8 ? 2 : v >= 5 ? 1 : 0]);
+    if (!emo.length) out.push('落ち着いている');
+    const needs = Object.entries(this.needs).filter(([, v]) => v >= 0.5).sort((a, b) => b[1] - a[1]).slice(0, 2);
+    for (const [k] of needs) out.push(NEED_WORD[k]);
+    const rels = Object.entries(this.relations).filter(([, r]) => r.met || r.talks || r.helpedMe || r.ignoredMe)
+      .sort((a, b) => Math.abs(b[1].affinity - 50) - Math.abs(a[1].affinity - 50)).slice(0, maxRelations);
+    for (const [name, r] of rels) {
+      const how = r.affinity >= 75 ? '仲が良い' : r.affinity >= 58 ? '感じが良い' : r.affinity <= 25 ? '仲が悪い' : r.affinity <= 42 ? '少し苦手' : '知り合い';
+      out.push(`${name}とは${how}${r.note ? '。' + r.note : ''}`);
+    }
+    return out.join('。');
+  }
+}
+
+module.exports = { Social, EMOTIONS, NEED_WORD };

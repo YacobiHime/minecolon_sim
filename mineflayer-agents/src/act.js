@@ -6,10 +6,12 @@ const { Vec3 } = require('vec3');
 const { goals } = require('mineflayer-pathfinder');
 const { blockVisible } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
+const { hutSlots, hutStatus } = require('./hut');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
-const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000 };
+const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000 };
+const FACES = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];
 
 function invTotal(bot) { return bot.inventory.items().reduce((s, i) => s + i.count, 0); }
 function invCount(bot, name) { return bot.inventory.items().filter((i) => i.name === name).reduce((s, i) => s + i.count, 0); }
@@ -195,6 +197,85 @@ const handlers = {
       await bot.consume();
       return { ok: true, msg: `${ch.item}を食べた` };
     } catch (e) { return { ok: false, msg: `食べられなかった: ${String(e.message).slice(0, 50)}` }; }
+  },
+
+  // 拠点の小屋: 設計図の空いている所のうち、隣に支えがある所へ ctx.buildPerAction 個まで置く
+  async build(bot, ch, ctx) {
+    if (!ctx.base) return { ok: false, msg: '拠点の場所を知らない' };
+    const slots = hutSlots(ctx.base, ctx.hutShape || {});
+    const per = ctx.buildPerAction ?? 4;
+    const skip = new Set();
+    let placed = 0;
+    let lastErr = '';
+    const nameAt = (p) => { const b = bot.blockAt(new Vec3(p.x, p.y, p.z)); return b ? b.name : null; };
+    for (let tries = 0; tries < per + 6 && placed < per; tries++) {
+      if (ctx.signal && ctx.signal.aborted) break;
+      const it = bot.inventory.items().find((i) => i.name === ch.item);
+      if (!it) { lastErr = lastErr || `${ch.item}が無くなった`; break; }
+      const st = hutStatus(slots, nameAt);
+      if (!st.empty.length) return { ok: placed > 0, msg: placed ? `小屋に${placed}個置いて、小屋ができた` : '小屋はもうできている', placed };
+      let target = null;
+      let ref = null;
+      for (const sl of st.empty) {
+        const key = `${sl.x},${sl.y},${sl.z}`;
+        if (skip.has(key)) continue;
+        for (const [dx, dy, dz] of FACES) {
+          const rb = bot.blockAt(new Vec3(sl.x + dx, sl.y + dy, sl.z + dz));
+          if (rb && rb.boundingBox === 'block') { target = sl; ref = rb; break; }
+        }
+        if (target) break;
+      }
+      if (!target) { lastErr = '支えがなく置ける所がない'; break; }
+      const tv = new Vec3(target.x, target.y, target.z);
+      const key = `${target.x},${target.y},${target.z}`;
+      try {
+        await withTimeout(gotoGoal(bot, new goals.GoalPlaceBlock(tv, bot.world, { range: 4.5, LOS: false })), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+        const cur = bot.blockAt(tv);
+        if (cur && cur.name !== 'air' && cur.name !== 'cave_air' && cur.boundingBox !== 'block') await bot.dig(cur, true); // 草や雪をどける
+        await bot.equip(it, 'hand');
+        await bot.placeBlock(ref, tv.minus(ref.position));
+        placed += 1;
+      } catch (e) {
+        lastErr = pathErr(e);
+        skip.add(key);
+      }
+    }
+    const st = hutStatus(slots, nameAt);
+    const pct = st.ratio == null ? '' : ` (小屋は${Math.round(st.ratio * 100)}%)`;
+    if (!placed) return { ok: false, msg: `小屋に置けなかった: ${lastErr || '理由不明'}${pct}`, placed };
+    return { ok: true, msg: `小屋に${ch.item}を${placed}個置いた${pct}`, placed };
+  },
+
+  // 動物を追いかけて倒し、落ちた物を拾う
+  async hunt(bot, ch, ctx) {
+    const before = invTotal(bot);
+    const find = () => Object.values(bot.entities).filter((e) => e.name === ch.mob && e.position && e.position.distanceTo(bot.entity.position) <= (ctx.visionRadius ?? 16))
+      .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+    const target = find();
+    if (!target) return { ok: false, msg: `${ch.mob}が見えない` };
+    let last = target.position.clone();
+    let hits = 0;
+    const t0 = Date.now();
+    while (bot.entities[target.id] && Date.now() - t0 < (ctx.huntMs ?? 30000)) {
+      if (ctx.signal && ctx.signal.aborted) break;
+      last = target.position.clone();
+      if (target.position.distanceTo(bot.entity.position) > 2.8) {
+        try { await withTimeout(gotoGoal(bot, new goals.GoalNear(last.x, last.y, last.z, 1.5)), 5000, () => haltPath(bot)); } catch (_) { /* 逃げられたら追い直す */ }
+        continue;
+      }
+      try { await bot.lookAt(target.position.offset(0, (target.height || 1) * 0.5, 0), true); bot.attack(target); hits += 1; } catch (_) { /* ignore */ }
+      await sleep(650);
+    }
+    if (bot.entities[target.id]) return { ok: false, msg: `${ch.mob}を倒せなかった(${hits}回たたいた)` };
+    await pickUpNear(bot, last);
+    const got = invTotal(bot) - before;
+    return { ok: got > 0, msg: got > 0 ? `${ch.mob}を倒して${got}個拾った` : `${ch.mob}を倒したが何も拾えなかった` };
+  },
+
+  // 近くの人に聞く。チャットで聞き、答えを待つ部分は agent が持つ (ctx.ask)
+  async ask(_bot, ch, ctx) {
+    if (!ctx.ask) return { ok: false, msg: '聞く仕組みがない' };
+    return ctx.ask(ch);
   },
 
   async say(bot, _ch, ctx) {
