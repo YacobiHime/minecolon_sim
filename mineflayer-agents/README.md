@@ -94,3 +94,117 @@ Voyager の「LLM がコードを書く」方式は 2B では無理なので、�
 掘る・拾う処理は `src/act.js` に小さく書いた。
 
 mineflayer 4.37 は Node 22 以上を求めると宣言しているが、panama の Node 20.19 で動いている (npm の警告のみ)。
+
+---
+
+# 最初の「1つの設定」(方針メモ 16章)
+
+全員に同じ目標「仲間と協力して、夜までに拠点(小屋)を作り、食べ物を確保する」(`configs/first_setting.json`)。
+行動は Jev、発言は 2B (Gemma 4 E2B)、社会性は AgentSociety を基にした最小限、記憶は時間で忘れて大事なものは残る、
+外からの助けは①〜③、困ったら周りに聞く。
+
+## 起動
+
+```bash
+(cd mineflayer-agents && npm install)
+# 世界 (一度だけ): サーバー停止中に新しいワールドへ切り替え → 起動 → 最寄りの平原を出現地点に
+bash mineflayer-agents/server-fabric/first_setting_world.sh prepare   # level-name=world_first_setting, seed 20261102, peaceful
+bash /root/mc-server-fabric/start.sh
+bash mineflayer-agents/server-fabric/first_setting_world.sh init      # locate biome plains → setworldspawn、spawnRadius 0、昼夜あり
+bash /opt/llama.cpp/start_llama.sh                                    # 2B (発言と答え)
+# 実行のたびに朝へ戻す (夜まで約10分、等倍)
+bash mineflayer-agents/server-fabric/first_setting_world.sh morning
+node mineflayer-agents/run.js --config mineflayer-agents/configs/first_setting.json --agents 1 --minutes 5
+#   --agents 5 / 30   --decider llm (Jev を使わず 2B で行動)   --max-jev-tokens 3000000   --stagger-ms 1500
+node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ --text
+```
+
+Jev の API キーは環境変数 `TYPESAFE_API_KEY` か `/root/.config/typesafe.env` (`TYPESAFE_API_KEY=...` の1行) から読む。
+表示・記録・コミットしない。キーが無いのに `decider.type: "jev"` なら起動しない (`--decider llm` を使う)。
+
+## 構成 (段階1に足したもの)
+
+```
+src/deciders/jev.js  Jev の decider (1回の呼び出しに Choice・Noul・Score をまとめる)
+src/jev_client.js    System One API の窓口 (キーの読み込み・429/529 の再試行・同時数の制限)
+src/usage.js         使用量 (Jev の入力の文字数・トークン・応答時間、2B の回数・プロンプトの長さ) と、Jev の入力トークンの上限
+src/talker.js        2B で発言と答えを作る
+src/social.js        感情・欲求・人間関係 (数値はプログラム、2B には短い言葉)
+src/ask.js           周りに聞く仕組み (困りごとの検出・チャットの形・記憶の範囲で答える・使ったかの判定)
+src/hut.js           小屋の設計図 (5x5・壁2段・屋根、入口あり、55 か所) と進み具合
+run.js               1プロセスで --agents 人。使用量と 2B は全員で共有。記録は runs/<時刻>/ に1人1ファイル + run.json
+```
+
+## 行動 (mineflayer)
+
+その瞬間にできる行動の一覧をプログラムが毎回作り、Jev が「行動:引数」の形で1つ選ぶ。
+
+| 行動 | 一覧に出る条件 | 実行 (mineflayer) |
+| --- | --- | --- |
+| collect | 見えていて掘れて手の届く高さのブロック | pathfinder で近づき dig、落ちた物を拾う (3個) |
+| go_to | 見えている目印・覚えている場所 (M番号、拠点を含む)・見えている人 | pathfinder |
+| explore | 東西南北 | 20 ブロック歩く |
+| craft | 今の持ち物で作れる物 (作業台が見えれば作業台の要る物も) | recipesFor → craft |
+| build (新) | 拠点を知っていて、板材・原木・丸石・土を持っている | 設計図の空いている所のうち隣に支えがある所へ、GoalPlaceBlock で近づき placeBlock。1回に4個まで。座標は選ばせない |
+| hunt (新) | 牛・豚・羊・鶏・兎が見える | 追いかけて attack、落ちた肉を拾う (30 秒まで) |
+| ask (新) | 困っていて (同じ行動・引数が直近4回で2回失敗)、聞こえる範囲 (24) に人が見える | チャットで聞いて、答えを最大 45 秒待つ |
+| place / eat / look_around / wait | 段階1と同じ | |
+
+拠点は、出現地点から南へ 6 ブロックの地面 (全員が最初から知っている。忘れない)。小屋の進み具合は、拠点が視界 (16) 内にあるときだけ分かる。
+
+## Jev への1回の呼び出し
+
+`state` (JSON): `you`・`personality`・`goal`・`knowledge` (① goal.hints)・`plan` (②③ 手順と「済」「次はこれ」)・`now` (観測の文)・
+`feelings` (社会性の言葉)・`memory` (選んだ記憶)・`last_result` (直前の行動の結果)・`heard_now`・`troubled` (困りごと、あるときだけ)。
+質問の文は英語 (公式の資料で英語が一番正確とある)、状態は日本語のまま。
+
+| 名前 | 型 | 中身 |
+| --- | --- | --- |
+| next_action | choice | 一覧の「行動:引数」(例 `collect:oak_log`、`build:oak_planks`、`ask:Hanako`) から1つ。選択肢は最大 255 |
+| remember | score (0〜4) | 直前の出来事を覚えておく価値 → 記憶の大事さ (score/4) |
+| talk | noul | 今、近くの人に話しかけるべきか。人が見えるか何か聞こえたときだけ聞く |
+| rel_0.. | score (0〜4) | 今聞こえた相手ごとに、その人への気持ちがどう変わったか → 好感 ±12 |
+
+使用量は `usage.input_tokens` (返らなければ文字数から推定し、推定と記録)。費用は入力 100万トークンあたり $0.042。
+実行の合計が `usage.maxJevInputTokens` (既定 300万) に達したら全員を止めて終える (`token_cap` を記録)。
+
+## 2B を呼ぶとき
+
+- **発言**: Jev の talk ≥ 閾値 (0.6 + (0.5 − 社交性) × 0.2) のとき。行動は待たない。プロンプトは人物・目標・気持ちと関係・近くの人・今聞こえた話・覚えていること・これからする行動。出力 `{"say"}` を json_schema で縛る (60字まで)。
+- **答え**: 聞かれたとき。自分の記憶 (成功したこと・見た場所・教わったこと) と知っていること (goal.hints) から質問に関係するものを最大5件選び、それだけを渡す。何も無ければ 2B を呼ばずに「ごめん、それは分からない」。
+- `--decider llm` のときは段階1と同じく 2B が行動と発言を決める (呼び出しは `act` として数える)。
+
+## 記憶 (14章)
+
+- 強さ = 2^(−経過ループ数 / (halfLife × (1 + impBoost × 大事さ)))。halfLife 40、impBoost 6、強さ 0.08 未満で忘れる。大事さ 0 の記憶は約 146 ループ、大事さ 1 は約 1000 ループもつ。
+- 大事さは Jev の remember。Jev がないときはルール (失敗 0.35、目標に関わる成功 0.5、見回し・待つ 0.05、ほか 0.2)。教わったことは 0.8 (「分からない」は 0.3)。拠点は忘れない。
+- プロンプトに入れるのは 20 件 (場所は近い順に 6 件まで、残りを「強さ × (0.5 + 大事さ)」の順。最新のやったこと2件は必ず)。
+
+## 社会性 (15章) と AgentSociety から変えたところ
+
+| AgentSociety の部品 | ここでの扱い |
+| --- | --- |
+| 人物像 (属性) | 名前・性格・話し方と、研究室の `personas.js` の気質 (bravery・empathy・obedience・greed・sociability) の形を借りた。軽くした |
+| 感情 (6種 0〜10) | そのまま 6種 0〜10。ルールで上下 (成功で喜び、失敗で怒り、続けて失敗で悲しみ・嫌悪、初めて会うと驚き、夕方に小屋がないと恐れ)。1ループごとに基準値へ 15% 戻る。LLM で更新しない (軽くした) |
+| 欲求 (マズロー) | food・rest・safety・belonging・achievement の5つに絞った。ルールで更新 (peaceful では満腹度が減らないので、食べ物を持っていないと少しずつ上がる)。軽くした |
+| 考え (話題ごとの態度) | 外した |
+| 記憶 (出来事・知覚の流れ) | 14章の忘れる記憶に置き換えた。教わったこと (誰から・いつ) を足した |
+| 人間関係 (0〜100) | 相手ごとの好感 0〜100・信頼 0〜1。研究室の `social_dynamics.js` の「助けた・断られた」の数え方を借りた。好感は Jev の Score とルール (教わった +8、無視された −5、頼られた +1〜3) |
+| 移動・経済・家族 | 外した (Minecraft の行動に置き換わる) |
+| 周りに聞く | 足した (14章) |
+
+研究室の `personas.js`・`social_cognition.js`・`social_dynamics.js` は読んだだけで、変更も読み込みもしていない。
+2B には数値を渡さず「少しいらだっている。誰かと話したい。Hanakoとは仲が良い。前にやり方を教えてくれた」の形で渡す。
+
+## 周りに聞く仕組み (14章)
+
+困っている (同じ行動・引数が直近4回で2回失敗、同じことは 10 ループ聞かない) → 一覧に ask → チャットで
+`Hanakoさん、教えて: wooden_pickaxeの作り方が分からない(「…」で失敗した)` → 聞こえた相手 (24 ブロック以内) が
+`Taroさん、答え: …` と答える → 聞いた側は答えを記憶 (knowledge: 誰から・ループ番号・昼/夜) に入れる →
+その後 6 ループのうちに、同じ行動をやり直して成功したか (`retried_ok`)、答えに出てきた行動・物を選んで成功したか (`followed`) を記録。
+記録: 聞いた側に `ask` / `ask_reply` / `ask_timeout` / `answer_use`、答えた側に `answer` (使った記憶と 2B のプロンプト)。
+
+## 外からの助けの記録
+
+`help` (①hints・②steps・③progress・askOthers・④excludeFailures) を設定に持ち、各記録の `start` に残す。first_setting は ①②③ と聞く、④なし。
+段階1の設定 (`wood_pickaxe.json`) は `help` を持たないので、これまでどおり ①②③④ (聞くなし) で動く。
