@@ -33,11 +33,15 @@ function aboutText(key) {
 }
 
 // 直近の失敗から、困っていること (key = "action:arg") と最後の失敗の理由
-// noChange = { window, repeat } を渡すと、成功しても状態が変わらない繰り返し (nochange.js) も困りごとに入れる
+// noChange = { window, repeat, netKeys? } を渡すと、成功しても状態が変わらない繰り返し (nochange.js) も困りごとに入れる
 function troubles(memory, window = 4, repeat = 2, noChange = null) {
   const keys = [...memory.recentFailures(window, repeat)].map((key) => ({ key, kind: 'fail' }));
   if (noChange) {
     for (const key of noChangeKeys(memory.events, noChange.window, noChange.repeat)) {
+      if (!keys.some((k) => k.key === key)) keys.push({ key, kind: 'noChange' });
+    }
+    // noChange.netKeys: 直近 netWindow 回をさかのぼった正味の変化がほぼ0だった繰り返し (nochange.netNoChange)
+    for (const key of noChange.netKeys || []) {
       if (!keys.some((k) => k.key === key)) keys.push({ key, kind: 'noChange' });
     }
   }
