@@ -4,6 +4,7 @@
 const { relDir } = require('./util');
 const { BUILD_MATERIAL } = require('./hut');
 const { exploreChoices } = require('./explore');
+const { moreActions } = require('./actions_more');
 
 const HUNTABLE = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit']);
 const MAX_PILLAR = 4; // 足場は 4 段まで
@@ -227,6 +228,9 @@ function listActions(raw, ctx = {}) {
         choices: near.map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, player: e.name, trouble: troubles[0] })) });
     }
   }
+
+  // 右クリックで使う・GUI の出し入れ・協力 (actions_more.js)。設定の act.enable に入れたものだけ
+  out.push(...moreActions(raw, { ...ctx, blocked }, on));
 
   // 手元でできること (craft / build / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
   const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar', 'flee', 'attack', 'smelt', 'sleep', 'equip', 'set_base'];

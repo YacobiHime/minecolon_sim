@@ -52,6 +52,9 @@ function buildContext(raw, memory, cfg, extra = {}) {
     base: extra.base || null, hut: raw.hut || null, troubles, hearRadius: cfg.perception.hearRadius,
     disabled: new Set((cfg.act && cfg.act.disabled) || []), enable: new Set((cfg.act && cfg.act.enable) || []),
     selfBase: !!(cfg.world && cfg.world.base === 'self'), fleeRadius: cfg.act.fleeRadius,
+    // 入れ物の中身・村人の取引 (開けて見たときに覚えたもの。act_more.js)。use_on などの候補の絞り方 (cfg.act)
+    containers: (memory.extra && memory.extra.containers) || {}, trades: (memory.extra && memory.extra.trades) || {},
+    visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
   });
   const steps = help.steps ? cfg.goal.steps : null;
@@ -243,10 +246,21 @@ class Agent {
     return true;
   }
 
+  // craftables: 名前の配列、または "all" (レシピのある物すべて。マイクラで作れる物を全部候補にする)
+  craftableNames() {
+    if (this.cfg.craftables !== 'all') return this.cfg.craftables || [];
+    if (!this.allCraftables) {
+      const reg = this.bot.registry;
+      const ids = new Set(Object.keys(reg.recipes || {}).map(Number));
+      this.allCraftables = reg.itemsArray.filter((it) => ids.has(it.id)).map((it) => it.name);
+    }
+    return this.allCraftables;
+  }
+
   craftInfo() {
     const now = [];
     const withTable = [];
-    for (const name of this.cfg.craftables) {
+    for (const name of this.craftableNames()) {
       const it = this.bot.registry.itemsByName[name];
       if (!it) continue;
       if (this.bot.recipesFor(it.id, null, 1, null).length) now.push(name);
@@ -444,7 +458,7 @@ class Agent {
     const before = nochange.snapshot({ inventory: raw.inventory, pos: raw.self.pos, hutFilled: this.trueHut ? this.trueHut.filled : null });
     const tAct = Date.now();
     const result = await executeAction(bot, resolved, {
-      ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t) => this.chat(t),
+      ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t, o) => this.chat(t, o),
       base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
       setBase: () => this.setBase(),
     });

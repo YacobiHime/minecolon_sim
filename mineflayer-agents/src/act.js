@@ -4,15 +4,16 @@
 // 失敗も例外にせず結果として返す。1行動ごとにタイムアウトを設ける。
 const { Vec3 } = require('vec3');
 const { goals } = require('mineflayer-pathfinder');
-const { blockVisible, HOSTILE } = require('./observe');
+const { blockVisible, HOSTILE, cropRipe } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
 const { hutSlots, hutStatus } = require('./hut');
 const { exploreTarget } = require('./explore');
+const { moreHandlers, MORE_TIMEOUTS, noteContainer, furnaceItems, invDiff } = require('./act_more');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
 const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
-  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000 };
+  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS };
 const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
 const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
 
@@ -43,9 +44,11 @@ function faceReachable(bot, refBlock, face, reach = 4.5) {
 
 // 掘ったときに落ちる物の名前 (石 → 丸石、鉱石 → 原石など。分からなければ同じ名前)
 const DROPS = { stone: 'cobblestone', grass_block: 'dirt', coal_ore: 'coal', deepslate_coal_ore: 'coal', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
-  copper_ore: 'raw_copper', gold_ore: 'raw_gold', diamond_ore: 'diamond', redstone_ore: 'redstone', lapis_ore: 'lapis_lazuli', deepslate: 'cobbled_deepslate' };
+  copper_ore: 'raw_copper', gold_ore: 'raw_gold', diamond_ore: 'diamond', redstone_ore: 'redstone', lapis_ore: 'lapis_lazuli', deepslate: 'cobbled_deepslate',
+  carrots: 'carrot', potatoes: 'potato', beetroots: 'beetroot', melon: 'melon_slice', grass: 'wheat_seeds', short_grass: 'wheat_seeds', sweet_berry_bush: 'sweet_berries' };
 function dropName(_bot, name) { return DROPS[name] || name; }
 
+function invMapAll(bot) { const m = {}; for (const i of bot.inventory.items()) m[i.name] = (m[i.name] || 0) + i.count; return m; }
 function invTotal(bot) { return bot.inventory.items().reduce((s, i) => s + i.count, 0); }
 function invCount(bot, name) { return bot.inventory.items().filter((i) => i.name === name).reduce((s, i) => s + i.count, 0); }
 
@@ -105,6 +108,9 @@ const handlers = {
     if (!type) return { ok: false, msg: `${name} というブロックを知らない` };
     const want = ctx.collectCount ?? 3;
     const beforeItem = invCount(bot, dropName(bot, name));
+    const beforeAll = invMapAll(bot);
+    // 作物は育ちきった所を先に掘る (育ちきった物が見えていればそれだけ)
+    const ripeOf = (p) => { const b = bot.blockAt(p); return b ? cropRipe(bot, b) : null; };
     let dug = 0;
     let lastPos = null;
     let lastErr = '';
@@ -125,6 +131,9 @@ const handlers = {
           return (a.distanceTo(bot.entity.position) + pa) - (b.distanceTo(bot.entity.position) + pb);
         });
       if (!cands.length) { lastErr = dug ? '' : `手の届く高さに${name}が見えない`; break; }
+      const ripeC = cands.filter((q) => ripeOf(q) === true);
+      if (ripeC.length) cands.splice(0, cands.length, ...ripeC);
+      else if (dug > 0 && cands.some((q) => ripeOf(q) === false)) break; // 育ちきった物を掘り終えたら、育ち途中の物は掘らない
       const p = cands.find((q) => !bad.has(q.toString()));
       if (!p) { lastErr = lastErr || '届く所に見えない'; break; }
       try {
@@ -147,7 +156,11 @@ const handlers = {
     // 拾った数は掘った物だけで数える (pathfinder が足場に土などを使うと、持ち物の合計が減ることがある)
     const got = invCount(bot, dropName(bot, name)) - beforeItem;
     if (dug === 0) return { ok: false, msg: lastErr || `${name}を掘れなかった` };
-    return { ok: got > 0, msg: `${name}を${dug}個掘って${got}個拾った${lastErr ? '(' + lastErr + ')' : ''}` };
+    // 名前の違う物が落ちることがある (草 → 種、小麦 → 小麦と種、にんじん → carrot)。増えた物を全部書く
+    const gained = invDiff(beforeAll, invMapAll(bot)).filter((x) => x.d > 0);
+    const other = gained.filter((x) => x.name !== dropName(bot, name));
+    const otherTxt = other.length ? ` (${other.map((x) => `${x.name}+${x.d}`).join(', ')})` : '';
+    return { ok: got > 0 || other.length > 0, msg: `${name}を${dug}個掘って${got}個拾った${otherTxt}${lastErr ? '(' + lastErr + ')' : ''}` };
   },
 
   async go_to(bot, ch, ctx) {
@@ -499,6 +512,8 @@ const handlers = {
       const o = furnace.outputItem();
       let took = 0; let outName = null;
       if (o) { outName = o.name; took = o.count; await furnace.takeOutput(); }
+      await sleep(200);
+      noteContainer(ctx, fb.position, fb.name, furnaceItems(furnace)); // 入れたままの物を覚える (furnace_take の候補)
       furnace.close();
       if (!took) return { ok: false, msg: `${ch.item}を${n}個入れたが、まだ焼けていない (入れたまま)`, smelt: { input: ch.item, n, took: 0 } };
       return { ok: true, msg: `${ch.item}を焼いて${outName}を${took}個取り出した${took < n ? ' (残りは入れたまま)' : ''}`, smelt: { input: ch.item, n, took, output: outName } };
@@ -575,6 +590,8 @@ const handlers = {
     return { ok: true, msg: `${s}秒待った` };
   },
 };
+
+Object.assign(handlers, moreHandlers({ gotoGoal, haltPath, pathErr, invCount, pickUpNear }));
 
 async function executeAction(bot, resolved, ctx) {
   const h = handlers[resolved.action];

@@ -48,6 +48,19 @@ function entityVisible(bot, e) {
   return !hit; // 途中にブロックがなければ見える
 }
 
+// 乗り物 (乗る・降りるができる物)
+const VEHICLE = /(^|_)(boat|raft|minecart)$/;
+// 作物の育ち: age が最大なら true、途中なら false、作物でなければ null
+const CROP = /^(wheat|carrots|potatoes|beetroots|nether_wart|sweet_berry_bush|cocoa|melon_stem|pumpkin_stem|torchflower_crop|pitcher_crop)$/;
+function cropRipe(bot, b) {
+  if (!CROP.test(b.name) || typeof b.getProperties !== 'function') return null;
+  const age = Number(b.getProperties().age);
+  const reg = bot.registry && bot.registry.blocksByName[b.name];
+  const st = reg && reg.states && reg.states.find((x) => x.name === 'age');
+  if (!Number.isFinite(age) || !st) return null;
+  return age >= st.num_values - 1;
+}
+
 function canHarvest(block, invIds) {
   if (!block.diggable || block.hardness == null) return false;
   if (!block.harvestTools) return true;
@@ -77,10 +90,15 @@ function collectRaw(bot, opts = {}) {
     const b = bot.blockAt(p);
     if (!b || IGNORE.has(b.name)) continue;
     let t = byType.get(b.name);
-    if (!t) { t = { name: b.name, checked: 0, positions: [], block: b }; byType.set(b.name, t); }
+    if (!t) { t = { name: b.name, checked: 0, positions: [], block: b, ripe: 0 }; byType.set(b.name, t); }
     if (t.checked >= perType || t.positions.length >= keepPerType) continue;
     t.checked += 1;
-    if (blockVisible(bot, p)) t.positions.push({ x: p.x, y: p.y, z: p.z });
+    if (blockVisible(bot, p)) {
+      // 作物 (age のあるブロック) は育ちきっているかを位置ごとに持つ (見た目で分かること)
+      const ripe = cropRipe(bot, b);
+      t.positions.push(ripe == null ? { x: p.x, y: p.y, z: p.z } : { x: p.x, y: p.y, z: p.z, ripe });
+      if (ripe) t.ripe += 1;
+    }
   }
   const blocks = [];
   for (const t of byType.values()) {
@@ -95,6 +113,7 @@ function collectRaw(bot, opts = {}) {
       seen: positions.length,
       nearest: positions[0],
       positions,
+      ...(positions.some((p) => p.ripe != null) ? { ripe: t.ripe } : {}),
     });
   }
 
@@ -109,6 +128,7 @@ function collectRaw(bot, opts = {}) {
     let name = e.name || e.displayName || 'unknown';
     if (e.type === 'player') { kind = 'player'; name = e.username || name; }
     else if (HOSTILE.has(e.name)) kind = 'hostile';
+    else if (VEHICLE.test(e.name || '')) kind = 'vehicle';
     else if (e.name === 'item') {
       kind = 'item';
       try { const it = e.getDroppedItem && e.getDroppedItem(); name = it ? it.name : 'item'; } catch (_) { name = 'item'; }
@@ -128,6 +148,8 @@ function collectRaw(bot, opts = {}) {
       phase: timePhase(bot.time ? bot.time.timeOfDay : 6000),
       day: bot.time && Number.isFinite(bot.time.day) ? bot.time.day : null,
       held: bot.heldItem ? bot.heldItem.name : null,
+      vehicle: bot.vehicle ? (bot.vehicle.name || 'vehicle') : null,
+      level: bot.experience && Number.isFinite(bot.experience.level) ? bot.experience.level : null,
     },
     inventory: summarizeInventory(items),
     blocks,
@@ -152,11 +174,12 @@ function summarizeObservation(raw, opts = {}) {
   const lines = [];
   // showDay: 何日目か (1日目 = day 0)。3日生き延びる設定で使う
   const dayTxt = opts.showDay && s.day != null ? ` ${s.day + 1}日目` : '';
-  lines.push(`自分: ${s.name} 位置(${Math.round(s.pos.x)},${Math.round(s.pos.y)},${Math.round(s.pos.z)}) 体力${s.health}/20 満腹${s.food}/20 時間:${s.phase}${dayTxt}`);
+  const ride = s.vehicle ? ` ${s.vehicle}に乗っている` : '';
+  lines.push(`自分: ${s.name} 位置(${Math.round(s.pos.x)},${Math.round(s.pos.y)},${Math.round(s.pos.z)}) 体力${s.health}/20 満腹${s.food}/20 時間:${s.phase}${dayTxt}${ride}`);
   lines.push('持ち物: ' + (raw.inventory.length ? raw.inventory.map((i) => `${i.name}x${i.count}`).join(', ') : 'なし'));
   const blocks = [...raw.blocks].sort((a, b) => (b.notable - a.notable) || (a.nearest.d - b.nearest.d)).slice(0, maxTypes);
   lines.push('見えるブロック: ' + (blocks.length
-    ? blocks.map((b) => `${b.name} ${relDir(s.pos, b.nearest)}${b.seen > 1 ? ` 他${b.seen - 1}+` : ''}`).join(', ')
+    ? blocks.map((b) => `${b.name}${b.ripe != null ? `(育ちきった${b.ripe}/${b.seen})` : ''} ${relDir(s.pos, b.nearest)}${b.seen > 1 ? ` 他${b.seen - 1}+` : ''}`).join(', ')
     : 'なし'));
   const ents = raw.entities.slice(0, maxEntities);
   lines.push('近くの人・生き物・落ちている物: ' + (ents.length
@@ -166,4 +189,4 @@ function summarizeObservation(raw, opts = {}) {
   return lines.join('\n');
 }
 
-module.exports = { collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };
+module.exports = { cropRipe, VEHICLE, collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };
