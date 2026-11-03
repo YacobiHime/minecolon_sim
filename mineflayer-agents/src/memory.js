@@ -8,6 +8,8 @@ const { relDir, dist3 } = require('./util');
 const DEFAULT_LIMITS = {
   places: 40, // 覚えておく場所の数 (古いものから忘れる)
   visited: 20, // 行ったことのある地点
+  cells: 300, // 探索のマス (粗い格子) の数。プロンプトには件数を入れない (explore の選択肢の文にだけ使う)
+  exploreCell: 16, // 探索のマスの一辺 (ブロック)
   events: 60, // やったことと結果 (保存する数)
   heard: 30, // 聞いた話 (保存する数)
   // プロンプトに入れる数
@@ -44,6 +46,7 @@ class Memory {
     this.file = opts.file || null;
     this.places = []; // {kind, x, y, z, lastSeen, firstSeen, n}
     this.visited = []; // {x, y, z, t}
+    this.cells = []; // {cx, cz, n, first, t} 探索のマス (exploreCell 四方)。n = 入った回数、t = 最後にいたループ
     this.events = []; // {t, action, arg, ok, msg}
     this.heard = []; // {t, from, text, imp}
     this.knowledge = []; // {t, from, about, text, imp, at} 人から教わったこと
@@ -57,7 +60,7 @@ class Memory {
     if (file && fs.existsSync(file)) {
       try {
         const d = JSON.parse(fs.readFileSync(file, 'utf8'));
-        for (const k of ['places', 'visited', 'events', 'heard', 'knowledge']) if (Array.isArray(d[k])) m[k] = d[k];
+        for (const k of ['places', 'visited', 'cells', 'events', 'heard', 'knowledge']) if (Array.isArray(d[k])) m[k] = d[k];
         m.tick = d.tick || 0;
         if (d.extra && typeof d.extra === 'object') m.extra = d.extra;
         m.enforceLimits();
@@ -74,7 +77,7 @@ class Memory {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = this.file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({
-      tick: this.tick, places: this.places, visited: this.visited, events: this.events, heard: this.heard,
+      tick: this.tick, places: this.places, visited: this.visited, cells: this.cells, events: this.events, heard: this.heard,
       knowledge: this.knowledge, extra: this.extra,
     }));
     fs.renameSync(tmp, this.file);
@@ -160,6 +163,10 @@ class Memory {
     this.knowledge = keep(this.knowledge, (x) => x.t);
     this.places = keep(this.places, (x) => x.lastSeen);
     this.forgotten += n;
+    // 探索のマスも時間で忘れる (忘れた数は forgotten に入れない。記憶の項目ではないので)
+    const before = this.cells.length;
+    this.cells = this.cells.filter((c) => this.strength(c, c.t) >= L.forgetBelow);
+    this.cellsForgotten = (this.cellsForgotten || 0) + (before - this.cells.length);
     return n;
   }
 
@@ -175,6 +182,23 @@ class Memory {
     return new Set([...cnt].filter(([, n]) => n >= minFails).map(([k]) => k));
   }
 
+  // 探索のマス: 今いるマスを覚える。前のループと違うマスに入ったら n を 1 増やす (同じマスに居続けても増やさない)
+  cellOf(pos) { const c = this.limits.exploreCell; return { cx: Math.floor(pos.x / c), cz: Math.floor(pos.z / c) }; }
+
+  cellAt(cx, cz) { return this.cells.find((q) => q.cx === cx && q.cz === cz) || null; }
+
+  noteCell(pos) {
+    const { cx, cz } = this.cellOf(pos);
+    let c = this.cellAt(cx, cz);
+    const entered = !this.lastCell || this.lastCell.cx !== cx || this.lastCell.cz !== cz;
+    if (!c) { c = { cx, cz, n: 0, first: this.tick, t: this.tick }; this.cells.push(c); }
+    if (entered) c.n += 1;
+    c.t = this.tick;
+    this.lastCell = { cx, cz };
+    this.enforceLimits();
+    return c;
+  }
+
   enforceLimits() {
     const L = this.limits;
     if (this.places.length > L.places) {
@@ -183,6 +207,7 @@ class Memory {
       this.places.length = L.places;
     }
     if (this.visited.length > L.visited) this.visited.splice(0, this.visited.length - L.visited);
+    if (this.cells.length > L.cells) { this.cells.sort((a, b) => b.t - a.t); this.cells.length = L.cells; }
     if (this.events.length > L.events) this.events.splice(0, this.events.length - L.events);
     if (this.heard.length > L.heard) this.heard.splice(0, this.heard.length - L.heard);
     if (this.knowledge.length > L.knowledge) this.knowledge.splice(0, this.knowledge.length - L.knowledge);

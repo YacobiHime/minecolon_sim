@@ -20,6 +20,20 @@ function readJsonl(f) {
   return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
 }
 
+// 探索: 訪れたマス (各ループの位置を exploreCell 四方の格子で数える。記憶の忘れとは関係なく記録から数える)・explore の種類・新しいマスだった回数
+function exploreStats(loops, start) {
+  const size = (start.explore && start.explore.cell) || 16;
+  const cells = new Set(loops.filter((r) => r.pos).map((r) => `${Math.floor(r.pos.x / size)},${Math.floor(r.pos.z / size)}`));
+  const ex = loops.filter((r) => r.action === 'explore');
+  const byKind = {};
+  for (const r of ex) { const k = (r.result.explore && r.result.explore.kind) || 'dir'; byKind[k] = (byKind[k] || 0) + 1; }
+  return {
+    mode: (start.explore && start.explore.mode) || 'basic', cell: size, visitedCells: cells.size, cellKeys: [...cells],
+    n: ex.length, ok: ex.filter((r) => r.result.ok).length, newCell: ex.filter((r) => r.result.explore && r.result.explore.newCell).length, byKind,
+    movedP50: pct(ex.map((r) => r.result.explore && r.result.explore.moved).filter((x) => x != null), 50),
+  };
+}
+
 // 同じ行動・引数が続いた最長の回数
 function maxRun(loops) {
   let best = 0; let n = 0; let prev = null;
@@ -74,6 +88,7 @@ function summarizeAgent(file, rows) {
     jevChoiceConfidence: { p50: pct(jevLoops.map((r) => r.jev.choice && r.jev.choice.confidence).filter((x) => x != null), 50) },
     memItems: { p50: pct(loops.map((r) => r.memSelection && Object.values(r.memSelection).reduce((s, x) => s + x, 0)).filter((x) => x != null), 50) },
     forgotten: sum(loops.map((r) => r.forgotten)),
+    explore: exploreStats(loops, start),
     // 状態が変わらなかった行動・困りごと (失敗の繰り返し / 変わらない繰り返し)・Jev の選択を重みで選び直した回数
     noChange: {
       unchanged: loops.filter((r) => r.stateChanged === false).length,
@@ -204,6 +219,8 @@ function main() {
     const acts = (n) => sum(agents.map((a) => (a.actions[n] ? a.actions[n].n : 0)));
     const actsOk = (n) => sum(agents.map((a) => (a.actions[n] ? a.actions[n].ok : 0)));
     console.log(`状態が変わらなかった行動 ${nc('unchanged')} 回 (うち成功扱い ${nc('unchangedOk')})、困っていた判断 ${nc('troubledLoops')} 回 (失敗の繰り返し ${nc('troubledFail')}・変わらない繰り返し ${nc('troubledNoChange')})、重みで選び直し ${nc('reweightChanged')}/${nc('reweighted')} 回、同じ行動の連続 最長 ${maxOf(agents.map((a) => a.noChange.maxSameInRow))} 回`);
+    const allCells = new Set(agents.flatMap((a) => a.explore.cellKeys));
+    console.log(`訪れたマス ${allCells.size} 個 (${agents[0] ? agents[0].explore.cell : 16} 四方、1人あたり ${agents.map((a) => a.explore.visitedCells).join('/')})、explore ${sum(agents.map((a) => a.explore.n))} 回 (新しいマスに着いた ${sum(agents.map((a) => a.explore.newCell))}、種類 ${JSON.stringify(agents.reduce((m, a) => { for (const [k, v] of Object.entries(a.explore.byKind)) m[k] = (m[k] || 0) + v; return m; }, {}))})`);
     console.log(`pillar ${acts('pillar')} 回 (成功 ${actsOk('pillar')})、pick_up ${acts('pick_up')} 回 (成功 ${actsOk('pick_up')})、go_to ${acts('go_to')} 回 (成功 ${actsOk('go_to')})`);
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
     console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);

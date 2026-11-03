@@ -3,6 +3,7 @@
 // 実行は act.js。LLM / Jev などの decider は、この一覧から1つ選んで arg を埋めるだけ。
 const { relDir } = require('./util');
 const { BUILD_MATERIAL } = require('./hut');
+const { exploreChoices } = require('./explore');
 
 const HUNTABLE = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit']);
 const MAX_PILLAR = 4; // 足場は 4 段まで
@@ -93,9 +94,13 @@ function listActions(raw, ctx = {}) {
       choices: [...items.values()].map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, item: e.name, entityId: e.id, pos: e.pos })) });
   }
 
+  // explore: mode 'basic' は東西南北 20m (段階1)、'varied' は 8方位 × 近く/遠く・まだ行っていないマス・でたらめ (explore.js)
+  const ex = ctx.explore || {};
   out.push({
-    name: 'explore', desc: 'その方角へ20ブロックほど歩いて新しい場所を見る', argType: 'choice',
-    choices: DIRECTIONS.filter((d) => !blocked.has(`explore:${d}`)).map((d) => ({ id: d, label: d, dir: d })),
+    name: 'explore',
+    desc: ex.mode === 'varied' ? '歩いて新しい場所を見る' : 'その方角へ20ブロックほど歩いて新しい場所を見る',
+    argType: 'choice',
+    choices: exploreChoices(here, { ...ex, blocked }),
   });
 
   // craft: 今の持ち物で作れるもの。作業台が見えていれば作業台が要るものも

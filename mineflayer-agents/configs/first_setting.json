@@ -42,6 +42,7 @@
   "usage": { "maxJevInputTokens": 3000000 },
   "memory": { "perRun": true, "limits": { "promptItems": 20, "promptPlaces": 6, "halfLife": 40, "impBoost": 6, "forgetBelow": 0.08 } },
   "perception": { "visionRadius": 16, "hearRadius": 24 },
-  "act": { "buildPerAction": 4 },
+  "act": { "buildPerAction": 4,
+    "explore": { "_comment": "varied: 8方位 x 近く(near)/遠く(far)・まだ行っていないマス・でたらめ。マスの一辺は memory.limits.exploreCell (既定 16)", "mode": "varied", "near": 12, "far": 35, "randomMin": 15, "randomMax": 35, "maxRing": 6 } },
   "loop": { "minutes": 15, "failWindow": 4, "failRepeat": 2 }
 }

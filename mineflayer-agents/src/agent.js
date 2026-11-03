@@ -39,6 +39,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     memPlaces, foods: extra.foods, placeable: extra.placeable, blocked, maxReachUp: cfg.act.maxReachUp,
     goalItems: new Set(Object.keys((cfg.goal.success && cfg.goal.success.inventory) || {})),
     base: extra.base || null, hut: raw.hut || null, troubles, hearRadius: cfg.perception.hearRadius,
+    explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
@@ -64,6 +65,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
 function updateMemoryFromObservation(memory, raw) {
   for (const b of raw.blocks) if (b.notable) memory.notePlace(b.name, b.nearest);
   memory.noteVisit(raw.self.pos);
+  memory.noteCell(raw.self.pos);
   for (const h of raw.heard) memory.noteHeard(h.from, h.text);
 }
 
@@ -432,7 +434,8 @@ class Agent {
     this.recorder.write({
       event: 'start', persona: cfg.persona, goal: cfg.goal, decider: this.decider.kind, talker: this.talker ? this.talker.kind : null,
       help: this.help, perception: cfg.perception, memoryLimits: this.memory.limits, base: this.base, world: cfg.world || null,
-      talk: cfg.talk || null, askCfg: cfg.ask || null, noChangeCfg: this.help.noChange ? noChangeCfg(cfg) : null, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null, ...extra,
+      talk: cfg.talk || null, askCfg: cfg.ask || null, noChangeCfg: this.help.noChange ? noChangeCfg(cfg) : null,
+      explore: { ...((cfg.act && cfg.act.explore) || { mode: 'basic' }), cell: this.memory.limits.exploreCell }, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null, ...extra,
     });
   }
 

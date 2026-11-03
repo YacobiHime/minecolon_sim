@@ -7,6 +7,7 @@ const { goals } = require('mineflayer-pathfinder');
 const { blockVisible } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
 const { hutSlots, hutStatus } = require('./hut');
+const { exploreTarget } = require('./explore');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
@@ -135,16 +136,29 @@ const handlers = {
   },
 
   async explore(bot, ch, ctx) {
-    const [vx, vz] = DIR_VEC[ch.dir];
     const start = bot.entity.position.clone();
-    const dist = ctx.exploreDistance ?? 20;
+    const c = ch.kind ? ch : { ...ch, kind: 'dir', vec: DIR_VEC[ch.dir], dist: ctx.exploreDistance ?? 20 };
+    const t = exploreTarget(start, c);
     let err = '';
     try {
-      await gotoGoal(bot, new goals.GoalNearXZ(start.x + vx * dist, start.z + vz * dist, 3));
+      await gotoGoal(bot, new goals.GoalNearXZ(t.x, t.z, 3));
     } catch (e) { err = pathErr(e); }
-    const moved = Math.round(dist3(start, bot.entity.position));
-    if (moved < 4) return { ok: false, msg: `${ch.dir}へ進めなかった${err ? ': ' + err : ''}` };
-    return { ok: true, msg: `${ch.dir}へ${moved}m進んだ${err ? '(' + err + ')' : ''}` };
+    const end = bot.entity.position;
+    const moved = Math.round(dist3(start, end));
+    // 着いたマスが新しいか (このループの観測より前に判定する。記憶のマスは次の観測で更新される)
+    let newCell = null; let cell = null;
+    if (ctx.memory && typeof ctx.memory.cellOf === 'function') {
+      const k = ctx.memory.cellOf(end);
+      const known = ctx.memory.cellAt(k.cx, k.cz);
+      newCell = !(known && known.n);
+      cell = [k.cx, k.cz];
+    }
+    const explore = { kind: c.kind, id: ch.id || ch.dir || null, dirJp: t.dirJp, planned: t.dist, target: { x: Math.round(t.x), z: Math.round(t.z) }, moved, newCell, cell };
+    // basic (東西南北、label = dir) はこれまでどおり英語の方角、varied は日本語の方角
+    const where = c.kind === 'unvisited' ? 'まだ行っていないマスの方' : c.kind === 'random' ? `でたらめに${t.dirJp}` : (!ch.label || ch.label === ch.dir ? ch.dir : t.dirJp);
+    const tag = newCell == null ? '' : newCell ? ' 新しいマス' : ' 行ったことのあるマス';
+    if (moved < 4) return { ok: false, msg: `${where}へ進めなかった${err ? ': ' + err : ''}`, explore };
+    return { ok: true, msg: `${where}へ${moved}m進んだ${tag}${err ? '(' + err + ')' : ''}`, explore };
   },
 
   async craft(bot, ch, ctx) {
