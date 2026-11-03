@@ -150,7 +150,7 @@ test('hut: 5x5・壁2段・屋根で 55 か所、入口は空ける。読み込�
 test('first_setting.json: 目標・助け①〜③・聞く・Jev・上限 300万。手順は小屋と食べ物で進む', () => {
   const cfg = loadConfig(CFG);
   assert.match(cfg.goal.text, /仲間と協力して、夜までに拠点\(小屋\)を作り、食べ物を確保する/);
-  assert.deepStrictEqual(cfg.help, { hints: true, steps: true, progress: true, askOthers: true, excludeFailures: false, noChange: true });
+  assert.deepStrictEqual(cfg.help, { hints: true, steps: true, progress: true, askOthers: true, excludeFailures: false, noChange: true, askHint: false });
   assert.deepStrictEqual(Object.keys(cfg.noChange).filter((k) => !k.startsWith('_')), ['window', 'repeat', 'weight', 'weightWindow']);
   assert.strictEqual(cfg.decider.type, 'jev');
   assert.strictEqual(cfg.usage.maxJevInputTokens, 3000000);
