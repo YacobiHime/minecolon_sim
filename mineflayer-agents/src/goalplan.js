@@ -184,7 +184,7 @@ class GoalPlan {
     const { sys, user } = this.material(ctx, g);
     sys.push(
       `ゴール「${g}」から逆向きにさかのぼって、そのために要るもの・済んでいる必要のあることを順に考え (needs)、`
-      + `それを、最初にやる手順から順に並べる (steps)。各手順は「jungle_logを3個持っている」「作業台を置いた」のように、済んだかを確かめられる形の短い文にする。手順は${this.cfg.maxSteps}個まで。`,
+      + `それを、最初にやる手順から順に並べる (steps)。各手順は「(物の名前)を3個持っている」「(物の名前)を置いた」「(場所や人)の近くにいる」のように、済んだかを確かめられる形の短い文にする。手順は${this.cfg.maxSteps}個まで。`,
       'JSON {"needs":["..."],"steps":["..."]} だけを出力する。',
     );
     if (rebuild && !rebuild.allDone) {
