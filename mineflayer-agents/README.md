@@ -229,4 +229,7 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 ## 外からの助けの記録
 
 `help` (①hints・②steps・③progress・askOthers・④excludeFailures・noChange) を設定に持ち、各記録の `start` に残す (noChange の値は `noChangeCfg`)。first_setting は ①②③ と聞く・noChange、④なし。
+①hints (`goal.hints`) には仕様の事実 (レシピ・小屋の形と材料・肉が手に入ること) だけを書き、扱い方・勧め・優先順位は書かない (2026-11-03 ユーザー決定)。
+build の原木の選択肢には「jungle_logx2(板材にすると8個)」と換算を事実として添える。原木と板材のどちらを置くかは Jev が選び、
+summarize_run の「build で置いた物」(原木・板材・そのほかの個数と回数) で数える。
 段階1の設定 (`wood_pickaxe.json`) は `help` を持たないので、これまでどおり ①②③④ (聞くなし) で動く。

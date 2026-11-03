@@ -83,7 +83,7 @@ function listActions(raw, ctx = {}) {
       if (!t || t.n > pillarMat.count) continue;
       pil.push({ id: b.name, label: `${b.name} ${relDir(here, t.p)} ${t.n}段 (${pillarMat.name}で)`, target: { x: t.p.x, y: t.p.y, z: t.p.z }, steps: t.n, item: pillarMat.name, block: b.name });
     }
-    if (pil.length) out.push({ name: 'pillar', desc: '足元にブロックを積んで登り、高い所の物に手が届くようにする (登ったあとは collect で掘る)', argType: 'choice', choices: pil });
+    if (pil.length) out.push({ name: 'pillar', desc: '足元にブロックを積んで登る (登った分だけ高い所に手が届く)', argType: 'choice', choices: pil });
   }
 
   // pick_up: 見えている落ちている物を拾いに行く
@@ -132,7 +132,9 @@ function listActions(raw, ctx = {}) {
     const hut = ctx.hut && ctx.hut.ratio != null ? ` 今${Math.round(ctx.hut.ratio * 100)}%できている` : '';
     if (mats.length) {
       out.push({ name: 'build', desc: `拠点 (${relDir(here, ctx.base)}) に小屋を建てる。決まった形に数個ずつ置く。遠ければ歩いて行く${hut}`, argType: 'choice',
-        choices: mats.filter((i) => !blocked.has(`build:${i.name}`)).map((i) => ({ id: i.name, label: `${i.name}x${i.count}`, item: i.name })) });
+        // 原木には板材への換算を事実として添える (原木1個 → 板材4個)。どちらを置くかの良し悪しは書かない
+        choices: mats.filter((i) => !blocked.has(`build:${i.name}`))
+          .map((i) => ({ id: i.name, label: /_log$/.test(i.name) ? `${i.name}x${i.count}(板材にすると${i.count * 4}個)` : `${i.name}x${i.count}`, item: i.name })) });
     }
   }
 

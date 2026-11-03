@@ -228,7 +228,7 @@ const handlers = {
     bot.setControlState('jump', false);
     const rose = Math.floor(bot.entity.position.y) - startY;
     if (up === 0) return { ok: false, msg: `登れなかった${err ? ': ' + err : ''}` };
-    return { ok: true, msg: `${ch.item}を${up}個積んで${rose}段登った (${ch.block}に手が届くか collect で確かめる)${err ? '(' + err + ')' : ''}` };
+    return { ok: true, msg: `${ch.item}を${up}個積んで${rose}段登った${err ? '(' + err + ')' : ''}` };
   },
 
   // pick_up: 落ちている物の所へ歩いて拾う

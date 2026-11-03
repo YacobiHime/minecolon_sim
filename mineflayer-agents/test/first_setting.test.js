@@ -178,3 +178,10 @@ test('buildContext: excludeFailures=false なら失敗した選択を外さず�
   assert.ok(!c2.actions.find((a) => a.name === 'collect').choices.some((x) => x.id === 'spruce_log'));
   assert.ok(!c2.actions.some((a) => a.name === 'ask'));
 });
+
+test('first_setting.json: 知っていること (goal.hints) は事実だけ (扱い方・勧め・優先順位を書かない)', () => {
+  const cfg = loadConfig(CFG);
+  for (const h of cfg.goal.hints) assert.doesNotMatch(h, /(とよい|といい|べき|優先|ほうが|方が|おすすめ|勧め|まず|先に)/, h);
+  assert.ok(cfg.goal.hints.some((h) => /原木1個から板材\(_planks\)が4個/.test(h)));
+  assert.ok(cfg.goal.hints.some((h) => /板材4個から作業台/.test(h)));
+});

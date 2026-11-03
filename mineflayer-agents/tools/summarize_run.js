@@ -34,6 +34,17 @@ function exploreStats(loops, start) {
   };
 }
 
+// build で置いた物: 原木・板材・そのほかの、選んだ回数と置いた個数 (result.placed)
+function buildStats(loops) {
+  const out = { log: { n: 0, placed: 0 }, planks: { n: 0, placed: 0 }, other: { n: 0, placed: 0 } };
+  for (const r of loops.filter((x) => x.action === 'build')) {
+    const k = /_log$/.test(r.arg) ? 'log' : /_planks$/.test(r.arg) ? 'planks' : 'other';
+    out[k].n += 1;
+    out[k].placed += (r.result && r.result.placed) || 0;
+  }
+  return out;
+}
+
 // 同じ行動・引数が続いた最長の回数
 function maxRun(loops) {
   let best = 0; let n = 0; let prev = null;
@@ -89,6 +100,7 @@ function summarizeAgent(file, rows) {
     memItems: { p50: pct(loops.map((r) => r.memSelection && Object.values(r.memSelection).reduce((s, x) => s + x, 0)).filter((x) => x != null), 50) },
     forgotten: sum(loops.map((r) => r.forgotten)),
     explore: exploreStats(loops, start),
+    build: buildStats(loops),
     // 状態が変わらなかった行動・困りごと (失敗の繰り返し / 変わらない繰り返し)・Jev の選択を重みで選び直した回数
     noChange: {
       unchanged: loops.filter((r) => r.stateChanged === false).length,
@@ -221,6 +233,8 @@ function main() {
     console.log(`状態が変わらなかった行動 ${nc('unchanged')} 回 (うち成功扱い ${nc('unchangedOk')})、困っていた判断 ${nc('troubledLoops')} 回 (失敗の繰り返し ${nc('troubledFail')}・変わらない繰り返し ${nc('troubledNoChange')})、重みで選び直し ${nc('reweightChanged')}/${nc('reweighted')} 回、同じ行動の連続 最長 ${maxOf(agents.map((a) => a.noChange.maxSameInRow))} 回`);
     const allCells = new Set(agents.flatMap((a) => a.explore.cellKeys));
     console.log(`訪れたマス ${allCells.size} 個 (${agents[0] ? agents[0].explore.cell : 16} 四方、1人あたり ${agents.map((a) => a.explore.visitedCells).join('/')})、explore ${sum(agents.map((a) => a.explore.n))} 回 (新しいマスに着いた ${sum(agents.map((a) => a.explore.newCell))}、種類 ${JSON.stringify(agents.reduce((m, a) => { for (const [k, v] of Object.entries(a.explore.byKind)) m[k] = (m[k] || 0) + v; return m; }, {}))})`);
+    const bs = (k, f) => sum(agents.map((a) => a.build[k][f]));
+    console.log(`build で置いた物: 原木 ${bs('log', 'placed')} 個 (${bs('log', 'n')} 回)・板材 ${bs('planks', 'placed')} 個 (${bs('planks', 'n')} 回)・そのほか ${bs('other', 'placed')} 個 (${bs('other', 'n')} 回)`);
     console.log(`pillar ${acts('pillar')} 回 (成功 ${actsOk('pillar')})、pick_up ${acts('pick_up')} 回 (成功 ${actsOk('pick_up')})、go_to ${acts('go_to')} 回 (成功 ${actsOk('go_to')})`);
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
     console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);

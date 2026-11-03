@@ -112,3 +112,9 @@ test('listActions: 見えている落ちている物は pick_up に出る', () =
   assert.deepStrictEqual(pu.choices.map((c) => c.id), ['spruce_sapling']);
   assert.ok(!listActions(mockRaw({ entities: [] })).some((a) => a.name === 'pick_up'));
 });
+
+test('listActions: build の原木の選択肢に、板材にしたときの数を事実として添える', () => {
+  const raw = mockRaw({ inventory: [{ name: 'jungle_log', count: 2 }, { name: 'jungle_planks', count: 5 }] });
+  const b = listActions(raw, { base: { x: 0, y: 64, z: 6 } }).find((a) => a.name === 'build');
+  assert.deepStrictEqual(b.choices.map((c) => c.label), ['jungle_logx2(板材にすると8個)', 'jungle_planksx5']);
+});
