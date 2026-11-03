@@ -134,3 +134,13 @@ test('API キーは環境変数か typesafe.env の1行から読む (値はエ�
   assert.ok(!r.ok);
   assert.ok(!r.error.includes('abc123secret'));
 });
+
+// help.askHint: false なら「聞くのはよい選択」の一文を Jev の instructions に入れない
+test('askHint false removes the ask nudge from next_action instructions', async () => {
+  const { buildQuestions } = require('../src/deciders/jev.js');
+  const base = { raw: { entities: [], heard: [] } };
+  const on = buildQuestions({ ...base }, { criteria: {} }).questions.next_action.instructions;
+  const off = buildQuestions({ ...base, askHint: false }, { criteria: {} }).questions.next_action.instructions;
+  assert.match(on, /asking a nearby player/);
+  assert.doesNotMatch(off, /asking a nearby player/);
+});

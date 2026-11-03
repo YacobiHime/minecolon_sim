@@ -20,7 +20,7 @@ const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
 // noChange: 成功しても状態が変わらない繰り返しを困りごとにし、その行動に負の重みをつける (実験的。nochange.js)
-const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false };
+const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true };
 
 function helpOf(cfg) { return { ...DEFAULT_HELP, ...(cfg.help || {}) }; }
 function noChangeCfg(cfg) { return { ...nochange.DEFAULTS, ...(cfg.noChange || {}) }; }
@@ -49,6 +49,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     persona: cfg.persona,
     goal,
     showHints: help.hints,
+    askHint: help.askHint,
     raw,
     actions,
     troubles,

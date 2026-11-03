@@ -35,7 +35,7 @@
     "baseOffset": { "x": 0, "z": 6 },
     "hut": { "size": 5, "height": 2, "roof": true, "door": "south" }
   },
-  "help": { "hints": true, "steps": true, "progress": true, "askOthers": true, "excludeFailures": false, "noChange": true },
+  "help": { "hints": true, "steps": true, "progress": true, "askOthers": true, "excludeFailures": false, "noChange": true, "askHint": false },
   "noChange": { "_comment": "help.noChange のとき: 同じ行動で状態が変わらないのが直近 window 回で repeat 回 → 困っている。直近 weightWindow 回で変わらなかった回数 n だけ Jev の確率に weight^n を掛ける",
     "window": 4, "repeat": 2, "weight": 0.5, "weightWindow": 6 },
   "decider": { "type": "jev", "jev": { "model": "jev-latest", "maxConcurrent": 8, "timeoutMs": 15000 }, "llm": { "think": true } },

@@ -75,8 +75,9 @@ function buildQuestions(ctx, opts) {
   q.next_action = {
     type: 'choice',
     instructions: 'Choose the single next action for `you` that best advances `goal`. `plan` lists the steps; the step marked 「← 次はこれ」 is next. '
-      + 'Check `now` (inventory and what is visible) and `memory`. Do not repeat an action that just failed in `last_result` unless something changed. '
-      + 'If `troubled` is present and an ask option exists, asking a nearby player is a good choice.',
+      + 'Check `now` (inventory and what is visible) and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'
+      // help.askHint: 困ったら聞くよう後押しする一文 (first_setting では外し、無しで聞くかを観察する)
+      + (ctx.askHint === false ? '' : ' If `troubled` is present and an ask option exists, asking a nearby player is a good choice.'),
     criteria: opts.criteria,
   };
   q.remember = { type: 'score', instructions: 'How worth remembering for `you` is what happened in `last_result` and `heard_now`?', criteria: REMEMBER_LEVELS };
