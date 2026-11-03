@@ -6,6 +6,8 @@
 //   → 聞かれた側は、自分の記憶の範囲で「<相手>さん、答え: …」と答える。記憶に手がかりがなければ「分からない」
 //   → 答えを「誰から・いつ」付きで記憶 (knowledge) に入れる → その後の行動で使ったかを記録する
 
+const { noChangeKeys } = require('./nochange');
+
 const Q_RE = /^(\S+?)さん、教えて[:：]\s*(.+)$/;
 const A_RE = /^(\S+?)さん、答え[:：]\s*(.+)$/;
 const DONT_KNOW_RE = /分から|知らな|わから|ごめん/;
@@ -19,6 +21,8 @@ const ABOUT = {
   hunt: (a) => `${a}のつかまえ方`,
   explore: (a) => `${a}の方へ進む方法`,
   eat: (a) => `${a}の食べ方`,
+  pillar: (a) => `高い所の${a}への登り方`,
+  pick_up: (a) => `落ちている${a}の拾い方`,
 };
 
 function aboutText(key) {
@@ -29,16 +33,23 @@ function aboutText(key) {
 }
 
 // 直近の失敗から、困っていること (key = "action:arg") と最後の失敗の理由
-function troubles(memory, window = 4, repeat = 2) {
-  const keys = [...memory.recentFailures(window, repeat)];
-  return keys.map((key) => {
+// noChange = { window, repeat } を渡すと、成功しても状態が変わらない繰り返し (nochange.js) も困りごとに入れる
+function troubles(memory, window = 4, repeat = 2, noChange = null) {
+  const keys = [...memory.recentFailures(window, repeat)].map((key) => ({ key, kind: 'fail' }));
+  if (noChange) {
+    for (const key of noChangeKeys(memory.events, noChange.window, noChange.repeat)) {
+      if (!keys.some((k) => k.key === key)) keys.push({ key, kind: 'noChange' });
+    }
+  }
+  return keys.map(({ key, kind }) => {
     const last = [...memory.events].reverse().find((e) => `${e.action}:${e.arg}` === key);
-    return { key, about: aboutText(key), lastMsg: last ? last.msg : '' };
+    return { key, kind, about: aboutText(key), lastMsg: last ? last.msg : '' };
   });
 }
 
 function questionText(to, trouble) {
-  const why = trouble.lastMsg ? `(「${trouble.lastMsg.slice(0, 30)}」で失敗した)` : '';
+  const why = trouble.kind === 'noChange' ? '(何度やっても何も変わらなかった)'
+    : trouble.lastMsg ? `(「${trouble.lastMsg.slice(0, 30)}」で失敗した)` : '';
   return `${to}さん、教えて: ${trouble.about}が分からない${why}`;
 }
 

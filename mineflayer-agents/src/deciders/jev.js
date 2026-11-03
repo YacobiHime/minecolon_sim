@@ -8,6 +8,7 @@
 // そこで質問の文 (instructions) は英語、状態 (state) は観測の日本語のまま渡す。
 const { JevClient } = require('../jev_client');
 const { estimateTokens } = require('../usage');
+const { reweight } = require('../nochange');
 
 const MAX_OPTIONS = 255; // Choice の選択肢の上限 (API の制約)
 
@@ -63,7 +64,9 @@ function buildState(ctx) {
   st.memory = ctx.memText;
   st.last_result = ctx.lastResult || 'なし';
   st.heard_now = ctx.raw && ctx.raw.heard && ctx.raw.heard.length ? ctx.raw.heard.map((h) => `${h.from}「${h.text}」`).join(' ') : 'なし';
-  if (ctx.troubles && ctx.troubles.length) st.troubled = ctx.troubles.map((t) => `${t.about}が分からない (同じ失敗が続いた)`).join(' / ');
+  if (ctx.troubles && ctx.troubles.length) {
+    st.troubled = ctx.troubles.map((t) => `${t.about}が分からない (${t.kind === 'noChange' ? '何度やっても何も変わらなかった' : '同じ失敗が続いた'})`).join(' / ');
+  }
   return st;
 }
 
@@ -120,13 +123,26 @@ class JevDecider {
     const base = { rawOutput: null, latencyMs: r.ms, promptChars: inputText.length, promptTokens: rec.inputTokens, say: '', jev };
     if (!r.ok) return { ...base, action: null, arg: '', parseOk: false, repaired: false, error: r.error };
     const a = r.answers || {};
-    const pick = a.next_action && map[a.next_action.choice];
+    let chosen = a.next_action ? a.next_action.choice : null;
+    // 状態が変わらなかった行動に負の重み (help.noChange のとき、agent が ctx.noChange を渡す)。Jev の確率に掛けて選び直す
+    if (ctx.noChange && a.next_action && a.next_action.probabilities && Object.keys(ctx.noChange.penalties || {}).length) {
+      const keyOf = (k) => (map[k] ? `${map[k].action}:${map[k].arg}` : k);
+      const rw = reweight(a.next_action.probabilities, keyOf, ctx.noChange.penalties, ctx.noChange.weight);
+      if (rw) {
+        const touched = Object.keys(a.next_action.probabilities).filter((k) => ctx.noChange.penalties[keyOf(k)]);
+        jev.reweight = { from: rw.original, to: rw.choice, changed: rw.changed, weight: ctx.noChange.weight,
+          penalties: Object.fromEntries(touched.map((k) => [k, ctx.noChange.penalties[keyOf(k)]])),
+          pFrom: Number((a.next_action.probabilities[rw.original] || 0).toFixed(3)), pTo: Number((rw.probs[rw.choice] || 0).toFixed(3)) };
+        chosen = rw.choice;
+      }
+    }
+    const pick = chosen && map[chosen];
     jev.choice = a.next_action ? { choice: a.next_action.choice, confidence: a.next_action.confidence ?? null } : null;
     jev.talkP = a.talk ? a.talk.noul : null;
     jev.remember = a.remember ? a.remember.score : null;
     jev.relations = Object.fromEntries(speakers.map((n, i) => [n, a[`rel_${i}`] ? a[`rel_${i}`].score : null]));
     base.rawOutput = JSON.stringify(a.next_action ? { choice: a.next_action.choice, confidence: a.next_action.confidence } : null);
-    if (!pick) return { ...base, action: null, arg: '', parseOk: false, repaired: false, error: `Jev の選択が一覧にない: ${a.next_action && a.next_action.choice}` };
+    if (!pick) return { ...base, action: null, arg: '', parseOk: false, repaired: false, error: `Jev の選択が一覧にない: ${chosen}` };
     return { ...base, action: pick.action, arg: pick.arg, parseOk: true, repaired: false };
   }
 }

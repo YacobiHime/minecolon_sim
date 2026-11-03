@@ -15,12 +15,15 @@ const { progressText, progressRatio, stepStatus } = require('./progress');
 const { Social } = require('./social');
 const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
+const nochange = require('./nochange');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
-const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true };
+// noChange: 成功しても状態が変わらない繰り返しを困りごとにし、その行動に負の重みをつける (実験的。nochange.js)
+const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false };
 
 function helpOf(cfg) { return { ...DEFAULT_HELP, ...(cfg.help || {}) }; }
+function noChangeCfg(cfg) { return { ...nochange.DEFAULTS, ...(cfg.noChange || {}) }; }
 
 // 観測と記憶から、decider に渡す材料を作る (bot に依存しない)
 function buildContext(raw, memory, cfg, extra = {}) {
@@ -30,7 +33,8 @@ function buildContext(raw, memory, cfg, extra = {}) {
   const memPlaces = memory.placesForPrompt(here, visibleNotable);
   // ④ 失敗の除外 (段階1)。first_setting では外し、代わりに「聞く」を使う
   const blocked = help.excludeFailures ? memory.recentFailures(cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2) : new Set();
-  const troubles = help.askOthers ? (extra.troubles || ask.troubles(memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2)) : [];
+  const nc = help.noChange ? noChangeCfg(cfg) : null;
+  const troubles = help.askOthers ? (extra.troubles || ask.troubles(memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, nc)) : [];
   const actions = listActions(raw, {
     memPlaces, foods: extra.foods, placeable: extra.placeable, blocked, maxReachUp: cfg.act.maxReachUp,
     goalItems: new Set(Object.keys((cfg.goal.success && cfg.goal.success.inventory) || {})),
@@ -52,6 +56,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     memText: memory.toPromptText(here, { places: memPlaces }),
     socialText: extra.socialText || '',
     lastResult: extra.lastResult || '',
+    noChange: nc ? { penalties: nochange.penalties(memory.events, nc.weightWindow), weight: nc.weight } : null,
   };
 }
 
@@ -211,6 +216,12 @@ class Agent {
     return near ? { ratio: st.ratio, filled: st.filled, total: st.total } : null;
   }
 
+  // 行動のあとの小屋の埋まった数 (状態が変わったかの比較用。記録の hutTrue は行動の前のまま)
+  trueHutFilled() {
+    if (!this.base) return null;
+    return hutStatus(hutSlots(this.base, this.cfg.world.hut || {}), (p) => { const b = this.bot.blockAt(new Vec3(p.x, p.y, p.z)); return b ? b.name : null; }).filled;
+  }
+
   // 聞く: チャットで聞いて、答えを待つ (act.js の ask から呼ばれる)
   async doAsk(ch) {
     const trouble = ch.trouble;
@@ -308,7 +319,8 @@ class Agent {
     const forgotten = this.memory.forget();
     // 困りごと: 同じものを最近聞いたばかりなら、しばらく聞かない
     const cool = (cfg.ask && cfg.ask.cooldown) || 10;
-    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
+    const nc = this.help.noChange ? noChangeCfg(cfg) : null;
+    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, nc).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
     const socialText = this.social.words();
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, lastResult: this.lastResult });
     const obsMs = Date.now() - tObs;
@@ -333,6 +345,7 @@ class Agent {
 
     let said = null;
     if (dec.say && resolved.action !== 'say' && this.chat(dec.say)) said = dec.say;
+    const before = nochange.snapshot({ inventory: raw.inventory, pos: raw.self.pos, hutFilled: this.trueHut ? this.trueHut.filled : null });
     const tAct = Date.now();
     const result = await executeAction(bot, resolved, {
       ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t) => this.chat(t),
@@ -341,7 +354,11 @@ class Agent {
     const actMs = Date.now() - tAct;
     if (resolved.action === 'say') said = resolved.arg;
     const key = `${resolved.action}:${resolved.arg}`;
-    this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
+    const inv = bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
+    const after = nochange.snapshot({ inventory: inv, pos: bot.entity.position, hutFilled: this.trueHutFilled() });
+    const stateChanged = nochange.changed(before, after);
+    const ev = this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
+    ev.nc = !stateChanged; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
     this.social.onActionResult(resolved.action, result.ok, { repeatedFail: !result.ok && troubles.some((t) => t.key === key) });
     this.lastResult = `${plannedText}→${result.ok ? '成功' : '失敗'}: ${result.msg}`;
 
@@ -357,7 +374,6 @@ class Agent {
       }
     }
 
-    const inv = bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
     const met = goalMet(cfg.goal, inv, raw);
     const stepSt = steps ? stepStatus(steps, raw).map((s) => s.done) : null;
     this.memory.extra.social = this.social.toJSON();
@@ -373,6 +389,8 @@ class Agent {
       forgotten,
       social: { words: socialText, emotions: this.social.emotions, needs: this.social.needs },
       troubles: troubles.map((t) => t.key),
+      troubleKinds: troubles.map((t) => t.kind),
+      stateChanged,
       actions: ctx.actions.map((a) => (a.choices ? `${a.name}:${a.choices.length}` : a.name)),
       progress: ctx.progress || null,
       steps: stepSt,
@@ -414,7 +432,7 @@ class Agent {
     this.recorder.write({
       event: 'start', persona: cfg.persona, goal: cfg.goal, decider: this.decider.kind, talker: this.talker ? this.talker.kind : null,
       help: this.help, perception: cfg.perception, memoryLimits: this.memory.limits, base: this.base, world: cfg.world || null,
-      talk: cfg.talk || null, askCfg: cfg.ask || null, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null, ...extra,
+      talk: cfg.talk || null, askCfg: cfg.ask || null, noChangeCfg: this.help.noChange ? noChangeCfg(cfg) : null, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null, ...extra,
     });
   }
 

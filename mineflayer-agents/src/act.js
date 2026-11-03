@@ -10,7 +10,7 @@ const { hutSlots, hutStatus } = require('./hut');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
-const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000 };
+const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000 };
 const FACES = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];
 
 function invTotal(bot) { return bot.inventory.items().reduce((s, i) => s + i.count, 0); }
@@ -110,10 +110,19 @@ const handlers = {
 
   async go_to(bot, ch, ctx) {
     const p = ch.pos;
+    const label = ch.kind || ch.player || ch.id;
+    const start = bot.entity.position.clone();
     try {
       await gotoGoal(bot, new goals.GoalNear(p.x, p.y, p.z, 2));
     } catch (e) {
-      return { ok: false, msg: `${ch.kind || ch.player || ch.id}へ行けなかった: ${pathErr(e)}` };
+      return { ok: false, msg: `${label}へ行けなかった: ${pathErr(e)}` };
+    }
+    // pathfinder は届かない目標でもすぐ終わることがある (真上の原木で、動かないまま「着いた」が 166 回続いた)。
+    // 目標の近く (GoalNear の 2 + 余裕 1) に居なければ失敗として返す
+    const left = dist3(bot.entity.position, p);
+    if (left > (ctx.goToTolerance ?? 3)) {
+      const moved = dist3(start, bot.entity.position);
+      return { ok: false, msg: moved < 1 ? `${label}に近づけなかった (動けなかった)` : `${label}まで届かなかった (あと${Math.round(left)}m)` };
     }
     if (ch.fromMemory && ch.kind && bot.registry.blocksByName[ch.kind]) {
       const still = bot.findBlock({ matching: bot.registry.blocksByName[ch.kind].id, maxDistance: 8 });
@@ -159,6 +168,85 @@ const handlers = {
     } catch (e) { return { ok: false, msg: `${ch.item}を作れなかった: ${String(e.message).slice(0, 50)}` }; }
     const made = invCount(bot, ch.item) - before;
     return { ok: made > 0, msg: `${ch.item}を${made}個作った` };
+  },
+
+  // pillar: 目標の物の真下近くまで歩き、跳びながら足元にブロックを置いて ch.steps 段登る。
+  // 降りるときは何もしない (足場は残す。次に歩くとき pathfinder が飛び降りる。4段までなので落下の傷は小さい)
+  async pillar(bot, ch, ctx) {
+    const t = ch.target;
+    if (!t) return { ok: false, msg: '登る目標がない' };
+    const startY = Math.floor(bot.entity.position.y);
+    try {
+      await withTimeout(gotoGoal(bot, new goals.GoalNearXZ(t.x + 0.5, t.z + 0.5, 1)), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+    } catch (e) { return { ok: false, msg: `${ch.block}の下へ行けなかった: ${pathErr(e)}` }; }
+    haltPath(bot);
+    const feet0 = Math.floor(bot.entity.position.y);
+    const short = t.y - feet0 - (ctx.maxReachUp ?? 4);
+    if (short <= 0) return { ok: true, msg: `登らなくても${ch.block}に手が届く所に来た` };
+    const need = Math.min(ch.steps || 1, short, 4);
+    let up = 0;
+    let err = '';
+    for (let i = 0; i < need; i++) {
+      if (ctx.signal && ctx.signal.aborted) break;
+      const it = bot.inventory.items().find((x) => x.name === ch.item);
+      if (!it) { err = `${ch.item}が無くなった`; break; }
+      const feet = bot.entity.position.floored();
+      const head2 = bot.blockAt(feet.offset(0, 2, 0));
+      if (head2 && head2.boundingBox === 'block') { err = '頭の上がふさがっている'; break; }
+      const ref = bot.blockAt(feet.offset(0, -1, 0));
+      if (!ref || ref.boundingBox !== 'block') { err = '足元が固くない'; break; }
+      try {
+        await bot.equip(it, 'hand');
+        bot.setControlState('jump', true);
+        const y0 = bot.entity.position.y;
+        for (let k = 0; k < 20 && bot.entity.position.y < y0 + 1.0; k++) await sleep(25);
+        await bot.placeBlock(ref, new Vec3(0, 1, 0));
+        up += 1;
+      } catch (e) {
+        err = `置けなかった: ${String(e.message).slice(0, 40)}`;
+        bot.setControlState('jump', false);
+        break;
+      }
+      bot.setControlState('jump', false);
+      for (let k = 0; k < 40 && !bot.entity.onGround; k++) await sleep(25);
+      await sleep(100);
+    }
+    bot.setControlState('jump', false);
+    const rose = Math.floor(bot.entity.position.y) - startY;
+    if (up === 0) return { ok: false, msg: `登れなかった${err ? ': ' + err : ''}` };
+    return { ok: true, msg: `${ch.item}を${up}個積んで${rose}段登った (${ch.block}に手が届くか collect で確かめる)${err ? '(' + err + ')' : ''}` };
+  },
+
+  // pick_up: 落ちている物の所へ歩いて拾う
+  async pick_up(bot, ch, ctx) {
+    const before = invCount(bot, ch.item);
+    const find = () => {
+      const byId = ch.entityId != null ? bot.entities[ch.entityId] : null;
+      if (byId && byId.isValid !== false) return byId;
+      let best = null; let bd = Infinity;
+      for (const e of Object.values(bot.entities)) {
+        if (!e || e.name !== 'item' || !e.position) continue;
+        let n = null;
+        try { const it = e.getDroppedItem && e.getDroppedItem(); n = it ? it.name : null; } catch (_) { n = null; }
+        if (n !== ch.item) continue;
+        const d = dist3(e.position, bot.entity.position);
+        if (d < bd && d <= (ctx.visionRadius ?? 16)) { best = e; bd = d; }
+      }
+      return best;
+    };
+    let err = '';
+    for (let i = 0; i < 2; i++) {
+      const e = find();
+      if (!e) break;
+      try {
+        await withTimeout(gotoGoal(bot, new goals.GoalNear(e.position.x, e.position.y, e.position.z, 0.8)), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+      } catch (er) { err = pathErr(er); }
+      await sleep(500);
+      if (invCount(bot, ch.item) > before) break;
+    }
+    const got = invCount(bot, ch.item) - before;
+    if (got > 0) return { ok: true, msg: `${ch.item}を${got}個拾った` };
+    return { ok: false, msg: `${ch.item}を拾えなかった${err ? ': ' + err : ''}` };
   },
 
   async place(bot, ch) {

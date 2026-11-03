@@ -141,8 +141,10 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 
 | 行動 | 一覧に出る条件 | 実行 (mineflayer) |
 | --- | --- | --- |
-| collect | 見えていて掘れて手の届く高さのブロック | pathfinder で近づき dig、落ちた物を拾う (3個) |
-| go_to | 見えている目印・覚えている場所 (M番号、拠点を含む)・見えている人 | pathfinder |
+| collect | 見えていて掘れて手の届く高さ (足元から4段まで) のブロック。拠点の小屋の場所は除く | pathfinder で近づき dig、落ちた物を拾う (3個) |
+| go_to | 見えている目印・覚えている場所 (M番号、拠点を含む)・見えている人。collect できる種類と、手の届く高さより上のものは出さない | pathfinder。着いたあと目標から 3 ブロックより遠ければ失敗 (「近づけなかった」「届かなかった」) |
+| pillar (新) | 目印で掘れる物が、手の届く高さより 1〜4 段上にしか見えず、足場にするブロックを持っている。足場は土 → 丸石 → 石の類 → 板材 → 原木の順に選ぶ (板材・原木は小屋の材料なので後回し) | 目標の真下近くまで歩き、跳びながら足元にブロックを置いて登る。**降りるときは何もしない (足場は残す)**: 次に歩くとき pathfinder が飛び降りる。4 段までなので落下の傷は小さい。登ったあとの採掘は collect |
+| pick_up (新) | 落ちている物 (原木に限らない) が見える | その物の所へ歩いて拾う。collect のあとに拾い損ねた物にも使う |
 | explore | 東西南北 | 20 ブロック歩く |
 | craft | 今の持ち物で作れる物 (作業台が見えれば作業台の要る物も) | recipesFor → craft |
 | build (新) | 拠点を知っていて、板材・原木・丸石・土を持っている | 設計図の空いている所のうち隣に支えがある所へ、GoalPlaceBlock で近づき placeBlock。1回に4個まで。座標は選ばせない |
@@ -204,7 +206,20 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 その後 6 ループのうちに、同じ行動をやり直して成功したか (`retried_ok`)、答えに出てきた行動・物を選んで成功したか (`followed`) を記録。
 記録: 聞いた側に `ask` / `ask_reply` / `ask_timeout` / `answer_use`、答えた側に `answer` (使った記憶と 2B のプロンプト)。
 
+## 状態が変わらない繰り返し (実験的、`help.noChange`)
+
+失敗の繰り返し (ask の条件) だけでは、「着いた」の成功が続いても何も起きないループ (1人5分の試験で go_to が 166 回続いた) を拾えない。
+そこで `help.noChange: true` のとき (first_setting は有効、既定は無効):
+
+- 行動の前と後で、持ち物・位置 (1 ブロック以内は同じ)・小屋の埋まった数を比べる。同じなら記録の `stateChanged: false` (この記録は設定に関係なく常に残す)。
+- 同じ行動・引数で状態が変わらなかったのが直近 `noChange.window` (4) 回で `noChange.repeat` (2) 回 → 困っている (`troubleKinds: "noChange"`)。
+  失敗の繰り返しと同じく ask へつながる。質問の文は「…が分からない(何度やっても何も変わらなかった)」。
+- 負の重み: 直近 `noChange.weightWindow` (6) 回で状態が変わらなかった回数を n とし、Jev の choice の確率に `noChange.weight` (0.5) の n 乗を掛けて、
+  いちばん高いものを選び直す。Jev の元の答えは `jev.choice`、選び直しは `jev.reweight` (`from` / `to` / `changed` / 掛けた回数) に残る。
+  state に文を足す方法 (b) にしなかったのは、プロンプトが増えず、重みが効いたかが記録で1件ずつ追えるため。
+- say・ask は数えない。summarize_run の `noChange` と `--text` の行に回数が出る。
+
 ## 外からの助けの記録
 
-`help` (①hints・②steps・③progress・askOthers・④excludeFailures) を設定に持ち、各記録の `start` に残す。first_setting は ①②③ と聞く、④なし。
+`help` (①hints・②steps・③progress・askOthers・④excludeFailures・noChange) を設定に持ち、各記録の `start` に残す (noChange の値は `noChangeCfg`)。first_setting は ①②③ と聞く・noChange、④なし。
 段階1の設定 (`wood_pickaxe.json`) は `help` を持たないので、これまでどおり ①②③④ (聞くなし) で動く。

@@ -5,6 +5,17 @@ const { relDir } = require('./util');
 const { BUILD_MATERIAL } = require('./hut');
 
 const HUNTABLE = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit']);
+const MAX_PILLAR = 4; // 足場は 4 段まで
+// 足場にする物の順 (先にあるものを使う)。板材・原木は小屋の材料なので最後
+const PILLAR_ORDER = [/^dirt$/, /^cobblestone$/, /^(cobbled_deepslate|stone|andesite|diorite|granite|netherrack|gravel|sand)$/, /_planks$/, /_log$/];
+
+function pillarMaterial(inventory) {
+  for (const re of PILLAR_ORDER) {
+    const it = inventory.filter((i) => re.test(i.name)).sort((a, b) => b.count - a.count)[0];
+    if (it) return { name: it.name, count: inventory.filter((i) => i.name === it.name).reduce((t, i) => t + i.count, 0) };
+  }
+  return null;
+}
 
 const DIRECTIONS = ['north', 'south', 'east', 'west'];
 const PLACEABLE_HINT = new Set(['crafting_table', 'furnace', 'chest', 'torch']);
@@ -34,23 +45,53 @@ function listActions(raw, ctx = {}) {
   // go_to: 見えている目印・覚えている場所・見えている人
   // いま collect できる種類のブロックへの go_to は出さない (collect が自分で歩いて行く。
   // 出すと「go_to(原木)」「go_to(M2=原木)」を交互に選び続けて何も掘らないことがあった)
+  // 手の届く高さ (maxReachUp) より上のブロックは go_to にも出さない (着いても掘れない。行っても動かずに「着いた」になっていた)
   const collectable = new Set(coll.map((c) => c.block));
+  const feetY = Math.floor(here.y);
+  const reachable = (p) => p.y - feetY <= maxReachUp;
   const go = [];
   const seenKinds = new Set();
   for (const b of raw.blocks.filter((x) => x.notable).sort((a, c) => a.nearest.d - c.nearest.d)) {
-    if (b.nearest.d < 3 || blocked.has(`go_to:${b.name}`) || collectable.has(b.name)) continue;
-    go.push({ id: b.name, label: `${b.name} ${relDir(here, b.nearest)}`, pos: b.nearest, kind: b.name });
+    if (blocked.has(`go_to:${b.name}`) || collectable.has(b.name)) continue;
+    const target = (b.positions && b.positions.length ? b.positions : [b.nearest]).find(reachable);
+    if (!target || target.d < 3) continue;
+    go.push({ id: b.name, label: `${b.name} ${relDir(here, target)}`, pos: target, kind: b.name });
     seenKinds.add(b.name);
     if (go.length >= 5) break;
   }
   for (const p of memPlaces) {
     if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`) || collectable.has(p.kind)) continue;
+    if (p.pos && !reachable(p.pos)) continue;
     go.push({ id: p.id, label: p.label, pos: p.pos, kind: p.kind, fromMemory: true });
   }
   for (const e of raw.entities.filter((x) => x.kind === 'player')) {
     go.push({ id: e.name, label: `プレイヤー${e.name} ${relDir(here, e.pos)}`, pos: e.pos, player: e.name });
   }
   if (go.length) out.push({ name: 'go_to', desc: '見えている物・覚えている場所(M番号)・人のところへ歩く', argType: 'choice', choices: go });
+
+  // pillar: 掘りたい物 (目印で、今の道具で掘れる物) が手の届かない高さ (1〜4段足りない) にしか見えず、
+  // 足場にできるブロックを持っているときだけ。足場は土・丸石を先に使う (板材・原木は小屋の材料なので後回し)
+  const pillarMat = pillarMaterial(raw.inventory);
+  if (pillarMat) {
+    const pil = [];
+    for (const b of raw.blocks.filter((x) => x.notable && x.diggable && !collectable.has(x.name))) {
+      if (blocked.has(`pillar:${b.name}`)) continue;
+      const ps = (b.positions && b.positions.length ? b.positions : [b.nearest]);
+      const t = ps.map((p) => ({ p, n: p.y - feetY - maxReachUp })).filter((x) => x.n >= 1 && x.n <= MAX_PILLAR)
+        .sort((x, y) => (x.n - y.n) || (x.p.d - y.p.d))[0];
+      if (!t || t.n > pillarMat.count) continue;
+      pil.push({ id: b.name, label: `${b.name} ${relDir(here, t.p)} ${t.n}段 (${pillarMat.name}で)`, target: { x: t.p.x, y: t.p.y, z: t.p.z }, steps: t.n, item: pillarMat.name, block: b.name });
+    }
+    if (pil.length) out.push({ name: 'pillar', desc: '足元にブロックを積んで登り、高い所の物に手が届くようにする (登ったあとは collect で掘る)', argType: 'choice', choices: pil });
+  }
+
+  // pick_up: 見えている落ちている物を拾いに行く
+  const items = new Map();
+  for (const e of raw.entities.filter((x) => x.kind === 'item')) if (!items.has(e.name) && !blocked.has(`pick_up:${e.name}`)) items.set(e.name, e);
+  if (items.size) {
+    out.push({ name: 'pick_up', desc: '落ちている物の所へ歩いて拾う', argType: 'choice',
+      choices: [...items.values()].map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, item: e.name, entityId: e.id, pos: e.pos })) });
+  }
 
   out.push({
     name: 'explore', desc: 'その方角へ20ブロックほど歩いて新しい場所を見る', argType: 'choice',
@@ -107,7 +148,7 @@ function listActions(raw, ctx = {}) {
   }
 
   // 手元でできること (craft / build / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
-  const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask'];
+  const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar'];
   const rank = (n) => (first.includes(n) ? first.indexOf(n) : first.length);
   out.sort((a, b) => rank(a.name) - rank(b.name));
 
@@ -167,4 +208,4 @@ function resolveDecision(actions, action, arg) {
   return { ok: true, action: a.name, arg: c.id, choice: c, fixed };
 }
 
-module.exports = { listActions, actionsToText, resolveDecision, DIRECTIONS, HUNTABLE };
+module.exports = { listActions, actionsToText, resolveDecision, pillarMaterial, DIRECTIONS, HUNTABLE, MAX_PILLAR };
