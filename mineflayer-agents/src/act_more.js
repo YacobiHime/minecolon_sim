@@ -71,9 +71,11 @@ function changeText(a, b, targetName) {
   return parts.join('、');
 }
 
-// 置く面: 目に一番近い、空いている (固体でない) 隣の面
+// 置く面: 上の面が空いていて目が上にあれば上の面 (地面・台の上に使う)。そうでなければ目に一番近い、空いている隣の面
 function pickFace(bot, block) {
   const eye = bot.entity.position.offset(0, bot.entity.height ?? 1.62, 0);
+  const up = bot.blockAt(block.position.offset(0, 1, 0));
+  if ((!up || up.boundingBox !== 'block') && eye.y > block.position.y + 1) return new Vec3(0, 1, 0);
   const faces = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]].map((f) => new Vec3(...f));
   const c = block.position.offset(0.5, 0.5, 0.5);
   let best = new Vec3(0, 1, 0); let bd = Infinity;
