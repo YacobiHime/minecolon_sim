@@ -233,3 +233,33 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 build の原木の選択肢には「jungle_logx2(板材にすると8個)」と換算を事実として添える。原木と板材のどちらを置くかは Jev が選び、
 summarize_run の「build で置いた物」(原木・板材・そのほかの個数と回数) で数える。
 段階1の設定 (`wood_pickaxe.json`) は `help` を持たないので、これまでどおり ①②③④ (聞くなし) で動く。
+
+# 5人で「3日生き延びる」(`configs/survival_3days.json`)
+
+全員に「この世界で3日生き延びる。」だけを与える (協力・小屋の話は書かない)。normal・昼夜あり・等倍、60分 = 3日。
+小屋 (hut.js・build)・② 手順・③ 進み具合は使わない (`help.hut/steps/progress: false`)。
+
+- **自分で目標を決める** (`help.selfGoal`、`src/selfgoal.js`): 最初・済んだ・困りごとが新しく出た・30ループごとに、2B が
+  状態・持ち物・記憶・① から「今の目標と 2〜4 個の段取り」を書く (json_schema)。Jev の state の `plan` に入れる。
+  済んだかは Jev の noul `goal_done` で毎回聞き、0.7 以上で次のループに書き直す (2B の呼び出しを増やさないため)。記録は `self_goal`。
+- **拠点**: `world.base: "self"`。最初は無く、`set_base` で自分で決める。大事さ 1 の記憶で、近くに居るあいだは新しくし続ける。
+- **行動** (`act.enable` で有効): attack (いちばん強い武器を自動で持つ)・flee・smelt (最大30秒待つ、終わらなければ入れたまま)・
+  sleep (夜が明けなければ待ってから起きる)・equip (防具は体、道具は手)。hunt・build は `act.disabled`。collect は道具があれば石・鉱石も。
+- **寝る**: `playersSleepingPercentage 50` (寝ている人が半分以上で夜が明ける、5人なら3人)。① にも事実として書いた。
+- **死んだら**: 持ち物はバニラどおり落ち、すぐ生き返って続ける。`death` (死因 = 死亡メッセージの translate・日・時刻・位置) を記録。
+- **観測**: 敵は「敵zombie 東5(5m)」、時間は「時間:夜 2日目」。置くときは置く面に視線が通り手が届く所だけ。
+
+```bash
+# 世界 (一度だけ): サーバー停止中に新しいワールドへ
+bash mineflayer-agents/server-fabric/first_setting_world.sh prepare_survival
+bash /root/mc-server-fabric/start.sh
+bash mineflayer-agents/server-fabric/first_setting_world.sh init_survival
+# 実行 (朝から 60 分)
+bash mineflayer-agents/server-fabric/first_setting_world.sh morning
+node mineflayer-agents/run.js --config mineflayer-agents/configs/survival_3days.json --agents 5 --llm http://192.168.15.30:18081
+node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ --text
+# 終わったら (サーバー停止中に) world_first_setting に戻す
+bash /root/mc-server-fabric/stop.sh && bash mineflayer-agents/server-fabric/first_setting_world.sh restore
+```
+
+行動の実機の試験: `prepare_action_test` → start → `init_action_test` → `node mineflayer-agents/tools/action_test.js` (試験用のボット1人)。
