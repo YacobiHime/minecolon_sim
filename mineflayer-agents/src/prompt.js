@@ -9,7 +9,7 @@ function systemPrompt(persona, goal, opts = {}) {
   return [
     `あなたは Minecraft の世界にいる「${persona.name}」。${persona.personality || ''}`,
     persona.speech ? `話し方: ${persona.speech}` : '',
-    `目標: ${goal.text}`,
+    goal.text ? `目標: ${goal.text}` : '',
     goal.hints && goal.hints.length ? `知っていること: ${goal.hints.join(' ')}` : '',
     'あなたが知っているのは、自分で見たこと・やったこと・聞いたことだけ。',
     '毎回、「できる行動」から1つ選び、JSON だけを1行で出力する:',

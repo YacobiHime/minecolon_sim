@@ -11,8 +11,9 @@ const { listActions, resolveDecision } = require('./actions');
 const { executeAction } = require('./act');
 const { Memory } = require('./memory');
 const { Recorder } = require('./recorder');
-const { progressText, progressRatio, stepStatus } = require('./progress');
+const { progressText, stepStatus } = require('./progress');
 const { Social } = require('./social');
+const { senseShelter, effectiveLight, needsConfig } = require('./needs');
 const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
 const nochange = require('./nochange');
@@ -121,7 +122,7 @@ class Agent {
     this.talker = talker;
     this.help = helpOf(cfg);
     this.memory = Memory.load(cfg.memory.file, { limits: cfg.memory.limits });
-    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament });
+    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona) });
     this.recorder = new Recorder(recordDir || cfg.record.dir, cfg.persona.name, recordStamp);
     this.heardBuf = [];
     this.stopped = false;
@@ -169,6 +170,12 @@ class Agent {
         if (!who || !it || it.name !== 'item') return;
         const d = it.getDroppedItem && it.getDroppedItem();
         if (!d) return;
+        // 自分が拾った物のすぐ近く (3m) にほかの人が居て、自分が掘った直後でなければ、その人がくれた物とみなす (目安)
+        if (who === bot.username && !(bot.lastDigTime && performance.now() - bot.lastDigTime < 3000)) {
+          const giver = Object.values(bot.players).filter((p) => p.username !== bot.username && p.entity && p.entity.position.distanceTo(it.position) <= 3)
+            .sort((a, b) => a.entity.position.distanceTo(it.position) - b.entity.position.distanceTo(it.position))[0];
+          if (giver && Date.now() - (this.lastReceived || 0) > 5000) { this.lastReceived = Date.now(); this.social.onReceived(giver.username); this.recorder.write({ event: 'received', from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1, loop: this.memory.tick }); }
+        }
         o.notePickup({ who, self: bot.username, me: me(), item: d.name, count: packet.pickupItemCount || d.count || 1, pos: it.position });
       } catch (_) { /* ignore */ }
     });
@@ -204,6 +211,7 @@ class Agent {
     });
     bot.on('death', () => {
       this.memory.noteEvent('death', '', false, '死んでしまった');
+      this.social.onDeath();
       this.log(`[${bot.username}] died`);
       const t = bot.time;
       const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : null;
@@ -398,12 +406,60 @@ class Agent {
           text = r.say || 'ごめん、うまく言えない';
         } else text = mems[0].text;
         this.chat(ask.answerText(q.from, text), { force: true });
-        this.social.onAsked(q.from, mems.length > 0);
+        this.social.onAsked(q.from, mems.length > 0, this.memory.tick);
         this.recorder.write({ event: 'answer', from: this.cfg.persona.name, to: q.from, question: q.question, answer: text, known: mems.length > 0 && !ask.isDontKnow(text), memories: mems, twoB, delayMs: Date.now() - q.t });
       }
     } finally {
       this.answering = false;
     }
+  }
+
+  // 欲求に使う周りの様子 (needs.js の update に渡す): 通しの時間・明るさ・囲まれているか・寝床の近くか・知らない場所か
+  senseNeeds(raw, { newCell = false, cell = null } = {}) {
+    const bot = this.bot;
+    const s = { newCell };
+    const t = bot && bot.time;
+    if (t && Number.isFinite(Number(t.age))) s.time = Number(t.age);
+    const pos = raw.self.pos;
+    if (bot && typeof bot.blockAt === 'function') {
+      try {
+        const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z));
+        s.shelter = senseShelter(at, pos);
+        const b = at(Math.floor(pos.x), Math.floor(pos.y) + 1, Math.floor(pos.z));
+        if (b) s.light = effectiveLight({ blockLight: b.light ?? 0, skyLight: b.skyLight ?? 15 }, raw.self.timeOfDay);
+      } catch (_) { /* ignore */ }
+    }
+    // 自分の寝床: 自分の拠点か、寝たことのあるベッド (記憶の場所) の近く
+    const homes = this.memory.places.filter((q) => q.kind === BASE_KIND || /_bed$/.test(q.kind));
+    const hr = (this.social.needsModel.cfg.safety.homeRadius) || 8;
+    s.atHome = homes.some((q) => dist3(pos, q) <= hr) || (this.base ? dist3(pos, this.base) <= hr : false);
+    // 知らない場所: 初めて入ったマスか、入ったのが1回だけで来たばかり
+    s.unfamiliar = !cell || (cell.n <= 1 && this.memory.tick - cell.first < 10);
+    return s;
+  }
+
+  // 周りの人の情報 (ゴール作りに渡す): 各人への関係・最近聞いた発言・最近拾った/壊した物・今見えているか
+  peopleText(raw, { maxPeople = 5, heardPer = 2 } = {}) {
+    const me = this.cfg.persona.name;
+    const names = new Set(Object.keys(this.social.relations));
+    for (const e of raw.entities.filter((x) => x.kind === 'player')) names.add(e.name);
+    for (const h of this.memory.heard) if (h.from !== '自分' && h.from !== me) names.add(h.from);
+    const ev = this.others ? this.others.events : [];
+    for (const e of ev) names.add(e.who);
+    const lines = [];
+    for (const name of [...names].filter((n) => n && n !== me).slice(0, maxPeople)) {
+      const parts = [`${name}: ${this.social.relationWord(name)}`];
+      const seen = raw.entities.find((x) => x.kind === 'player' && x.name === name);
+      parts.push(seen ? `今は${relDir(raw.self.pos, seen.pos)}にいる` : '今は見えない');
+      const said = this.memory.heard.filter((h) => h.from === name).slice(-heardPer).map((h) => `「${h.text}」`);
+      if (said.length) parts.push(`最近の発言 ${said.join(' ')}`);
+      const did = {};
+      for (const e of ev.filter((x) => x.who === name)) { const k = `${e.name}を${e.kind === 'pickup' ? '拾った' : '壊した'}`; did[k] = (did[k] || 0) + e.count; }
+      const dl = Object.entries(did).slice(-3).map(([k, n]) => k.replace('を', `を${n}個`));
+      if (dl.length) parts.push(`最近 ${dl.join('・')}`);
+      lines.push(parts.join('。'));
+    }
+    return lines.join('\n');
   }
 
   // Jev の talk (Noul) が閾値を超えたら、2B に発言を作らせる (待たずに次へ進む)
@@ -415,7 +471,7 @@ class Agent {
     this.talking = true;
     const players = ctx.raw.entities.filter((e) => e.kind === 'player');
     const tctx = {
-      persona: this.cfg.persona, goal: ctx.goal, socialText: ctx.socialText,
+      persona: this.cfg.persona, goal: ctx.goal, plan: ctx.progress || '', socialText: ctx.socialText,
       nearText: players.map((e) => `${e.name} ${relDir(ctx.raw.self.pos, e.pos)}`).join(', '),
       heardText: ctx.raw.heard.map((h) => `${h.from}「${h.text}」`).join(' '),
       memText: ctx.memText, plannedAction: plannedText,
@@ -441,10 +497,12 @@ class Agent {
     raw.hut = this.hutView();
     const ex = this.extras();
     raw.foodCount = raw.inventory.filter((i) => ex.foods.has(i.name)).reduce((s, i) => s + i.count, 0);
+    const cell0 = this.memory.cellOf(raw.self.pos);
+    const knownCell = this.memory.cellAt(cell0.cx, cell0.cz);
     updateMemoryFromObservation(this.memory, raw);
-    for (const h of raw.heard) this.social.onHeard(h.from, tick);
+    for (const h of raw.heard) this.social.onHeard(h.from, tick, h.text);
     const steps = this.help.steps ? cfg.goal.steps : null;
-    this.social.tick({ tick, raw, hasFood: raw.foodCount > 0, progress: { ratio: steps ? progressRatio(steps, raw) : null, hutRatio: raw.hut ? raw.hut.ratio : null } });
+    this.social.tick({ tick, raw, sense: this.senseNeeds(raw, { newCell: !knownCell, cell: knownCell }) });
     const forgotten = this.memory.forget();
     // 困りごと: 同じものを最近聞いたばかりなら、しばらく聞かない
     const cool = (cfg.ask && cfg.ask.cooldown) || 10;
@@ -460,6 +518,7 @@ class Agent {
       else if (dist3(raw.self.pos, this.base) <= (cfg.perception.visionRadius ?? 16)) this.memory.notePlace(BASE_KIND, this.base, { imp: 1 });
     }
     const socialText = this.social.words();
+    const worst = this.social.worstNeed();
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, planText: this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
@@ -486,6 +545,7 @@ class Agent {
         ? knowledge.selectFacts(kn.facts, { names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
       planUpdate = await this.goalPlan.update({
         persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, actions: ctx.actions, memText: ctx.memText, socialText, troubles,
+        worst, peopleText: this.peopleText(raw), needNow: (k) => this.social.needsModel.effective()[k],
       }, tick, { stepDoneP: this.lastStepDoneP, troubles });
       this.lastStepDoneP = null;
       ctx.progress = this.goalPlan.planText();
@@ -543,6 +603,7 @@ class Agent {
       if (this.loopHist.length > (nc.netWindow ?? 10) + 1) this.loopHist.splice(0, this.loopHist.length - ((nc.netWindow ?? 10) + 1));
     }
     this.social.onActionResult(resolved.action, result.ok, { repeatedFail: !result.ok && troubles.some((t) => t.key === key) });
+    this.social.onActionNeeds(resolved.action, resolved.arg, result, tick);
     this.lastResult = `${plannedText}→${result.ok ? '成功' : '失敗'}: ${result.msg}`;
 
     // 教わった答えを使ったか
@@ -570,7 +631,7 @@ class Agent {
       memText: ctx.memText,
       memSelection: this.memory.lastSelection || null,
       forgotten,
-      social: { words: socialText, emotions: this.social.emotions, needs: this.social.needs },
+      social: { words: socialText, emotions: this.social.emotions, needs: this.social.needs, stress: this.social.stress, worst: worst ? worst.need : null },
       troubles: troubles.map((t) => t.key),
       troubleKinds: troubles.map((t) => t.kind),
       stateChanged,

@@ -85,6 +85,8 @@ function actionOptions(actions, opts = {}) {
   return { criteria: Object.fromEntries(keys.map((k) => [k, criteria[k]])), map, table, groups };
 }
 
+const hasGoal = (ctx) => !!(ctx && ctx.goal && ctx.goal.text);
+
 function troubledText(troubles) {
   return troubles.map((t) => `${t.about}が分からない (${t.kind === 'noChange' ? '何度やっても何も変わらなかった' : '同じ失敗が続いた'})`).join(' / ');
 }
@@ -93,8 +95,8 @@ function buildState(ctx, opts = {}) {
   const st = {
     you: ctx.persona.name,
     personality: ctx.persona.personality || '',
-    goal: ctx.goal.text,
   };
+  if (hasGoal(ctx)) st.goal = ctx.goal.text; // 全体の目標が無い設定 (survival_3days) では渡さない
   if (ctx.showHints && ctx.goal.hints && ctx.goal.hints.length) st.knowledge = ctx.goal.hints.join(' ');
   if (ctx.progress) st.plan = ctx.progress;
   st.now = ctx.obsText;
@@ -112,7 +114,8 @@ function buildStage2State(ctx, action) {
   const inv = (ctx.raw && ctx.raw.inventory) || [];
   const counts = new Map();
   for (const i of inv) counts.set(i.name, (counts.get(i.name) || 0) + i.count);
-  const st = { you: ctx.persona.name, goal: ctx.goal.text };
+  const st = { you: ctx.persona.name };
+  if (hasGoal(ctx)) st.goal = ctx.goal.text;
   if (ctx.progress) st.plan = ctx.progress;
   st.action = `${action.name}: ${action.desc}`;
   st.inventory = counts.size ? [...counts].map(([n, c]) => `${n}x${c}`).join(', ') : 'なし';
@@ -128,13 +131,14 @@ function buildStage2State(ctx, action) {
   return st;
 }
 
-function buildStage2Questions(action) {
+function buildStage2Questions(action, ctx = null) {
+  const toward = ctx && !hasGoal(ctx) ? '`plan` if present' : '`goal` (and `plan` if present)';
   const criteria = {};
   for (const c of action.choices.slice(0, MAX_OPTIONS)) criteria[c.id] = c.label;
   return {
     target: {
       type: 'choice',
-      instructions: `\`you\` decided to do \`action\`. Choose the target for it that best advances \`goal\` (and \`plan\` if present). Check \`inventory\`. Do not repeat what just failed in \`last_result\` unless something changed.`,
+      instructions: `\`you\` decided to do \`action\`. Choose the target for it that best advances ${toward}. Check \`inventory\`. Do not repeat what just failed in \`last_result\` unless something changed.`,
       criteria,
     },
   };
@@ -144,7 +148,8 @@ function buildQuestions(ctx, opts) {
   const q = {};
   q.next_action = {
     type: 'choice',
-    instructions: 'Choose the single next action for `you` that best advances `goal`. '
+    instructions: (hasGoal(ctx) ? 'Choose the single next action for `you` that best advances `goal`. ' : 'Choose the single next action for `you`. ')
+      + (!hasGoal(ctx) && ctx.socialText ? '`feelings` is how `you` feel in body and mind right now. ' : '')
       + (opts.hasTable ? '`actions` explains each kind of action; an option ending in "*" is a kind of action whose target is chosen next. ' : '')
       + (ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
         : ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ')
@@ -168,7 +173,8 @@ function buildQuestions(ctx, opts) {
     q.talk = {
       type: 'noul',
       instructions: 'Should `you` say something out loud to a nearby player right now? Yes if someone in `heard_now` spoke to `you`, if a player just came near, '
-        + 'or if talking would help coordinate `goal` with nearby players. No if nobody is near or there is nothing worth saying.',
+        + (hasGoal(ctx) ? 'or if talking would help coordinate `goal` with nearby players. ' : 'or if `you` have something to say to nearby players about what `you` or they are doing or feeling. ')
+        + 'No if nobody is near or there is nothing worth saying.',
     };
   }
   const speakers = [...new Set(heard.map((h) => h.from))].slice(0, opts.maxRelations ?? 3);
@@ -255,7 +261,7 @@ class JevDecider {
       // 2回目: 分類の中から対象を選ぶ
       const act = groups[pick.group];
       const st2 = buildStage2State(ctx, act);
-      const q2 = buildStage2Questions(act);
+      const q2 = buildStage2Questions(act, ctx);
       const c2 = await this.call(st2, q2, 2);
       const s2 = { action: act.name, options: Object.keys(q2.target.criteria).length, inputChars: c2.inputChars, inputTokens: c2.inputTokens, tokensEstimated: c2.estimated, ms: c2.r.ms, outputTokens: c2.r.usage ? c2.r.usage.output_tokens : null };
       jev.calls = 2;

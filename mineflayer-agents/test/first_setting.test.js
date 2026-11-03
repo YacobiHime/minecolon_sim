@@ -51,10 +51,11 @@ test('Social: ルールで感情・欲求・関係が動き、短い言葉にな
   s.onRelationScore('Jiro', 0);
   assert.match(s.words(), /Jiroとは少し苦手。聞いたのに返事がなかった/);
   assert.ok(!/\d/.test(s.words()), '2B に数値を渡さない');
-  // 夕方になって小屋が無いと安全の欲求が上がる
-  s.tick({ tick: 50, raw: { self: { food: 20, timeOfDay: 12500 } }, hasFood: false, progress: { hutRatio: 0 } });
+  // 夜に外 (暗い・囲まれていない) で敵が近いと、安心が足りなくなる (欲求は needs.js)
+  for (let i = 0; i < 4; i++) s.tick({ tick: 50 + i, raw: { self: { food: 20, timeOfDay: 15000 + i * 200, day: 0, health: 20 }, entities: [{ kind: 'hostile', name: 'zombie', d: 5 }], inventory: [] }, sense: { light: 3, shelter: { enclosed: false } } });
   assert.ok(s.needs.safety > 0.5);
-  assert.match(s.words(), /夜が近くて/);
+  assert.match(s.words(), /近くにzombieがいる/);
+  assert.match(s.words(), /お腹/); // 体の状態は毎回入る
   const back = Social.fromJSON(JSON.parse(JSON.stringify(s.toJSON())));
   assert.strictEqual(back.rel('Hanako').affinity, s.rel('Hanako').affinity);
 });

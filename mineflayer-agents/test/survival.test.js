@@ -15,10 +15,9 @@ const { mockRaw } = require('./fixtures');
 const CFG = path.join(__dirname, '..', 'configs', 'survival_3days.json');
 const ADVICE = /(とよい|といい|べき|優先|ほうが|方が|おすすめ|勧め|まず|先に)/;
 
-test('survival_3days.json: 目標は「3日生き延びる」だけ。小屋・手順・進み具合は切り、自分で目標を決める', () => {
+test('survival_3days.json: 全体の目標は渡さない。小屋・手順・進み具合は切り、自分で目標を決める', () => {
   const cfg = loadConfig(CFG);
-  assert.strictEqual(cfg.goal.text, 'この世界で3日生き延びる。');
-  assert.doesNotMatch(cfg.goal.text, /協力|小屋|仲間/);
+  assert.strictEqual(cfg.goal.text, ''); // 全体の目標は渡さない (3日は実験の長さだけ)
   assert.ok(!cfg.goal.steps || !cfg.goal.steps.length);
   assert.strictEqual(cfg.help.hut, false);
   assert.strictEqual(cfg.help.steps, false);

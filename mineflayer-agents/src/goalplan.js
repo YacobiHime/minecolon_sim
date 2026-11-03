@@ -7,11 +7,15 @@
 //       checkThreshold 未満の手順はその部分だけ 2B に書き直させ、書き直した分をもう一度確かめる (maxRewrites 回まで)
 //   (d) 実行: 行動を選ぶ Jev の state.plan には、ゴールと今の手順 (何手順目か) だけを出す。今の手順が済んだかを
 //       Jev の noul (step_done) で毎回聞き、stepDoneThreshold 以上なら次の手順へ。全部済んだらゴール達成 → 新しいゴール
+//   (d') ゴールは欲求から: ゴール作りには、体と心の状態・いちばんつらいこととその理由・周りの人の情報を渡し、
+//       全体の目標は渡さない (goal.text が空のとき)。2B はゴールと一緒に「何のため」(why) と、満たしたいもの (need) を書く。
+//       手順を全部こなしても、そのゴールの元の欲求が下がっていなければ (needDrop 未満・needLow より上)、手順を作り直す
 //   (e) 詰まったとき (困りごとが troubleTicks 判断続く・今の手順が stepPatience 判断進まない): 残りの手順だけ作り直す。
 //       ゴールは変えない。作り直しが abandonAfter 回を超えたらゴールを捨てて新しいゴール
 // 研究方針: 仕様・事実は見せるが、どう使うかは書かない。評価語を指示に入れない。
 const { LLMDecider } = require('./deciders/llm');
 const { timePhase } = require('./util');
+const { NEED_LABEL, LABEL_TO_NEED } = require('./needs');
 
 const DEFAULTS = {
   maxSteps: 6,
@@ -27,10 +31,16 @@ const DEFAULTS = {
   temperature: 0.5,
   goalMax: 60,
   stepMax: 40,
+  whyMax: 60,
+  needDrop: 0.15, // ゴールの元の欲求が、決めたときからこれだけ下がれば満たされた
+  needLow: 0.3, // または、これより下になれば満たされた
 };
 
+const NEED_LABELS = Object.values(NEED_LABEL);
 const GOAL_SCHEMA = {
-  type: 'object', properties: { goal: { type: 'string', maxLength: 60 } }, required: ['goal'], additionalProperties: false,
+  type: 'object',
+  properties: { goal: { type: 'string', maxLength: 60 }, why: { type: 'string', maxLength: 60 }, need: { type: 'string', enum: NEED_LABELS } },
+  required: ['goal', 'why', 'need'], additionalProperties: false,
 };
 function stepsSchema(maxSteps, withNeeds = true) {
   const props = {};
@@ -38,6 +48,8 @@ function stepsSchema(maxSteps, withNeeds = true) {
   props.steps = { type: 'array', items: { type: 'string', maxLength: 40 }, minItems: 1, maxItems: maxSteps };
   return { type: 'object', properties: props, required: Object.keys(props), additionalProperties: false };
 }
+
+function round3(v) { return Number.isFinite(v) ? Math.round(v * 1000) / 1000 : null; }
 
 function parseJson(text) {
   try {
@@ -49,6 +61,16 @@ function parseGoalText(text, max = DEFAULTS.goalMax) {
   const o = parseJson(text);
   const g = o && typeof o.goal === 'string' ? o.goal.trim().slice(0, max) : '';
   return g || null;
+}
+// { goal, why, need (needs.js のキー) } | null
+function parseGoal(text, max = DEFAULTS.goalMax, whyMax = DEFAULTS.whyMax) {
+  const o = parseJson(text);
+  const g = o && typeof o.goal === 'string' ? o.goal.trim().slice(0, max) : '';
+  if (!g) return null;
+  const why = typeof o.why === 'string' ? o.why.trim().slice(0, whyMax) : '';
+  const lab = typeof o.need === 'string' ? o.need.trim() : '';
+  const need = LABEL_TO_NEED[lab] || (NEED_LABEL[lab] ? lab : null);
+  return { goal: g, why: why || null, need };
 }
 function parseSteps(text, maxSteps = DEFAULTS.maxSteps, max = DEFAULTS.stepMax) {
   const o = parseJson(text);
@@ -99,7 +121,8 @@ class GoalPlan {
   planText() {
     if (!this.goal) return '';
     const s = this.current;
-    return s ? `ゴール: ${this.goal.text} / 今の手順 (${this.idx + 1}/${this.steps.length}): ${s.text}` : `ゴール: ${this.goal.text}`;
+    const g = `ゴール: ${this.goal.text}${this.goal.why ? ` (何のため: ${this.goal.why})` : ''}`;
+    return s ? `${g} / 今の手順 (${this.idx + 1}/${this.steps.length}): ${s.text}` : g;
   }
 
   // 2B を呼ぶ (使用量を meter に)
@@ -120,7 +143,8 @@ class GoalPlan {
     if (this.meter) this.meter.addTwoB({ kind: `plan_${rec.kind}`, promptChars: rec.promptChars, promptTokens: rec.promptTokens, completionTokens: rec.completionTokens, ms: rec.ms, error: rec.error || (ok ? null : 'parse') });
   }
 
-  // 2B に渡す材料 (共通)。ctx = { persona, goalText, obsText, raw, facts(text) → [文], actions, memText, socialText, troubles }
+  // 2B に渡す材料 (共通)。ctx = { persona, goalText, obsText, raw, facts(text) → [文], actions, memText, socialText, troubles,
+  //   worst: { need, label, text } (いちばんつらいこと), peopleText (周りの人), needNow(k) → 数値 (済んだかの判断だけに使い、渡さない) }
   material(ctx, factsKey) {
     const p = ctx.persona || {};
     const self = ctx.raw && ctx.raw.self;
@@ -128,24 +152,28 @@ class GoalPlan {
     const tbl = actionTable(ctx.actions);
     const sys = [
       `あなたは Minecraft の世界にいる「${p.name}」。${p.personality || ''}`,
-      `全体の目標: ${ctx.goalText}`,
+      ctx.goalText ? `全体の目標: ${ctx.goalText}` : '',
       'あなたが知っているのは、自分で見たこと・やったこと・聞いたことと、「知っていること」だけ。',
     ];
     const user = [
       '## 今の様子', ctx.obsText,
       self ? timeText(self.timeOfDay, self.day) : '',
-      ctx.socialText ? `## 気持ち\n${ctx.socialText}` : '',
+      ctx.socialText ? `## 体と心\n${ctx.socialText}` : '',
+      ctx.worst ? `## いちばんつらいこと\n${ctx.worst.text}` : '',
+      ctx.peopleText ? `## 周りの人\n${ctx.peopleText}` : '',
       facts.length ? `## 知っていること\n${facts.join('\n')}` : '',
       `## できる行動\n${Object.entries(tbl).map(([k, v]) => `${k}: ${v}`).join('\n')}`,
       '## 覚えていること', ctx.memText || 'なし',
-      `## これまでのゴール\n${this.history.length ? this.history.slice(-5).map((h) => `${h.goal} (${h.result === 'done' ? '達成した' : 'やめた'}。手順 ${h.stepsDone}/${h.stepsTotal})`).join('\n') : 'まだない'}`,
+      `## これまでのゴール\n${this.history.length ? this.history.slice(-5).map((h) => `${h.goal}${h.why ? ` (何のため: ${h.why})` : ''} (${h.result === 'done' ? '達成した' : 'やめた'}。手順 ${h.stepsDone}/${h.stepsTotal})`).join('\n') : 'まだない'}`,
     ];
     return { sys, user };
   }
 
   goalMessages(ctx) {
     const { sys, user } = this.material(ctx, '');
-    sys.push('全体の目標に向けて、自分がこれからめざすゴールを1つ決める。ゴールは、達成するか、できないと分かるまで変えない。短い日本語で書く。', 'JSON {"goal":"..."} だけを出力する。');
+    sys.push(`${ctx.goalText ? '全体の目標に向けて、' : ''}自分がこれからめざすゴールを1つ決める。ゴールは、達成するか、できないと分かるまで変えない。短い日本語で書く。`,
+      `why にはそのゴールが何のためか、need にはそのゴールで満たしたいもの (${NEED_LABELS.join('・')}) を1つ書く。`,
+      'JSON {"goal":"...","why":"...","need":"..."} だけを出力する。');
     user.push('ゴールを JSON で。');
     return [{ role: 'system', content: sys.filter(Boolean).join('\n') }, { role: 'user', content: user.filter(Boolean).join('\n') }];
   }
@@ -159,11 +187,15 @@ class GoalPlan {
       + `それを、最初にやる手順から順に並べる (steps)。各手順は「jungle_logを3個持っている」「作業台を置いた」のように、済んだかを確かめられる形の短い文にする。手順は${this.cfg.maxSteps}個まで。`,
       'JSON {"needs":["..."],"steps":["..."]} だけを出力する。',
     );
-    if (rebuild) {
+    if (rebuild && !rebuild.allDone) {
       user.push(`## 済んだ手順\n${rebuild.done.length ? rebuild.done.join('\n') : 'なし'}`);
       user.push(`## 進まなかった手順\n${rebuild.stuck} (${rebuild.why})`);
       user.push('済んだ手順のあとの、残りの手順だけを JSON で。');
-    } else user.push(`## ゴール\n${g}`, '手順を JSON で。');
+    } else if (rebuild && rebuild.allDone) {
+      user.push(`## 済んだ手順\n${rebuild.done.length ? rebuild.done.join('\n') : 'なし'}`);
+      user.push(`## 手順は全部済んだが\n${rebuild.why}`);
+      user.push('これからの手順を JSON で。');
+    } else user.push(`## ゴール\n${g}${this.goal.why ? ` (何のため: ${this.goal.why})` : ''}`, '手順を JSON で。');
     return [{ role: 'system', content: sys.filter(Boolean).join('\n') }, { role: 'user', content: user.filter(Boolean).join('\n') }];
   }
 
@@ -231,12 +263,14 @@ class GoalPlan {
 
   async newGoal(ctx, tick) {
     const rec = await this.ask2B('goal', this.goalMessages(ctx), GOAL_SCHEMA, this.cfg.maxTokens.goal);
-    const g = rec.rawOutput ? parseGoalText(rec.rawOutput, this.cfg.goalMax) : null;
-    this.addMeter(rec, !!g);
-    this.log({ kind: 'goal', tick, goal: g, ok: !!g, ...rec });
-    if (!g) { this.retryAt = tick + this.cfg.retryAfter; return false; }
+    const pg = rec.rawOutput ? parseGoal(rec.rawOutput, this.cfg.goalMax, this.cfg.whyMax) : null;
+    this.addMeter(rec, !!pg);
+    const needAt = pg && pg.need && ctx.needNow ? round3(ctx.needNow(pg.need)) : null;
+    this.log({ kind: 'goal', tick, goal: pg ? pg.goal : null, why: pg ? pg.why : null, need: pg ? pg.need : null, needAt,
+      worst: ctx.worst ? ctx.worst.need : null, worstText: ctx.worst ? ctx.worst.text : null, ok: !!pg, ...rec });
+    if (!pg) { this.retryAt = tick + this.cfg.retryAfter; return false; }
     this.counts.goals += 1;
-    this.goal = { text: g, setAt: tick, rebuilds: 0, n: this.counts.goals };
+    this.goal = { text: pg.goal, why: pg.why, need: pg.need, needAt, setAt: tick, rebuilds: 0, n: this.counts.goals };
     this.steps = []; this.idx = 0; this.stepSince = tick; this.troubleRun = 0;
     return this.makeSteps(ctx, tick);
   }
@@ -246,10 +280,11 @@ class GoalPlan {
     const rec = await this.ask2B(rebuild ? 'rebuild' : 'steps', this.stepsMessages(ctx, rebuild), stepsSchema(this.cfg.maxSteps), this.cfg.maxTokens.steps);
     const parsed = rec.rawOutput ? parseSteps(rec.rawOutput, this.cfg.maxSteps, this.cfg.stepMax) : null;
     this.addMeter(rec, !!parsed);
-    const keep = rebuild ? this.steps.slice(0, this.idx) : [];
+    const keep = rebuild && !rebuild.allDone ? this.steps.slice(0, this.idx) : [];
     if (parsed) {
       const room = Math.max(1, this.cfg.maxSteps - keep.length);
       this.steps = [...keep, ...parsed.steps.slice(0, room).map((text) => ({ text, p: null }))];
+      if (rebuild && rebuild.allDone) this.idx = 0;
       this.stepSince = tick; this.troubleRun = 0;
     }
     this.log({ kind: rebuild ? 'rebuild' : 'steps', tick, goal: this.goal.text, needs: parsed ? parsed.needs : null, steps: parsed ? this.steps.map((s) => s.text) : null, from: keep.length, why: rebuild ? rebuild.why : null, ok: !!parsed, ...rec });
@@ -259,11 +294,11 @@ class GoalPlan {
     return true;
   }
 
-  finishGoal(result, tick) {
-    const h = { goal: this.goal.text, result, stepsDone: Math.min(this.idx, this.steps.length), stepsTotal: this.steps.length, rebuilds: this.goal.rebuilds, from: this.goal.setAt, to: tick };
+  finishGoal(result, tick, nc = null) {
+    const h = { goal: this.goal.text, why: this.goal.why || null, need: this.goal.need || null, result, stepsDone: Math.min(this.idx, this.steps.length), stepsTotal: this.steps.length, rebuilds: this.goal.rebuilds, from: this.goal.setAt, to: tick };
     this.history.push(h);
     if (result === 'done') this.counts.done += 1; else this.counts.abandoned += 1;
-    this.log({ kind: result === 'done' ? 'goal_done' : 'abandon', tick, ...h });
+    this.log({ kind: result === 'done' ? 'goal_done' : 'abandon', tick, ...h, needAt: this.goal.needAt ?? null, needNow: nc ? nc.now : null });
     this.goal = null; this.steps = []; this.idx = 0;
   }
 
@@ -277,25 +312,45 @@ class GoalPlan {
       this.log({ kind: 'advance', tick, goal: this.goal.text, step: this.current.text, index: this.idx, p: stepDoneP, took: tick - this.stepSince });
       this.counts.advanced += 1;
       this.idx += 1; this.stepSince = tick; this.troubleRun = 0;
-      if (this.idx >= this.steps.length) { this.finishGoal('done', tick); await this.newGoal(ctx, tick); return 'goal_done'; }
+      if (this.idx >= this.steps.length) {
+        // 手順は全部済んだ: ゴールの元の欲求が下がっていれば達成。下がっていなければ手順を作り直す
+        const nc = this.needCheck(ctx);
+        if (nc.met) { this.finishGoal('done', tick, nc); await this.newGoal(ctx, tick); return 'goal_done'; }
+        this.log({ kind: 'need_unmet', tick, goal: this.goal.text, need: this.goal.need, needAt: this.goal.needAt, needNow: nc.now });
+        return this.rebuildOrAbandon(ctx, tick, { done: this.steps.map((s) => s.text), allDone: true,
+          why: `${NEED_LABEL[this.goal.need]}のつらさが変わらない${ctx.worst && ctx.worst.need === this.goal.need ? ` (${ctx.worst.text})` : ''}` });
+      }
       return 'advance';
     }
     const stuckTrouble = this.troubleRun >= this.cfg.troubleTicks;
     const stuckLong = tick - this.stepSince >= this.cfg.stepPatience;
     if (!stuckTrouble && !stuckLong) return null;
+    const why = stuckTrouble ? `困りごとが${this.troubleRun}判断続いた: ${troubles.map((t) => t.about).join(' / ')}` : `${tick - this.stepSince}判断進まなかった`;
+    return this.rebuildOrAbandon(ctx, tick, { done: this.steps.slice(0, this.idx).map((s) => s.text), stuck: this.current.text, why });
+  }
+
+  // ゴールの元の欲求が下がったか。need が無い・数値が取れないときは、手順を全部こなしたことで済んだとする
+  needCheck(ctx) {
+    const g = this.goal;
+    if (!g || !g.need || !ctx.needNow || g.needAt == null) return { met: true, now: null };
+    const now = round3(ctx.needNow(g.need));
+    return { met: now <= g.needAt - this.cfg.needDrop || now <= this.cfg.needLow, now };
+  }
+
+  async rebuildOrAbandon(ctx, tick, rebuild) {
     this.goal.rebuilds += 1;
     this.counts.rebuilds += 1;
-    const why = stuckTrouble ? `困りごとが${this.troubleRun}判断続いた: ${troubles.map((t) => t.about).join(' / ')}` : `${tick - this.stepSince}判断進まなかった`;
     if (this.goal.rebuilds > this.cfg.abandonAfter) {
       this.finishGoal('abandoned', tick);
       await this.newGoal(ctx, tick);
       return 'abandon';
     }
-    await this.makeSteps(ctx, tick, { done: this.steps.slice(0, this.idx).map((s) => s.text), stuck: this.current.text, why });
+    await this.makeSteps(ctx, tick, rebuild);
     if (this.stepSince !== tick) this.stepSince = tick; // 作り直せなくても、すぐには繰り返さない
     this.troubleRun = 0;
-    return 'rebuild';
+    if (rebuild.allDone && this.idx >= this.steps.length) this.idx = Math.max(0, this.steps.length - 1); // 作り直せなかったら最後の手順に留まる
+    return rebuild.allDone ? 'rebuild_need' : 'rebuild';
   }
 }
 
-module.exports = { GoalPlan, DEFAULTS, GOAL_SCHEMA, stepsSchema, parseGoalText, parseSteps, timeText, actionTable };
+module.exports = { GoalPlan, DEFAULTS, GOAL_SCHEMA, stepsSchema, parseGoal, parseGoalText, parseSteps, timeText, actionTable };

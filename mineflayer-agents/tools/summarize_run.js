@@ -278,6 +278,55 @@ function pairDistanceStats(all, { near = 16, bucketSec = 60 } = {}) {
   return { near, bucketSec, timeline, perPair };
 }
 
+// 欲求とストレス (needs.js): 人ごとに、分ごとの平均・最大と、寝た回数・食べた回数。古い記録 (social.needs に stress が無い) は null
+const NEED_KEYS = ['hunger', 'sleep', 'safety', 'connection', 'recognition', 'curiosity', 'greed', 'care', 'stress'];
+function needsStats(all) {
+  const loops = all.filter((r) => isStep(r) && r.ts && r.social && r.social.needs && r.social.needs.stress != null);
+  if (!loops.length) return null;
+  const t0 = Math.min(...all.filter((r) => r.ts).map((r) => new Date(r.ts).getTime()));
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const out = {};
+  for (const name of [...new Set(loops.map((r) => r._name))]) {
+    const rows = loops.filter((r) => r._name === name);
+    const byMin = new Map();
+    for (const r of rows) {
+      const m = Math.floor((new Date(r.ts).getTime() - t0) / 60000);
+      if (!byMin.has(m)) byMin.set(m, []);
+      byMin.get(m).push(r.social.needs);
+    }
+    const perMinute = [...byMin.keys()].sort((a, b) => a - b).map((m) => {
+      const xs = byMin.get(m);
+      const o = { min: m, n: xs.length };
+      for (const k of NEED_KEYS) {
+        const v = xs.map((x) => x[k]).filter((x) => Number.isFinite(x));
+        if (v.length) o[k] = { avg: r2(sum(v) / v.length), max: r2(Math.max(...v)) };
+      }
+      return o;
+    });
+    const all1 = {};
+    for (const k of NEED_KEYS) {
+      const v = rows.map((r) => r.social.needs[k]).filter((x) => Number.isFinite(x));
+      if (v.length) all1[k] = { avg: r2(sum(v) / v.length), max: r2(Math.max(...v)) };
+    }
+    const steps = all.filter((r) => isStep(r) && r._name === name);
+    out[name] = {
+      overall: all1, perMinute,
+      slept: steps.filter((r) => r.action === 'sleep' && r.result.ok && (!r.result.sleep || r.result.sleep.slept)).length,
+      nightsSkipped: steps.filter((r) => r.action === 'sleep' && r.result.ok && r.result.sleep && r.result.sleep.nightSkipped).length,
+      ate: steps.filter((r) => r.action === 'eat' && r.result.ok).length,
+      received: all.filter((r) => r.event === 'received' && r._name === name).length,
+      worst: rows.reduce((m, r) => { const w = r.social.worst; if (w) m[w] = (m[w] || 0) + 1; return m; }, {}),
+    };
+  }
+  return out;
+}
+
+// ゴールの why / need (help.goalPlan の goal event)
+function goalWhyList(all, n = 20) {
+  return all.filter((r) => r.event === 'goal_plan' && r.kind === 'goal' && r.ok).sort((a, b) => (a.ts < b.ts ? -1 : 1))
+    .map((r) => `[${hhmmss(r.ts)}] ${r._name} ${r.goal} (何のため: ${r.why || '-'} / need: ${r.need || '-'}${r.worst ? ` / いちばんつらい: ${r.worst}` : ''})`).slice(0, n);
+}
+
 // go_to で人の所へ行った回数 (arg が記録にいる人の名前)
 function goToPersonStats(all, names) {
   const set = new Set(names);
@@ -350,6 +399,8 @@ function main() {
     survival: survivalStats(agents, all),
     selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
     goalPlan: all.some((r) => r.event === 'goal_plan') ? goalPlanStats(all) : null,
+    needs: needsStats(all),
+    goalWhy: goalWhyList(all),
     others: { appended: loops.filter((r) => r.result && r.result.others && r.result.others.length).length,
       items: sum(loops.map((r) => ((r.result && r.result.others) || []).length)) },
     cooperation: cooperationStats(all),
@@ -385,6 +436,14 @@ function main() {
         console.log(`ゴール ${g.goals} 個 (達成 ${g.done}・捨てた ${g.abandoned})、手順を進めた ${g.stepsAdvanced} 回 (1手順 p50 ${g.stepTook.p50} 判断)、作り直し ${g.rebuilds} 回、確認 ${g.checks} 回 (${g.checkAsked} 手順のうち落ちた ${g.checkFailed}、書き直し ${g.rewrites})`);
         console.log(`  人ごと: ${Object.entries(g.perAgent).map(([k, v]) => `${k} ゴール${v.goals}・進んだ${v.stepsAdvanced}・作り直し${v.rebuilds}`).join(' / ')}`);
         for (const l of g.timeline.slice(0, 8)) console.log(`  ${l}`);
+      }
+      if (out.needs) {
+        for (const [nm, v] of Object.entries(out.needs)) {
+          const o = v.overall;
+          const f = (k) => (o[k] ? `${o[k].avg}/${o[k].max}` : '-');
+          console.log(`  欲求 ${nm} (平均/最大): 空腹 ${f('hunger')}・眠気 ${f('sleep')}・不安 ${f('safety')}・つながり ${f('connection')}・認められたい ${f('recognition')}・ストレス ${f('stress')}、寝た ${v.slept} 回 (夜を越した ${v.nightsSkipped})・食べた ${v.ate} 回・もらった ${v.received} 回`);
+        }
+        for (const l of out.goalWhy.slice(0, 8)) console.log(`  ${l}`);
       }
       console.log(`ほかの人が拾った・壊したことを結果に足した ${out.others.appended} 回`);
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);

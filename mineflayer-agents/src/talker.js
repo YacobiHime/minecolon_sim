@@ -19,13 +19,14 @@ class Talker {
     this.kind = `2B(${this.llm.model})`;
   }
 
-  // 話す内容を作る。ctx = { persona, goal, socialText, nearText, heardText, memText, plannedAction }
+  // 話す内容を作る。ctx = { persona, goal, plan (自分のゴールと今の手順), socialText, nearText, heardText, memText, plannedAction }
   talkMessages(ctx) {
     return [
-      { role: 'system', content: [...personaLines(ctx.persona), `目標: ${ctx.goal.text}`,
+      { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
         '近くの人に話しかける。短い日本語(30字以内)で、自分の気持ちと関係に合った言い方にする。JSON {"say":"..."} だけを出力する。'].join('\n') },
       { role: 'user', content: [
-        `## 気持ちと人間関係\n${ctx.socialText || 'なし'}`,
+        `## 体と心・人間関係\n${ctx.socialText || 'なし'}`,
+        ctx.plan ? `## 今していること\n${ctx.plan}` : '',
         `## 近くの人\n${ctx.nearText || 'なし'}`,
         `## 今聞こえた話\n${ctx.heardText || 'なし'}`,
         `## 覚えていること\n${ctx.memText || 'なし'}`,
