@@ -54,7 +54,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     actions,
     troubles,
     progress: prog,
-    obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes }),
+    obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes, showDay: cfg.perception.showDay }),
     memText: memory.toPromptText(here, { places: memPlaces }),
     socialText: extra.socialText || '',
     lastResult: extra.lastResult || '',

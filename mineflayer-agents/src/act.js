@@ -14,6 +14,18 @@ const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 
 const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000 };
 const FACES = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];
 
+// 置く面に目から視線が通り、手が届くか (見えない面・壁の向こうには置かない)
+function faceReachable(bot, refBlock, face, reach = 4.5) {
+  const eye = bot.entity.position.offset(0, bot.entity.height ?? 1.62, 0);
+  const pt = refBlock.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5);
+  const d = pt.minus(eye);
+  const len = d.norm();
+  if (len > reach) return false;
+  if (!bot.world || typeof bot.world.raycast !== 'function' || len < 1e-6) return true;
+  const hit = bot.world.raycast(eye, d.scaled(1 / len), len + 0.5);
+  return !!hit && hit.position.equals(refBlock.position);
+}
+
 function invTotal(bot) { return bot.inventory.items().reduce((s, i) => s + i.count, 0); }
 function invCount(bot, name) { return bot.inventory.items().filter((i) => i.name === name).reduce((s, i) => s + i.count, 0); }
 
@@ -282,6 +294,7 @@ const handlers = {
       if (!tb || !below || !REPLACEABLE.has(tb.name) || below.boundingBox !== 'block') continue;
       const above = bot.blockAt(t.offset(0, 1, 0));
       if (above && above.boundingBox === 'block') continue;
+      if (!faceReachable(bot, below, new Vec3(0, 1, 0))) continue; // 見えない面・届かない所には置かない
       try {
         if (tb.name !== 'air' && tb.name !== 'cave_air') await bot.dig(tb, true); // 雪や草をどける
         await bot.equip(it, 'hand');
@@ -334,9 +347,10 @@ const handlers = {
       const tv = new Vec3(target.x, target.y, target.z);
       const key = `${target.x},${target.y},${target.z}`;
       try {
-        await withTimeout(gotoGoal(bot, new goals.GoalPlaceBlock(tv, bot.world, { range: 4.5, LOS: false })), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+        await withTimeout(gotoGoal(bot, new goals.GoalPlaceBlock(tv, bot.world, { range: 4.5, LOS: true })), ctx.perTargetMs ?? 15000, () => haltPath(bot));
         const cur = bot.blockAt(tv);
         if (cur && cur.name !== 'air' && cur.name !== 'cave_air' && cur.boundingBox !== 'block') await bot.dig(cur, true); // 草や雪をどける
+        if (!faceReachable(bot, ref, tv.minus(ref.position))) { lastErr = '置く面が見えない・届かない'; skip.add(key); continue; }
         await bot.equip(it, 'hand');
         await bot.placeBlock(ref, tv.minus(ref.position));
         placed += 1;
@@ -418,4 +432,4 @@ async function executeAction(bot, resolved, ctx) {
   }
 }
 
-module.exports = { executeAction, handlers, DEFAULT_TIMEOUTS };
+module.exports = { executeAction, handlers, DEFAULT_TIMEOUTS, faceReachable };

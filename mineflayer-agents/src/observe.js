@@ -8,6 +8,9 @@ const { Vec3 } = require('vec3');
 const { relDir, dist3, timePhase, round1 } = require('./util');
 
 const IGNORE = new Set(['air', 'cave_air', 'void_air']);
+// 敵 (夜や暗い所に出る、こちらを襲うもの)。観測では kind: 'hostile' にして「敵」と書く
+const HOSTILE = new Set(['zombie', 'zombie_villager', 'husk', 'drowned', 'skeleton', 'stray', 'creeper', 'spider', 'cave_spider',
+  'enderman', 'witch', 'slime', 'phantom', 'pillager', 'vindicator', 'evoker', 'ravager', 'silverfish', 'guardian', 'blaze', 'ghast']);
 const DEFAULT_NOTABLE = [
   '_log$', '^crafting_table$', '^furnace$', '^chest$', '^water$', '^lava$', '_ore$', '_bed$',
   '^sand$', '^gravel$', '^clay$', '^pumpkin$', '^melon$', '^sugar_cane$', '^cobblestone$',
@@ -105,6 +108,7 @@ function collectRaw(bot, opts = {}) {
     let kind = 'mob';
     let name = e.name || e.displayName || 'unknown';
     if (e.type === 'player') { kind = 'player'; name = e.username || name; }
+    else if (HOSTILE.has(e.name)) kind = 'hostile';
     else if (e.name === 'item') {
       kind = 'item';
       try { const it = e.getDroppedItem && e.getDroppedItem(); name = it ? it.name : 'item'; } catch (_) { name = 'item'; }
@@ -122,6 +126,7 @@ function collectRaw(bot, opts = {}) {
       food: Math.round(bot.food ?? 20),
       timeOfDay: bot.time ? bot.time.timeOfDay : 6000,
       phase: timePhase(bot.time ? bot.time.timeOfDay : 6000),
+      day: bot.time && Number.isFinite(bot.time.day) ? bot.time.day : null,
     },
     inventory: summarizeInventory(items),
     blocks,
@@ -144,7 +149,9 @@ function summarizeObservation(raw, opts = {}) {
   const maxEntities = opts.maxEntities ?? 6;
   const s = raw.self;
   const lines = [];
-  lines.push(`自分: ${s.name} 位置(${Math.round(s.pos.x)},${Math.round(s.pos.y)},${Math.round(s.pos.z)}) 体力${s.health}/20 満腹${s.food}/20 時間:${s.phase}`);
+  // showDay: 何日目か (1日目 = day 0)。3日生き延びる設定で使う
+  const dayTxt = opts.showDay && s.day != null ? ` ${s.day + 1}日目` : '';
+  lines.push(`自分: ${s.name} 位置(${Math.round(s.pos.x)},${Math.round(s.pos.y)},${Math.round(s.pos.z)}) 体力${s.health}/20 満腹${s.food}/20 時間:${s.phase}${dayTxt}`);
   lines.push('持ち物: ' + (raw.inventory.length ? raw.inventory.map((i) => `${i.name}x${i.count}`).join(', ') : 'なし'));
   const blocks = [...raw.blocks].sort((a, b) => (b.notable - a.notable) || (a.nearest.d - b.nearest.d)).slice(0, maxTypes);
   lines.push('見えるブロック: ' + (blocks.length
@@ -152,10 +159,10 @@ function summarizeObservation(raw, opts = {}) {
     : 'なし'));
   const ents = raw.entities.slice(0, maxEntities);
   lines.push('近くの人・生き物・落ちている物: ' + (ents.length
-    ? ents.map((e) => `${e.kind === 'player' ? 'プレイヤー' : e.kind === 'item' ? '落ちている' : ''}${e.name} ${relDir(s.pos, e.pos)}`).join(', ')
+    ? ents.map((e) => `${e.kind === 'player' ? 'プレイヤー' : e.kind === 'item' ? '落ちている' : e.kind === 'hostile' ? '敵' : ''}${e.name} ${relDir(s.pos, e.pos)}`).join(', ')
     : 'なし'));
   lines.push('今聞こえた話: ' + (raw.heard.length ? raw.heard.map((h) => `${h.from}「${h.text}」`).join(' ') : 'なし'));
   return lines.join('\n');
 }
 
-module.exports = { collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE };
+module.exports = { collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };

@@ -73,3 +73,20 @@ test('collectRaw: 遠いエンティティ・壁の向こうのプレイヤー�
   const raw = collectRaw(bot, { visionRadius: 16 });
   assert.deepStrictEqual(raw.entities.map((e) => e.name), ['Near']);
 });
+
+test('summarizeObservation: 敵は「敵」と書き、showDay で何日目かを書く', () => {
+  const raw = mockRaw({ entities: [{ kind: 'hostile', name: 'zombie', pos: { x: 5, y: 64, z: 0 }, d: 5 }] });
+  raw.self = { ...raw.self, phase: '夜', day: 1 };
+  const txt = summarizeObservation(raw, { showDay: true });
+  assert.match(txt, /時間:夜 2日目/);
+  assert.match(txt, /敵zombie 東5\(5m\)/);
+  assert.doesNotMatch(summarizeObservation(raw), /日目/);
+});
+
+test('collectRaw: 敵の種類は kind hostile', () => {
+  const blocks = new Map([['0,63,0', 'grass_block']]);
+  const bot = mockBot({ blocks, pos: new Vec3(0.5, 64, 0.5), entities: { 7: { id: 7, name: 'zombie', type: 'mob', position: new Vec3(4, 64, 0.5), height: 1.9 }, 8: { id: 8, name: 'cow', type: 'mob', position: new Vec3(-4, 64, 0.5), height: 1.4 } } });
+  const raw = collectRaw(bot, { visionRadius: 16 });
+  assert.strictEqual(raw.entities.find((e) => e.name === 'zombie').kind, 'hostile');
+  assert.strictEqual(raw.entities.find((e) => e.name === 'cow').kind, 'mob');
+});
