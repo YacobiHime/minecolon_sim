@@ -4,14 +4,29 @@
 // 失敗も例外にせず結果として返す。1行動ごとにタイムアウトを設ける。
 const { Vec3 } = require('vec3');
 const { goals } = require('mineflayer-pathfinder');
-const { blockVisible } = require('./observe');
+const { blockVisible, HOSTILE } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
 const { hutSlots, hutStatus } = require('./hut');
 const { exploreTarget } = require('./explore');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
-const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000 };
+const DEFAULT_TIMEOUTS = { collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
+  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000 };
+const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
+const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
+
+// いちばん強い武器 (剣 > 斧、素材の順)。無ければ null (素手)
+function bestWeapon(bot) {
+  let best = null; let bs = 0;
+  for (const it of bot.inventory.items()) {
+    const m = it.name.match(/^(\w+?)_(sword|axe)$/);
+    if (!m) continue;
+    const sc = (MAT_RANK[m[1]] || 0) * 2 + (m[2] === 'sword' ? 1 : 0);
+    if (sc > bs) { best = it; bs = sc; }
+  }
+  return best;
+}
 const FACES = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];
 
 // 置く面に目から視線が通り、手が届くか (見えない面・壁の向こうには置かない)
@@ -82,7 +97,7 @@ const handlers = {
     let lastErr = '';
     const bad = new Set();
     // 拠点の小屋の設計図の場所は掘らない (自分たちが置いた壁・屋根を素材として崩さない)
-    const hutKeys = ctx.base ? new Set(hutSlots(ctx.base, ctx.hutShape || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
+    const hutKeys = ctx.base && ctx.hutShape ? new Set(hutSlots(ctx.base, ctx.hutShape).map((s) => `${s.x},${s.y},${s.z}`)) : null;
     for (let i = 0; i < want + 3; i++) {
       if (dug >= want) break;
       if (ctx.signal && ctx.signal.aborted) break;
@@ -275,7 +290,7 @@ const handlers = {
     return { ok: false, msg: `${ch.item}を拾えなかった${err ? ': ' + err : ''}` };
   },
 
-  async place(bot, ch) {
+  async place(bot, ch, ctx = {}) {
     const it = bot.inventory.items().find((i) => i.name === ch.item);
     if (!it) return { ok: false, msg: `${ch.item}を持っていない` };
     const base = bot.entity.position.floored();
@@ -299,7 +314,9 @@ const handlers = {
         if (tb.name !== 'air' && tb.name !== 'cave_air') await bot.dig(tb, true); // 雪や草をどける
         await bot.equip(it, 'hand');
         await bot.placeBlock(below, new Vec3(0, 1, 0));
-        return { ok: true, msg: `${ch.item}を(${t.x},${t.y},${t.z})に置いた` };
+        // 置いた設備 (かまど・作業台・チェスト・ベッド・松明) の場所は覚える
+        if (ctx.memory && /^(furnace|crafting_table|chest|torch)$|_bed$/.test(ch.item)) ctx.memory.notePlace(ch.item, t, { imp: 0.8 });
+        return { ok: true, msg: `${ch.item}を(${t.x},${t.y},${t.z})に置いた`, placedItem: ch.item };
       } catch (e) {
         return { ok: false, msg: `${ch.item}を置けなかった: ${String(e.message).slice(0, 50)}` };
       }
@@ -391,6 +408,116 @@ const handlers = {
     return { ok: got > 0, msg: got > 0 ? `${ch.mob}を倒して${got}個拾った` : `${ch.mob}を倒したが何も拾えなかった` };
   },
 
+  // attack: 敵か動物を攻撃する。いちばん強い武器を持ってから追いかけてたたく。倒したら落ちた物を拾う
+  async attack(bot, ch, ctx) {
+    const w = bestWeapon(bot);
+    if (w) { try { await bot.equip(w, 'hand'); } catch (_) { /* 素手で */ } }
+    const r = await handlers.hunt(bot, ch, { ...ctx, huntMs: ctx.attackMs ?? 30000 });
+    return { ...r, msg: `${w ? w.name + 'で' : '素手で'}${r.msg}`, weapon: w ? w.name : null };
+  },
+
+  // flee: 近くの敵の反対の方へ走る (fleeDistance ブロック)
+  async flee(bot, ch, ctx) {
+    const here = bot.entity.position;
+    const from = (ch.from && ch.from.length) ? ch.from : Object.values(bot.entities).filter((e) => HOSTILE.has(e.name) && e.position && dist3(e.position, here) <= 16).map((e) => e.position);
+    if (!from.length) return { ok: false, msg: '逃げる相手が見えない' };
+    let vx = 0; let vz = 0;
+    for (const p of from) { const dx = here.x - p.x; const dz = here.z - p.z; const l = Math.hypot(dx, dz) || 1; vx += dx / l; vz += dz / l; }
+    const l = Math.hypot(vx, vz) || 1;
+    const dist = ctx.fleeDistance ?? 16;
+    const start = here.clone();
+    try { bot.setControlState('sprint', true); } catch (_) { /* ignore */ }
+    let err = '';
+    try { await gotoGoal(bot, new goals.GoalNearXZ(start.x + (vx / l) * dist, start.z + (vz / l) * dist, 3)); } catch (e) { err = pathErr(e); }
+    try { bot.setControlState('sprint', false); } catch (_) { /* ignore */ }
+    const moved = Math.round(dist3(start, bot.entity.position));
+    if (moved < 4) return { ok: false, msg: `逃げられなかった${err ? ': ' + err : ''}` };
+    return { ok: true, msg: `敵から${moved}m離れた` };
+  },
+
+  // smelt: かまどに燃料と焼く物を入れ、焼けるまで最大 smeltWaitMs 待って取り出す。終わらなければ入れたまま離れる
+  async smelt(bot, ch, ctx) {
+    const p = ch.furnace;
+    const fb = p && bot.blockAt(new Vec3(p.x, p.y, p.z));
+    if (!fb || fb.name !== 'furnace') return { ok: false, msg: 'かまどが見当たらない' };
+    try {
+      await withTimeout(gotoGoal(bot, new goals.GoalLookAtBlock(fb.position, bot.world, { reach: 4 })), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+    } catch (e) { return { ok: false, msg: `かまどへ行けなかった: ${pathErr(e)}` }; }
+    if (ctx.memory) ctx.memory.notePlace('furnace', fb.position, { imp: 0.8 });
+    const reg = bot.registry;
+    const input = reg.itemsByName[ch.item];
+    const fuel = reg.itemsByName[ch.fuel];
+    if (!input || !fuel) return { ok: false, msg: '焼く物か燃料を知らない' };
+    const n = Math.min(invCount(bot, ch.item), ctx.smeltMax ?? 3);
+    if (n <= 0) return { ok: false, msg: `${ch.item}を持っていない` };
+    let furnace = null;
+    try {
+      furnace = await bot.openFurnace(fb);
+      const haveFuel = furnace.fuelItem();
+      const needFuel = Math.max(0, Math.ceil(n / (ch.burns || 1.5)) - (haveFuel ? haveFuel.count : 0));
+      if (needFuel > 0) await furnace.putFuel(fuel.id, null, Math.min(needFuel, invCount(bot, ch.fuel)));
+      await furnace.putInput(input.id, null, n);
+      const t0 = Date.now();
+      const waitMs = ctx.smeltWaitMs ?? 30000;
+      while (Date.now() - t0 < waitMs) {
+        if (ctx.signal && ctx.signal.aborted) break;
+        const o = furnace.outputItem();
+        if (o && o.count >= n) break;
+        await sleep(500);
+      }
+      const o = furnace.outputItem();
+      let took = 0; let outName = null;
+      if (o) { outName = o.name; took = o.count; await furnace.takeOutput(); }
+      furnace.close();
+      if (!took) return { ok: false, msg: `${ch.item}を${n}個入れたが、まだ焼けていない (入れたまま)`, smelt: { input: ch.item, n, took: 0 } };
+      return { ok: true, msg: `${ch.item}を焼いて${outName}を${took}個取り出した${took < n ? ' (残りは入れたまま)' : ''}`, smelt: { input: ch.item, n, took, output: outName } };
+    } catch (e) {
+      try { if (furnace) furnace.close(); } catch (_) { /* ignore */ }
+      return { ok: false, msg: `焼けなかった: ${String(e.message).slice(0, 50)}` };
+    }
+  },
+
+  // sleep: ベッドで寝る。起きる (夜が明ける) まで最大 sleepWaitMs 待つ。明けなければ起きて戻る
+  async sleep(bot, ch, ctx) {
+    const p = ch.pos;
+    const bed = p && bot.blockAt(new Vec3(p.x, p.y, p.z));
+    if (!bed || !bot.isABed(bed)) return { ok: false, msg: 'ベッドが見当たらない' };
+    try {
+      await withTimeout(gotoGoal(bot, new goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 2)), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+    } catch (e) { return { ok: false, msg: `ベッドへ行けなかった: ${pathErr(e)}` }; }
+    try { await bot.sleep(bed); } catch (e) { return { ok: false, msg: `寝られなかった: ${String(e.message).slice(0, 50)}` }; }
+    if (ctx.memory) ctx.memory.notePlace(bed.name, bed.position, { imp: 0.8 });
+    const t0 = Date.now();
+    const waitMs = ctx.sleepWaitMs ?? 30000;
+    while (bot.isSleeping && Date.now() - t0 < waitMs) {
+      if (ctx.signal && ctx.signal.aborted) break;
+      await sleep(500);
+    }
+    const tod = bot.time ? bot.time.timeOfDay : null;
+    if (bot.isSleeping) {
+      try { await bot.wake(); } catch (_) { /* ignore */ }
+      return { ok: true, msg: '寝たが夜は明けなかったので起きた', sleep: { slept: true, nightSkipped: false, timeOfDay: tod } };
+    }
+    return { ok: true, msg: '寝て起きた (夜が明けた)', sleep: { slept: true, nightSkipped: true, timeOfDay: tod } };
+  },
+
+  // equip: 道具・武器は手に、防具は体に
+  async equip(bot, ch) {
+    const it = bot.inventory.items().find((i) => i.name === ch.item);
+    if (!it) return { ok: false, msg: `${ch.item}を持っていない` };
+    const m = ch.item.match(/_(helmet|chestplate|leggings|boots)$/);
+    const dest = m ? ARMOR_DEST[m[1]] : ch.item === 'shield' ? 'off-hand' : 'hand';
+    try { await bot.equip(it, dest); } catch (e) { return { ok: false, msg: `持ち替えられなかった: ${String(e.message).slice(0, 50)}` }; }
+    return { ok: true, msg: dest === 'hand' ? `${ch.item}を手に持った` : `${ch.item}を身につけた` };
+  },
+
+  // set_base: 今いる所を拠点にする (agent が持つ。忘れにくい記憶にする)
+  async set_base(bot, _ch, ctx) {
+    if (!ctx.setBase) return { ok: false, msg: '拠点を決める仕組みがない' };
+    const p = ctx.setBase();
+    return { ok: true, msg: `ここ(${p.x},${p.y},${p.z})を拠点にした` };
+  },
+
   // 近くの人に聞く。チャットで聞き、答えを待つ部分は agent が持つ (ctx.ask)
   async ask(_bot, ch, ctx) {
     if (!ctx.ask) return { ok: false, msg: '聞く仕組みがない' };
@@ -432,4 +559,4 @@ async function executeAction(bot, resolved, ctx) {
   }
 }
 
-module.exports = { executeAction, handlers, DEFAULT_TIMEOUTS, faceReachable };
+module.exports = { executeAction, handlers, DEFAULT_TIMEOUTS, faceReachable, bestWeapon };

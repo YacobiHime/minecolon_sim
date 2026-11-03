@@ -127,6 +127,7 @@ function collectRaw(bot, opts = {}) {
       timeOfDay: bot.time ? bot.time.timeOfDay : 6000,
       phase: timePhase(bot.time ? bot.time.timeOfDay : 6000),
       day: bot.time && Number.isFinite(bot.time.day) ? bot.time.day : null,
+      held: bot.heldItem ? bot.heldItem.name : null,
     },
     inventory: summarizeInventory(items),
     blocks,

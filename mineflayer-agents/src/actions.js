@@ -10,6 +10,25 @@ const MAX_PILLAR = 4; // 足場は 4 段まで
 // 足場にする物の順 (先にあるものを使う)。板材・原木は小屋の材料なので最後
 const PILLAR_ORDER = [/^dirt$/, /^cobblestone$/, /^(cobbled_deepslate|stone|andesite|diorite|granite|netherrack|gravel|sand)$/, /_planks$/, /_log$/];
 
+// 焼ける物 → 焼いたあとの物 (smelt の候補)。燃料は FUELS の順に使う (1個で焼ける数)
+const SMELTABLE = {
+  beef: 'cooked_beef', porkchop: 'cooked_porkchop', mutton: 'cooked_mutton', chicken: 'cooked_chicken', rabbit: 'cooked_rabbit',
+  cod: 'cooked_cod', salmon: 'cooked_salmon', potato: 'baked_potato', raw_iron: 'iron_ingot', raw_gold: 'gold_ingot', raw_copper: 'copper_ingot',
+  sand: 'glass', cobblestone: 'stone',
+};
+const FUELS = [[/^coal$/, 8], [/^charcoal$/, 8], [/_planks$/, 1.5], [/_log$/, 1.5], [/^stick$/, 0.5]];
+const GEAR = /_(sword|axe|pickaxe|shovel|hoe|helmet|chestplate|leggings|boots)$|^shield$/;
+
+function smeltInput(name) { return SMELTABLE[name] || (/_log$/.test(name) ? 'charcoal' : null); }
+
+function fuelFor(inventory, inputName) {
+  for (const [re, burns] of FUELS) {
+    const it = inventory.find((i) => re.test(i.name) && i.name !== inputName);
+    if (it) return { name: it.name, burns };
+  }
+  return null;
+}
+
 function pillarMaterial(inventory) {
   for (const re of PILLAR_ORDER) {
     const it = inventory.filter((i) => re.test(i.name)).sort((a, b) => b.count - a.count)[0];
@@ -32,6 +51,10 @@ function listActions(raw, ctx = {}) {
   const blocked = ctx.blocked || new Set(); // 最近続けて失敗した "action:arg" (今回は候補から外す)
   const here = raw.self.pos;
   const out = [];
+  const disabled = ctx.disabled || new Set(); // この設定で使わない行動 (例: survival の hunt・build)
+  // サバイバル用の行動 (attack・flee・smelt・sleep・equip) は、設定で有効にしたときだけ (first_setting の一覧は変えない)
+  const enabled = ctx.enable || new Set();
+  const on = (n) => enabled.has(n) && !disabled.has(n);
 
   // collect: 見えていて、今の道具で掘れて、手の届く高さ (足場を積まない) にあるブロック
   const coll = raw.blocks
@@ -127,7 +150,7 @@ function listActions(raw, ctx = {}) {
   }
 
   // build: 拠点を知っていて、建てる材料を持っているとき (設計図の次の場所をプログラムが決める。座標は選ばせない)
-  if (ctx.base) {
+  if (ctx.base && !disabled.has('build')) {
     const mats = raw.inventory.filter((i) => BUILD_MATERIAL.test(i.name));
     const hut = ctx.hut && ctx.hut.ratio != null ? ` 今${Math.round(ctx.hut.ratio * 100)}%できている` : '';
     if (mats.length) {
@@ -142,7 +165,58 @@ function listActions(raw, ctx = {}) {
   const seenAnimals = new Map();
   for (const e of raw.entities.filter((x) => x.kind === 'mob' && HUNTABLE.has(x.name))) if (!seenAnimals.has(e.name)) seenAnimals.set(e.name, e);
   const hunt = [...seenAnimals.values()].filter((e) => !blocked.has(`hunt:${e.name}`)).map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, mob: e.name }));
-  if (hunt.length) out.push({ name: 'hunt', desc: '動物を倒して肉を手に入れる (食べ物)', argType: 'choice', choices: hunt });
+  if (hunt.length && !disabled.has('hunt')) out.push({ name: 'hunt', desc: '動物を倒して肉を手に入れる (食べ物)', argType: 'choice', choices: hunt });
+
+  // attack: 見えている敵か動物 (いちばん強い武器を自動で持つ)
+  if (on('attack')) {
+    const seen = new Map();
+    for (const e of raw.entities.filter((x) => x.kind === 'hostile' || (x.kind === 'mob' && HUNTABLE.has(x.name)))) if (!seen.has(e.name)) seen.set(e.name, e);
+    const att = [...seen.values()].filter((e) => !blocked.has(`attack:${e.name}`))
+      .map((e) => ({ id: e.name, label: `${e.kind === 'hostile' ? '敵' : ''}${e.name} ${relDir(here, e.pos)}`, mob: e.name, hostile: e.kind === 'hostile' }));
+    if (att.length) out.push({ name: 'attack', desc: '見えている敵か動物を攻撃する (持っている一番強い武器で)', argType: 'choice', choices: att });
+  }
+
+  // flee: 敵が近く (fleeRadius) にいるとき、敵から離れる方へ走る
+  const fleeR = ctx.fleeRadius ?? 12;
+  const near = raw.entities.filter((x) => x.kind === 'hostile' && x.d <= fleeR);
+  if (near.length && on('flee') && !blocked.has('flee:away')) {
+    out.push({ name: 'flee', desc: '敵から離れる方へ走る', argType: 'choice',
+      choices: [{ id: 'away', label: `敵から離れる (${near.map((e) => `${e.name} ${relDir(here, e.pos)}`).slice(0, 3).join(', ')})`, from: near.map((e) => e.pos) }] });
+  }
+
+  // smelt: かまどが見えていて、焼ける物と燃料を持っているとき
+  const furnace = raw.blocks.find((b) => b.name === 'furnace');
+  if (furnace && on('smelt')) {
+    const sm = [];
+    for (const i of raw.inventory) {
+      const outName = smeltInput(i.name);
+      if (!outName || blocked.has(`smelt:${i.name}`)) continue;
+      const f = fuelFor(raw.inventory, i.name);
+      if (!f) continue;
+      sm.push({ id: i.name, label: `${i.name}x${i.count} → ${outName} (燃料 ${f.name})`, item: i.name, fuel: f.name, burns: f.burns, furnace: furnace.nearest });
+    }
+    if (sm.length) out.push({ name: 'smelt', desc: `かまど (${relDir(here, furnace.nearest)}) で焼く。焼けるまで最大30秒待つ`, argType: 'choice', choices: sm });
+  }
+
+  // sleep: ベッドが見えていて夜のとき (12542〜23459 に寝られる)
+  const bed = raw.blocks.find((b) => /_bed$/.test(b.name));
+  const tod = ((raw.self.timeOfDay ?? 6000) % 24000 + 24000) % 24000;
+  if (bed && tod >= 12542 && tod <= 23459 && on('sleep') && !blocked.has(`sleep:${bed.name}`)) {
+    out.push({ name: 'sleep', desc: 'ベッドで寝る', argType: 'choice', choices: [{ id: bed.name, label: `${bed.name} ${relDir(here, bed.nearest)}`, pos: bed.nearest }] });
+  }
+
+  // equip: 持ち替えられる道具・武器・防具 (今手に持っている物は除く)
+  if (on('equip')) {
+    const eq = raw.inventory.filter((i) => GEAR.test(i.name) && i.name !== raw.self.held && !blocked.has(`equip:${i.name}`))
+      .map((i) => ({ id: i.name, label: i.name, item: i.name }));
+    if (eq.length) out.push({ name: 'equip', desc: '道具・武器を手に持つ、防具を着る', argType: 'choice', choices: eq });
+  }
+
+  // set_base: 自分で拠点を決める設定 (world.base: "self") で、拠点がまだ無いか、拠点から離れているとき
+  if (ctx.selfBase && !disabled.has('set_base')) {
+    const far = !ctx.base || Math.hypot(ctx.base.x - here.x, ctx.base.z - here.z) > (ctx.setBaseDistance ?? 24);
+    if (far) out.push({ name: 'set_base', desc: ctx.base ? `ここを新しい拠点にする (今の拠点は ${relDir(here, ctx.base)})` : 'ここを拠点にする', argType: 'choice', choices: [{ id: 'here', label: 'ここ' }] });
+  }
 
   // ask: 困っているとき (同じ行動が続けて失敗した) だけ。聞こえる範囲に見えている人に聞く
   const troubles = ctx.troubles || [];
@@ -155,7 +229,7 @@ function listActions(raw, ctx = {}) {
   }
 
   // 手元でできること (craft / build / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
-  const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar'];
+  const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar', 'flee', 'attack', 'smelt', 'sleep', 'equip', 'set_base'];
   const rank = (n) => (first.includes(n) ? first.indexOf(n) : first.length);
   out.sort((a, b) => rank(a.name) - rank(b.name));
 
@@ -215,4 +289,4 @@ function resolveDecision(actions, action, arg) {
   return { ok: true, action: a.name, arg: c.id, choice: c, fixed };
 }
 
-module.exports = { listActions, actionsToText, resolveDecision, pillarMaterial, DIRECTIONS, HUNTABLE, MAX_PILLAR };
+module.exports = { listActions, actionsToText, resolveDecision, pillarMaterial, smeltInput, fuelFor, DIRECTIONS, HUNTABLE, MAX_PILLAR, SMELTABLE, GEAR };
