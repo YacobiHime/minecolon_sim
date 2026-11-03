@@ -74,12 +74,17 @@ function buildQuestions(ctx, opts) {
   const q = {};
   q.next_action = {
     type: 'choice',
-    instructions: 'Choose the single next action for `you` that best advances `goal`. `plan` lists the steps; the step marked 「← 次はこれ」 is next. '
+    instructions: 'Choose the single next action for `you` that best advances `goal`. '
+      + (ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ')
       + 'Check `now` (inventory and what is visible) and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'
       // help.askHint: 困ったら聞くよう後押しする一文 (first_setting では外し、無しで聞くかを観察する)
       + (ctx.askHint === false ? '' : ' If `troubled` is present and an ask option exists, asking a nearby player is a good choice.'),
     criteria: opts.criteria,
   };
+  // 自分で決めた目標が済んだか (help.selfGoal)。高ければ agent が次のループで目標を書き直す
+  if (ctx.selfGoal && ctx.progress) {
+    q.goal_done = { type: 'noul', instructions: 'Has `you` already achieved the goal in `plan`, judging from `now`, `memory` and `last_result`?' };
+  }
   q.remember = { type: 'score', instructions: 'How worth remembering for `you` is what happened in `last_result` and `heard_now`?', criteria: REMEMBER_LEVELS };
   const players = (ctx.raw && ctx.raw.entities || []).filter((e) => e.kind === 'player');
   const heard = (ctx.raw && ctx.raw.heard) || [];
@@ -140,6 +145,7 @@ class JevDecider {
     const pick = chosen && map[chosen];
     jev.choice = a.next_action ? { choice: a.next_action.choice, confidence: a.next_action.confidence ?? null } : null;
     jev.talkP = a.talk ? a.talk.noul : null;
+    jev.goalDoneP = a.goal_done ? a.goal_done.noul : null;
     jev.remember = a.remember ? a.remember.score : null;
     jev.relations = Object.fromEntries(speakers.map((n, i) => [n, a[`rel_${i}`] ? a[`rel_${i}`].score : null]));
     base.rawOutput = JSON.stringify(a.next_action ? { choice: a.next_action.choice, confidence: a.next_action.confidence } : null);

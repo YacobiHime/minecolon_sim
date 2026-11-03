@@ -16,11 +16,12 @@ const { Social } = require('./social');
 const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
 const nochange = require('./nochange');
+const { SelfGoal } = require('./selfgoal');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
 // noChange: 成功しても状態が変わらない繰り返しを困りごとにし、その行動に負の重みをつける (実験的。nochange.js)
-const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true };
+const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true, hut: true, selfGoal: false };
 
 function helpOf(cfg) { return { ...DEFAULT_HELP, ...(cfg.help || {}) }; }
 function noChangeCfg(cfg) { return { ...nochange.DEFAULTS, ...(cfg.noChange || {}) }; }
@@ -39,17 +40,21 @@ function buildContext(raw, memory, cfg, extra = {}) {
     memPlaces, foods: extra.foods, placeable: extra.placeable, blocked, maxReachUp: cfg.act.maxReachUp,
     goalItems: new Set(Object.keys((cfg.goal.success && cfg.goal.success.inventory) || {})),
     base: extra.base || null, hut: raw.hut || null, troubles, hearRadius: cfg.perception.hearRadius,
+    disabled: new Set((cfg.act && cfg.act.disabled) || []), enable: new Set((cfg.act && cfg.act.enable) || []),
+    selfBase: !!(cfg.world && cfg.world.base === 'self'), fleeRadius: cfg.act.fleeRadius,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
   if (steps) prog = help.progress ? progressText(steps, raw) : steps.map((s, i) => `(${i + 1})${s.text}`).join(' ');
+  if (help.selfGoal) prog = extra.planText || ''; // 自分で決めた目標と段取り (selfgoal.js)
   const goal = help.hints ? cfg.goal : { ...cfg.goal, hints: [] };
   return {
     persona: cfg.persona,
     goal,
     showHints: help.hints,
     askHint: help.askHint,
+    selfGoal: !!help.selfGoal,
     raw,
     actions,
     troubles,
@@ -105,6 +110,12 @@ class Agent {
     this.pendingUse = []; // 教わった答えを使ったかを見張るもの
     this.lastResult = '';
     this.goalAt = null;
+    this.selfGoal = this.help.selfGoal
+      ? new SelfGoal({ cfg: cfg.selfGoal || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.selfGoal && cfg.selfGoal.llm) || {}) }, meter })
+      : null;
+    this.lastGoalDoneP = null;
+    this.deaths = [];
+    this.lastDeathMsg = null;
   }
 
   connect() {
@@ -113,7 +124,27 @@ class Agent {
     const bot = this.bot;
     bot.loadPlugin(pathfinder);
     bot.on('chat', (username, message) => this.onChat(username, message));
-    bot.on('death', () => { this.memory.noteEvent('death', '', false, '死んでしまった'); this.log(`[${bot.username}] died`); });
+    // 死んだら: 死因はサーバーの死亡メッセージ (translate が death.〜) から拾う。リスポーンは mineflayer が自動で行う
+    bot.on('message', (jsonMsg) => {
+      try {
+        const key = jsonMsg && jsonMsg.translate;
+        if (key && /^death\./.test(key) && String(jsonMsg.toString()).startsWith(bot.username)) this.lastDeathMsg = { key, text: jsonMsg.toString(), t: Date.now() };
+      } catch (_) { /* ignore */ }
+    });
+    bot.on('death', () => {
+      this.memory.noteEvent('death', '', false, '死んでしまった');
+      this.log(`[${bot.username}] died`);
+      const t = bot.time;
+      const pos = bot.entity ? { x: Math.round(bot.entity.position.x), y: Math.round(bot.entity.position.y), z: Math.round(bot.entity.position.z) } : null;
+      const at = { loop: this.memory.tick, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null, pos };
+      setTimeout(() => {
+        const m = this.lastDeathMsg && Date.now() - this.lastDeathMsg.t < 5000 ? this.lastDeathMsg : null;
+        const d = { ...at, cause: m ? m.key : 'unknown', message: m ? m.text : null };
+        this.deaths.push(d);
+        this.recorder.write({ event: 'death', ...d });
+        this.lastDeathMsg = null;
+      }, 1500);
+    });
     bot.on('kicked', (r) => { this.log(`[${bot.username}] kicked: ${JSON.stringify(r)}`); this.stopped = true; });
     bot.on('end', (r) => { this.log(`[${bot.username}] end: ${r}`); this.stopped = true; });
     bot.on('error', (e) => this.log(`[${bot.username}] error: ${e.message}`));
@@ -137,7 +168,7 @@ class Agent {
   // 全員が最初から「拠点の予定地」を知っている (場所の知識に差をつけない)
   setupBase() {
     const w = this.cfg.world || {};
-    if (!w.base) return;
+    if (!w.base || w.base === 'self') return; // 'self': 拠点は最初は無く、set_base で自分で決める
     let p = null;
     if (w.base === 'spawn') {
       const sp = this.bot.spawnPoint || this.bot.entity.position;
@@ -211,7 +242,7 @@ class Agent {
 
   // 小屋の進み具合: 拠点が近く (visionRadius 以内) にあるときだけ分かる
   hutView() {
-    if (!this.base) return null;
+    if (!this.base || this.help.hut === false) { this.trueHut = null; return null; }
     const pos = this.bot.entity.position;
     const near = dist3(pos, this.base) <= (this.cfg.perception.visionRadius ?? 16);
     const st = hutStatus(hutSlots(this.base, this.cfg.world.hut || {}), (p) => { const b = this.bot.blockAt(new Vec3(p.x, p.y, p.z)); return b ? b.name : null; });
@@ -219,9 +250,20 @@ class Agent {
     return near ? { ratio: st.ratio, filled: st.filled, total: st.total } : null;
   }
 
+  // set_base: 今いる所を拠点にする。拠点は忘れにくい記憶 (大事さ 1。近くに居るあいだは新しくし続ける)
+  setBase() {
+    const pos = this.bot.entity.position;
+    const p = { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) };
+    this.memory.places = this.memory.places.filter((q) => q.kind !== BASE_KIND);
+    this.base = p;
+    this.memory.notePlace(BASE_KIND, p, { imp: 1 });
+    this.recorder.write({ event: 'set_base', loop: this.memory.tick, base: p });
+    return p;
+  }
+
   // 行動のあとの小屋の埋まった数 (状態が変わったかの比較用。記録の hutTrue は行動の前のまま)
   trueHutFilled() {
-    if (!this.base) return null;
+    if (!this.base || this.help.hut === false) return null;
     return hutStatus(hutSlots(this.base, this.cfg.world.hut || {}), (p) => { const b = this.bot.blockAt(new Vec3(p.x, p.y, p.z)); return b ? b.name : null; }).filled;
   }
 
@@ -310,7 +352,7 @@ class Agent {
     const tick = this.memory.tick;
     const tObs = Date.now();
     const heard = this.heardBuf.splice(0);
-    const hutKeys = this.base ? new Set(hutSlots(this.base, (cfg.world && cfg.world.hut) || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
+    const hutKeys = this.base && this.help.hut !== false ? new Set(hutSlots(this.base, (cfg.world && cfg.world.hut) || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
     const raw = collectRaw(bot, { ...cfg.perception, isNotable: this.isNotable, heard, craft: this.craftInfo(), exclude: hutKeys });
     raw.hut = this.hutView();
     const ex = this.extras();
@@ -324,8 +366,31 @@ class Agent {
     const cool = (cfg.ask && cfg.ask.cooldown) || 10;
     const nc = this.help.noChange ? noChangeCfg(cfg) : null;
     const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, nc).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
+    // 自分で決めた拠点: 近くに居れば記憶を新しくする。記憶から消えたら (忘れたら) 拠点も無くなる
+    if (cfg.world && cfg.world.base === 'self' && this.base) {
+      const bp = this.memory.places.find((q) => q.kind === BASE_KIND);
+      if (!bp) this.base = null;
+      else if (dist3(raw.self.pos, this.base) <= (cfg.perception.visionRadius ?? 16)) this.memory.notePlace(BASE_KIND, this.base, { imp: 1 });
+    }
     const socialText = this.social.words();
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, lastResult: this.lastResult });
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, lastResult: this.lastResult, planText: this.selfGoal ? this.selfGoal.planText() : '' });
+    // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
+    let goalUpdate = null;
+    if (this.selfGoal) {
+      const reason = this.selfGoal.needs(tick, { doneP: this.lastGoalDoneP, troubles });
+      if (reason) {
+        goalUpdate = await this.selfGoal.update({
+          persona: cfg.persona, goalText: cfg.goal.text, hints: this.help.hints ? (cfg.goal.hints || []) : [],
+          obsText: ctx.obsText, memText: ctx.memText, socialText, troubles,
+        }, reason, tick);
+        this.lastGoalDoneP = null;
+        const { prompt, ...rest } = goalUpdate;
+        this.recorder.write({ event: 'self_goal', loop: loopNo, tick, ...rest, prompt: this.selfGoalPromptLogged ? undefined : prompt });
+        this.selfGoalPromptLogged = true; // プロンプトの全文は最初の1回だけ記録に残す (長いので)
+        if (goalUpdate.ok) this.log(`[${cfg.persona.name}] 目標 (${reason}): ${goalUpdate.goal} / ${goalUpdate.steps.join(' → ')}`);
+        ctx.progress = this.selfGoal.planText();
+      }
+    }
     const obsMs = Date.now() - tObs;
 
     const dec = await this.decider.decide(ctx);
@@ -340,6 +405,7 @@ class Agent {
 
     // Jev の Score を記憶の大事さと好感に (直前の出来事 = 前のループの結果と、今聞こえた話)
     if (dec.jev) {
+      if (this.selfGoal) this.lastGoalDoneP = dec.jev.goalDoneP ?? null;
       if (Number.isFinite(dec.jev.remember)) this.memory.setRecentImportance(dec.jev.remember / 4, tick - 1);
       for (const [name, sc] of Object.entries(dec.jev.relations || {})) this.social.onRelationScore(name, sc);
     }
@@ -352,7 +418,8 @@ class Agent {
     const tAct = Date.now();
     const result = await executeAction(bot, resolved, {
       ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t) => this.chat(t),
-      base: this.base, hutShape: (cfg.world && cfg.world.hut) || {}, ask: (ch) => this.doAsk(ch),
+      base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
+      setBase: () => this.setBase(),
     });
     const actMs = Date.now() - tAct;
     if (resolved.action === 'say') said = resolved.arg;
@@ -396,6 +463,7 @@ class Agent {
       stateChanged,
       actions: ctx.actions.map((a) => (a.choices ? `${a.name}:${a.choices.length}` : a.name)),
       progress: ctx.progress || null,
+      goalUpdated: goalUpdate ? goalUpdate.reason : null,
       steps: stepSt,
       promptChars: dec.promptChars,
       promptTokens: dec.promptTokens ?? null,
@@ -466,7 +534,7 @@ class Agent {
     }
     // 発言・答えの途中なら少し待つ (記録を閉じる前に)
     for (let i = 0; i < 60 && (this.talking || this.answering); i++) await sleep(250);
-    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
+    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
     this.memory.extra.social = this.social.toJSON();
     this.memory.save();
     await this.recorder.close();
