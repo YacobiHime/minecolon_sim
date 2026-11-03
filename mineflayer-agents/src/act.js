@@ -41,6 +41,11 @@ function faceReachable(bot, refBlock, face, reach = 4.5) {
   return !!hit && hit.position.equals(refBlock.position);
 }
 
+// 掘ったときに落ちる物の名前 (石 → 丸石、鉱石 → 原石など。分からなければ同じ名前)
+const DROPS = { stone: 'cobblestone', grass_block: 'dirt', coal_ore: 'coal', deepslate_coal_ore: 'coal', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
+  copper_ore: 'raw_copper', gold_ore: 'raw_gold', diamond_ore: 'diamond', redstone_ore: 'redstone', lapis_ore: 'lapis_lazuli', deepslate: 'cobbled_deepslate' };
+function dropName(_bot, name) { return DROPS[name] || name; }
+
 function invTotal(bot) { return bot.inventory.items().reduce((s, i) => s + i.count, 0); }
 function invCount(bot, name) { return bot.inventory.items().filter((i) => i.name === name).reduce((s, i) => s + i.count, 0); }
 
@@ -74,9 +79,17 @@ async function equipBestTool(bot, block) {
   if (best) await bot.equip(best, 'hand');
 }
 
-async function pickUpNear(bot, pos) {
-  await sleep(300);
-  const drops = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position.distanceTo(pos) < 5);
+// 右クリックで開く・動く物 (この上に置こうとすると、置かずに開いてしまう)
+const INTERACTIVE = /^(furnace|blast_furnace|smoker|crafting_table|chest|trapped_chest|barrel|ender_chest|anvil|enchanting_table|hopper|dispenser|dropper|lever|note_block|loom|lectern|brewing_stand|cartography_table|grindstone|smithing_table|stonecutter|bell|cake)$|_(bed|door|trapdoor|button|fence_gate|sign|shulker_box)$/;
+
+async function pickUpNear(bot, pos, waitMs = 1500) {
+  // 倒した動物の落とし物は少し遅れて出る (死ぬ動きのあと)。出るまで最大 waitMs 待つ
+  let drops = [];
+  const t0 = Date.now();
+  do {
+    await sleep(250);
+    drops = Object.values(bot.entities).filter((e) => e.name === 'item' && e.position && e.position.distanceTo(pos) < 5);
+  } while (!drops.length && Date.now() - t0 < waitMs);
   for (const d of drops.slice(0, 3)) {
     try {
       await withTimeout(gotoGoal(bot, new goals.GoalNear(d.position.x, d.position.y, d.position.z, 0.8)), 6000, () => haltPath(bot));
@@ -91,7 +104,7 @@ const handlers = {
     const type = bot.registry.blocksByName[name];
     if (!type) return { ok: false, msg: `${name} というブロックを知らない` };
     const want = ctx.collectCount ?? 3;
-    const before = invTotal(bot);
+    const beforeItem = invCount(bot, dropName(bot, name));
     let dug = 0;
     let lastPos = null;
     let lastErr = '';
@@ -131,7 +144,8 @@ const handlers = {
         if (bad.size >= 3) break;
       }
     }
-    const got = invTotal(bot) - before;
+    // 拾った数は掘った物だけで数える (pathfinder が足場に土などを使うと、持ち物の合計が減ることがある)
+    const got = invCount(bot, dropName(bot, name)) - beforeItem;
     if (dug === 0) return { ok: false, msg: lastErr || `${name}を掘れなかった` };
     return { ok: got > 0, msg: `${name}を${dug}個掘って${got}個拾った${lastErr ? '(' + lastErr + ')' : ''}` };
   },
@@ -236,20 +250,29 @@ const handlers = {
       if (head2 && head2.boundingBox === 'block') { err = '頭の上がふさがっている'; break; }
       const ref = bot.blockAt(feet.offset(0, -1, 0));
       if (!ref || ref.boundingBox !== 'block') { err = '足元が固くない'; break; }
-      try {
-        await bot.equip(it, 'hand');
-        bot.setControlState('jump', true);
-        const y0 = bot.entity.position.y;
-        for (let k = 0; k < 20 && bot.entity.position.y < y0 + 1.0; k++) await sleep(25);
-        await bot.placeBlock(ref, new Vec3(0, 1, 0));
-        up += 1;
-      } catch (e) {
-        err = `置けなかった: ${String(e.message).slice(0, 40)}`;
+      // 跳んで、足が置く所 (元の足の高さ) より十分上に来てから置く。届かなければ着地してやり直す (最大3回)
+      let placedOne = false;
+      for (let attempt = 0; attempt < 3 && !placedOne; attempt++) {
+        try {
+          await bot.equip(it, 'hand');
+          for (let k = 0; k < 40 && !bot.entity.onGround; k++) await sleep(25);
+          const y0 = Math.floor(bot.entity.position.y);
+          bot.setControlState('jump', true);
+          for (let k = 0; k < 24 && bot.entity.position.y < y0 + 1.15; k++) await sleep(25);
+          if (bot.entity.position.y < y0 + 1.15) { bot.setControlState('jump', false); err = '跳び上がれなかった'; continue; }
+          await bot.placeBlock(ref, new Vec3(0, 1, 0));
+          placedOne = true;
+          up += 1;
+        } catch (e) {
+          err = `置けなかった: ${String(e.message).slice(0, 40)}`;
+          // 知らせが遅れただけで置けていることがある
+          const nb = bot.blockAt(ref.position.offset(0, 1, 0));
+          if (nb && nb.boundingBox === 'block') { placedOne = true; up += 1; err = ''; }
+        }
         bot.setControlState('jump', false);
-        break;
+        for (let k = 0; k < 40 && !bot.entity.onGround; k++) await sleep(25);
       }
-      bot.setControlState('jump', false);
-      for (let k = 0; k < 40 && !bot.entity.onGround; k++) await sleep(25);
+      if (!placedOne) break;
       await sleep(100);
     }
     bot.setControlState('jump', false);
@@ -306,10 +329,18 @@ const handlers = {
     for (const t of spots) {
       const tb = bot.blockAt(t);
       const below = bot.blockAt(t.offset(0, -1, 0));
-      if (!tb || !below || !REPLACEABLE.has(tb.name) || below.boundingBox !== 'block') continue;
+      if (!tb || !below || !REPLACEABLE.has(tb.name) || below.boundingBox !== 'block' || INTERACTIVE.test(below.name)) continue;
       const above = bot.blockAt(t.offset(0, 1, 0));
       if (above && above.boundingBox === 'block') continue;
       if (!faceReachable(bot, below, new Vec3(0, 1, 0))) continue; // 見えない面・届かない所には置かない
+      // ベッドは向いている方へ2マス使う (足 → 頭)。斜めの所は向きが決まらないので使わず、頭の側も空いていて下が固いことを確かめる
+      if (/_bed$/.test(ch.item)) {
+        const dx = t.x - base.x; const dz = t.z - base.z;
+        if (Math.abs(dx) === Math.abs(dz)) continue;
+        const head = Math.abs(dx) > Math.abs(dz) ? t.offset(Math.sign(dx), 0, 0) : t.offset(0, 0, Math.sign(dz));
+        const hb = bot.blockAt(head); const hbelow = bot.blockAt(head.offset(0, -1, 0));
+        if (!hb || !REPLACEABLE.has(hb.name) || !hbelow || hbelow.boundingBox !== 'block') continue;
+      }
       try {
         if (tb.name !== 'air' && tb.name !== 'cave_air') await bot.dig(tb, true); // 雪や草をどける
         await bot.equip(it, 'hand');
@@ -493,12 +524,15 @@ const handlers = {
       if (ctx.signal && ctx.signal.aborted) break;
       await sleep(500);
     }
-    const tod = bot.time ? bot.time.timeOfDay : null;
     if (bot.isSleeping) {
       try { await bot.wake(); } catch (_) { /* ignore */ }
-      return { ok: true, msg: '寝たが夜は明けなかったので起きた', sleep: { slept: true, nightSkipped: false, timeOfDay: tod } };
+      return { ok: true, msg: '寝たが夜は明けなかったので起きた', sleep: { slept: true, nightSkipped: false, timeOfDay: bot.time ? bot.time.timeOfDay : null } };
     }
-    return { ok: true, msg: '寝て起きた (夜が明けた)', sleep: { slept: true, nightSkipped: true, timeOfDay: tod } };
+    // 起きたあと、時刻の知らせ (1秒ごと) が届くのを少し待ってから、朝になったかで判断する
+    await sleep(ctx.wakeTimeWaitMs ?? 1500);
+    const tod = bot.time ? bot.time.timeOfDay : null;
+    const skipped = tod != null && (tod % 24000) < 12000;
+    return { ok: true, msg: skipped ? '寝て起きた (夜が明けた)' : '寝たが途中で起きた (まだ夜)', sleep: { slept: true, nightSkipped: skipped, timeOfDay: tod } };
   },
 
   // equip: 道具・武器は手に、防具は体に

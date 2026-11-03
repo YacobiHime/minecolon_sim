@@ -176,12 +176,12 @@ test('act: smelt はかまどに燃料と焼く物を入れ、焼けたら取り
 
 test('act: sleep はベッドで寝て、起きたら夜が明けたと返す。明けなければ起きて戻る', async () => {
   const mk = (wakeAfter) => {
-    const bot = actBot({ blockAt: (p) => ({ name: 'red_bed', position: new Vec3(p.x, p.y, p.z) }), isABed: () => true, isSleeping: false, time: { timeOfDay: 0 } });
+    const bot = actBot({ blockAt: (p) => ({ name: 'red_bed', position: new Vec3(p.x, p.y, p.z) }), isABed: () => true, isSleeping: false, time: { timeOfDay: 100 } });
     bot.sleep = async () => { bot.isSleeping = true; if (wakeAfter) setTimeout(() => { bot.isSleeping = false; }, wakeAfter); };
     bot.wake = async () => { bot.isSleeping = false; bot.woke = true; };
     return bot;
   };
-  const r = await handlers.sleep(mk(100), { pos: { x: 1, y: 64, z: 0 } }, { sleepWaitMs: 2000 });
+  const r = await handlers.sleep(mk(100), { pos: { x: 1, y: 64, z: 0 } }, { sleepWaitMs: 2000, wakeTimeWaitMs: 10 });
   assert.ok(r.ok);
   assert.strictEqual(r.sleep.nightSkipped, true);
   const b2 = mk(0);

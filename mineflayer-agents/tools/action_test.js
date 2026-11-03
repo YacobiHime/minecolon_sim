@@ -48,10 +48,10 @@ async function main() {
   // 置く
   for (const it of ['furnace', 'crafting_table', 'chest', 'torch', 'red_bed']) await run(`place ${it}`, () => handlers.place(bot, { item: it }, ctx));
   // 焼く
-  const fpos = bot.findBlock({ matching: bot.registry.blocksByName.furnace.id, maxDistance: 8 });
+  const fpos = bot.findBlock({ matching: (b) => b && b.name === 'furnace', maxDistance: 8 });
   await run('smelt beef', () => (fpos ? handlers.smelt(bot, { item: 'beef', fuel: 'oak_planks', burns: 1.5, furnace: fpos.position }, { ...ctx, smeltWaitMs: 30000 }) : { ok: false, msg: 'かまどが無い' }));
   // 寝る (playersSleepingPercentage 0 なので1人で夜が明ける)
-  await cmd('time set 13000', 800);
+  await cmd('time set 13000', 2500);
   const bed = bot.findBlock({ matching: (b) => bot.isABed(b), maxDistance: 8 });
   await run('sleep', () => (bed ? handlers.sleep(bot, { pos: bed.position }, { ...ctx, sleepWaitMs: 20000 }) : { ok: false, msg: 'ベッドが無い' }));
   console.log(`  timeOfDay after sleep: ${bot.time.timeOfDay}`);
