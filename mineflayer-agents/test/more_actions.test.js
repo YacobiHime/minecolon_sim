@@ -196,10 +196,10 @@ test('act more: furnace_take は出来上がった物を取り出し、残りを
 test('act more: give は近くへ行って投げる、call は名前と場所を言う、follow は見えない人には失敗', async () => {
   const tossed = [];
   const hanako = { id: 5, name: 'player', position: new Vec3(2, 64, 0) };
-  const bot = mkBot({ items: [{ name: 'bread', count: 3 }], toss: async (id, md, n) => { tossed.push([id, n]); } });
+  const bot = mkBot({ items: [{ name: 'bread', count: 3 }], toss: async (id, md, n) => { tossed.push([id, n]); bot.setItems([{ name: 'bread', count: 3 - n }]); }, setControlState: () => {} });
   bot.players = { Hanako: { entity: hanako } };
   bot.entities = { 5: hanako };
-  const r = await handlers.give(bot, { player: 'Hanako', item: 'bread', count: 2 }, {});
+  const r = await handlers.give(bot, { player: 'Hanako', item: 'bread', count: 2 }, { giveWaitMs: 10, giveBackMs: 10 });
   assert.ok(r.ok, r.msg);
   assert.deepStrictEqual(tossed, [[1, 2]]);
   const said = [];

@@ -18,7 +18,7 @@ const { MORE_ACTIONS } = require('../src/actions_more');
 
 const args = process.argv.slice(2);
 const NAME = args.includes('--name') ? args[args.indexOf('--name') + 1] : 'Tester';
-// --part base (これまでの行動) | more (右クリック・GUI・協力) | all。--only use_on,trade (more の中で名前の先頭が一致するものだけ)
+// --part base (これまでの行動) | more (右クリック・GUI・協力) | all。--only boat,trade (more の中で名前にその文字を含むものだけ)
 const PART = args.includes('--part') ? args[args.indexOf('--part') + 1] : 'all';
 const ONLY = args.includes('--only') ? new Set(args[args.indexOf('--only') + 1].split(',')) : null;
 const PIPE = process.env.CMD_PIPE || '/root/mc-server-fabric/cmd_pipe';
@@ -98,8 +98,8 @@ async function main() {
 
 // 右クリックで使う・GUI の出し入れ・協力 (act_more.js)。足元を平らにして、試験の物を /give・/setblock・/summon で用意する
 async function moreTests(bot, run0, mem) {
-  const run = (name, fn) => (ONLY && !ONLY.has(name.split(' ')[0]) ? null : run0(name, fn));
-  const ctx = { memory: mem, visionRadius: 16, maxReachUp: 4, fishMs: 30000, followMs: 8000 };
+  const run = (name, fn) => (ONLY && ![...ONLY].some((k) => name.includes(k)) ? null : run0(name, fn));
+  const ctx = { memory: mem, visionRadius: 16, maxReachUp: 4, fishMs: 60000, followMs: 8000 };
   const H = handlers;
   const P = bot.entity.position.floored();
   const { x, y, z } = P;
@@ -139,20 +139,22 @@ async function moreTests(bot, run0, mem) {
   await run('use_on hand>wheat (素手、熟した小麦)', () => H.use_on(bot, { item: 'hand', target: 'wheat', targetKind: 'block', pos: at(2, 0, 2) }, ctx));
 
   // 水: すくう・置く・瓶に汲む・釣り・ボート
-  await cmd(`fill ${x - 6} ${y - 1} ${z - 2} ${x - 3} ${y - 1} ${z + 1} minecraft:water`, 800);
-  await run('use_on bucket>water (すくう)', () => H.use_on(bot, { item: 'bucket', target: 'water', targetKind: 'block', pos: at(-3, -1, 0) }, ctx));
+  await cmd(`fill ${x - 10} ${y - 1} ${z - 4} ${x - 4} ${y - 1} ${z + 3} minecraft:water`, 800);
+  await run('use_on bucket>water (すくう)', () => H.use_on(bot, { item: 'bucket', target: 'water', targetKind: 'block', pos: at(-5, -1, 0) }, ctx));
   await run('use_on water_bucket>grass_block (置く)', () => H.use_on(bot, { item: 'water_bucket', target: 'grass_block', targetKind: 'block', pos: at(0, -1, -3) }, ctx));
-  await run('use_on glass_bottle>water (瓶に汲む)', () => H.use_on(bot, { item: 'glass_bottle', target: 'water', targetKind: 'block', pos: at(-4, -1, 0) }, ctx));
-  await run('use_on fishing_rod>water (釣り)', () => H.use_on(bot, { item: 'fishing_rod', target: 'water', targetKind: 'block', pos: at(-5, -1, -1) }, ctx));
-  await run('use_on oak_boat>water (浮かべる)', () => H.use_on(bot, { item: 'oak_boat', target: 'water', targetKind: 'block', pos: at(-5, -1, 0) }, ctx));
+  await run('use_on glass_bottle>water (瓶に汲む)', () => H.use_on(bot, { item: 'glass_bottle', target: 'water', targetKind: 'block', pos: at(-5, -1, 0) }, ctx));
+  await run('use_on fishing_rod>water (釣り)', () => H.use_on(bot, { item: 'fishing_rod', target: 'water', targetKind: 'block', pos: at(-6, -1, -1) }, ctx));
+  await run('use_on oak_boat>water (浮かべる)', () => H.use_on(bot, { item: 'oak_boat', target: 'water', targetKind: 'block', pos: at(-6, -1, 0) }, ctx));
+  await sleep(500);
   const boat = nearestEnt('boat')[0];
   await run('use_on hand>boat (乗る)', () => (boat ? H.use_on(bot, { item: 'hand', target: 'boat', targetKind: 'entity', entityId: boat.id }, ctx) : { ok: false, msg: 'ボートが無い' }));
   await run('dismount', () => H.dismount(bot, {}, ctx));
   await home();
 
   // 動物: 牛乳・毛刈り・繁殖
-  await cmd(`summon minecraft:cow ${x + 3} ${y} ${z - 2} {NoAI:1b}`, 200);
-  await cmd(`summon minecraft:cow ${x + 4} ${y} ${z - 2} {NoAI:1b}`, 200);
+  // 繁殖を見るため牛は動けるようにする (NoAI だと近づき合えず子が生まれない)
+  await cmd(`summon minecraft:cow ${x + 3} ${y} ${z - 2}`, 200);
+  await cmd(`summon minecraft:cow ${x + 4} ${y} ${z - 2}`, 200);
   await cmd(`summon minecraft:sheep ${x - 2} ${y} ${z + 3} {NoAI:1b}`, 1500);
   const cows = nearestEnt('cow');
   await run('use_on bucket>cow (牛乳)', () => H.use_on(bot, { item: 'bucket', target: 'cow', targetKind: 'entity', entityId: cows[0] && cows[0].id }, ctx));
@@ -162,7 +164,7 @@ async function moreTests(bot, run0, mem) {
   const nCows = nearestEnt('cow', 30).length;
   await run('use_on wheat>cow (1匹目)', () => H.use_on(bot, { item: 'wheat', target: 'cow', targetKind: 'entity', entityId: cows[0] && cows[0].id }, ctx));
   await run('use_on wheat>cow (2匹目)', () => H.use_on(bot, { item: 'wheat', target: 'cow', targetKind: 'entity', entityId: cows[1] && cows[1].id }, ctx));
-  await sleep(4000);
+  await sleep(8000);
   console.log(`  cows: ${nCows} → ${nearestEnt('cow', 30).length} (繁殖すると子が増える)`);
 
   // 扉・レバー
@@ -227,7 +229,7 @@ async function moreTests(bot, run0, mem) {
   const before2 = breadOf(b2);
   await run('give Tester2 bread 2', () => H.give(bot, { player: `${NAME}2`, item: 'bread', count: 2 }, ctx));
   await sleep(1500);
-  console.log(`  ${NAME}2 bread: ${before2} → ${breadOf(b2)}`);
+  console.log(`  ${NAME}2 bread: ${before2} → ${breadOf(b2)} (${NAME} は ${breadOf(bot)})`);
   await run('call Tester2', () => H.call(bot, { player: `${NAME}2` }, { ...ctx, chat: (t) => { bot.chat(t); return true; } }));
   await sleep(1500);
   console.log(`  ${NAME}2 heard: ${JSON.stringify(heard)}`);

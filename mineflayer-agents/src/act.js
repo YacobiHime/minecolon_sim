@@ -138,7 +138,10 @@ const handlers = {
       if (!p) { lastErr = lastErr || '届く所に見えない'; break; }
       try {
         // 1つの目標に長くかけない (届かない所の木で pathfinder が粘り続けるのを防ぐ)
-        await withTimeout(gotoGoal(bot, new goals.GoalLookAtBlock(p, bot.world, { reach: 4.5 })), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+        // 当たり判定の無いブロック (作物・草など) は GoalLookAtBlock の視線の判定が通らないので、近くまで歩く
+        const b0 = bot.blockAt(p);
+        const goal = b0 && b0.boundingBox !== 'block' ? new goals.GoalNear(p.x, p.y, p.z, 2) : new goals.GoalLookAtBlock(p, bot.world, { reach: 4.5 });
+        await withTimeout(gotoGoal(bot, goal), ctx.perTargetMs ?? 15000, () => haltPath(bot));
         const b = bot.blockAt(p);
         if (!b || b.name !== name) { bad.add(p.toString()); continue; }
         if (!bot.canDigBlock(b)) { lastErr = '手が届かない'; bad.add(p.toString()); continue; }

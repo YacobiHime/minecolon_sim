@@ -33,8 +33,11 @@ function blockVisible(bot, pos) {
   const d = c.minus(eye);
   const len = d.norm();
   if (len < 1e-6) return true;
-  const hit = bot.world.raycast(eye, d.scaled(1 / len), len + 1);
-  return !!hit && hit.position.x === pos.x && hit.position.y === pos.y && hit.position.z === pos.z;
+  // 当たり判定の無いブロック (水・作物・草・花・松明など) も見えるように、狙ったマスに入ったらそこで止める
+  const same = (p) => p.x === pos.x && p.y === pos.y && p.z === pos.z;
+  const hit = bot.world.raycast(eye, d.scaled(1 / len), len + 1,
+    (b, iter) => same(b.position) || (!!b.shapes && b.shapes.length > 0 && !!iter.intersect(b.shapes, b.position)));
+  return !!hit && same(hit.position);
 }
 
 function entityVisible(bot, e) {

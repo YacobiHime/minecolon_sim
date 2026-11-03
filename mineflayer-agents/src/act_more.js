@@ -15,6 +15,11 @@ const DROP_K = { bow: 0.0028, crossbow: 0.002, trident: 0.004 };
 // 押し続ける時間 (ms)。食べる・飲むは 1.6 秒、弓は引ききるのに 1 秒
 const HOLD_MS = { bow: 1100, trident: 1000, crossbow: 1300, shield: 3000, spyglass: 2000, goat_horn: 500, potion: 1800, milk_bucket: 1800, honey_bottle: 1800 };
 const DEFAULT_HOLD = 1800;
+// 向きはサーバーへ次の tick に送られる。向いてから使うまでの間
+const LOOK_MS = 120;
+const VEHICLE_ITEM = /_(boat|raft)$|minecart$/;
+const FLUID = /^(water|lava)$/;
+const hdist = (p, q) => Math.hypot(p.x + 0.5 - q.x, p.z + 0.5 - q.z);
 
 const V = (p) => new Vec3(p.x, p.y, p.z);
 const errText = (e) => String((e && e.message) || e).slice(0, 60);
@@ -88,6 +93,19 @@ function pickFace(bot, block) {
   return best;
 }
 
+// mineflayer 4.37.1 は降りたとき (乗り物の乗客の一覧から自分が消えたとき) に bot.vehicle を消さない。ここで消す
+function fixVehicleTracking(bot) {
+  if (!bot._client || bot._vehicleFix) return;
+  bot._vehicleFix = true;
+  bot._client.on('set_passengers', ({ entityId, passengers }) => {
+    if (bot.vehicle && bot.vehicle.id === entityId && bot.entity && !(passengers || []).includes(bot.entity.id)) {
+      const v = bot.vehicle;
+      bot.vehicle = null;
+      bot.emit('dismount', v);
+    }
+  });
+}
+
 async function holdItem(bot, name) {
   if (name === HAND) {
     if (bot.heldItem) { try { await bot.unequip('hand'); } catch (_) { /* 持ち物が一杯なら持ったまま */ } }
@@ -159,9 +177,44 @@ function playerEntity(bot, name) {
   return p && p.entity ? p.entity : null;
 }
 
+// 手が届き、狙うブロックの真上には立たない目標 (耕地を踏み荒らさない・自分の足元を狙わない)
+class GoalReachNotOn extends goals.Goal {
+  constructor(p, reach) { super(); this.x = p.x; this.y = p.y; this.z = p.z; this.reach = reach; }
+  heuristic(n) { const dx = this.x - n.x; const dz = this.z - n.z; return Math.sqrt(dx * dx + dz * dz) + Math.abs(this.y - n.y); }
+  isEnd(n) {
+    if (n.x === this.x && n.z === this.z && n.y >= this.y && n.y <= this.y + 2) return false;
+    const dx = this.x + 0.5 - (n.x + 0.5); const dy = this.y + 0.5 - (n.y + 1.62); const dz = this.z + 0.5 - (n.z + 0.5);
+    return dx * dx + dy * dy + dz * dz <= this.reach * this.reach;
+  }
+}
+
+// 水・溶岩の近くの、水・溶岩でない所に立つ目標 (水の中に立つと、ボートを置けない・すくえないことがある)
+class GoalDryNear extends goals.Goal {
+  constructor(bot, p, r) { super(); this.bot = bot; this.x = p.x; this.y = p.y; this.z = p.z; this.r = r; }
+  heuristic(n) { const dx = this.x - n.x; const dz = this.z - n.z; return Math.sqrt(dx * dx + dz * dz) + Math.abs(this.y - n.y); }
+  isEnd(n) {
+    const dx = this.x - n.x; const dy = this.y - n.y; const dz = this.z - n.z;
+    if (dx * dx + dy * dy + dz * dz > this.r * this.r) return false;
+    const at = this.bot.blockAt(new Vec3(n.x, n.y, n.z));
+    return !at || !FLUID.test(at.name);
+  }
+}
+
 async function walkToBlock(lib, bot, b, ctx, reach = 4) {
-  const goal = b.boundingBox === 'block' ? new goals.GoalLookAtBlock(b.position, bot.world, { reach }) : new goals.GoalNear(b.position.x, b.position.y, b.position.z, 2);
+  if (FLUID.test(b.name)) {
+    try {
+      await withTimeout(lib.gotoGoal(bot, new GoalDryNear(bot, b.position, 4)), ctx.perTargetMs ?? 15000, () => lib.haltPath(bot));
+      return;
+    } catch (_) { /* 乾いた所が無ければ近くへ */ }
+  }
+  const goal = b.boundingBox === 'block' ? new goals.GoalLookAtBlock(b.position, bot.world, { reach })
+    : new goals.GoalNear(b.position.x, b.position.y, b.position.z, FLUID.test(b.name) ? 3 : 2);
   await withTimeout(lib.gotoGoal(bot, goal), ctx.perTargetMs ?? 15000, () => lib.haltPath(bot));
+  // 狙うブロックの上 (か中) に立ってしまったら、隣へどく
+  const f = bot.entity.position.floored();
+  if (f.x === b.position.x && f.z === b.position.z && f.y >= b.position.y && f.y <= b.position.y + 2) {
+    try { await withTimeout(lib.gotoGoal(bot, new GoalReachNotOn(b.position, reach)), 6000, () => lib.haltPath(bot)); } catch (_) { /* そのまま */ }
+  }
 }
 
 // 動く相手に dist まで近づく (最大 ms)
@@ -181,7 +234,7 @@ async function shoot(bot, item, aim) {
   const look = async () => {
     if (!aim) return;
     const d = dist3(aim, bot.entity.position);
-    await bot.lookAt(aim.offset(0, d * d * k, 0), true);
+    await bot.lookAt(aim.offset(0, d * d * k, 0), true); await sleep(LOOK_MS);
   };
   await look();
   if (item === 'crossbow') {
@@ -211,6 +264,7 @@ function moreHandlers(lib) {
   const h = {
     // use_on: 持ち物 (か素手) をブロック/生き物に使う
     async use_on(bot, ch, ctx) {
+      fixVehicleTracking(bot);
       const item = ch.item;
       const itemTxt = item === HAND ? '素手' : item;
       if (item !== HAND && !bot.inventory.items().some((i) => i.name === item)) return { ok: false, msg: `${item}を持っていない` };
@@ -235,7 +289,7 @@ function moreHandlers(lib) {
         let win = closeAnyWindow(bot, ctx, null, null);
         let t = changeText(a, snapshot(bot));
         if (!t && !win && item !== HAND) {
-          await bot.lookAt(e.position.offset(0, (e.height || 1) * 0.6, 0), true);
+          await bot.lookAt(e.position.offset(0, (e.height || 1) * 0.6, 0), true); await sleep(LOOK_MS);
           bot.activateItem(); await sleep(HOLD_MS[item] ?? DEFAULT_HOLD); bot.deactivateItem(); await sleep(400);
           win = closeAnyWindow(bot, ctx, null, null);
           t = changeText(a, snapshot(bot));
@@ -244,16 +298,25 @@ function moreHandlers(lib) {
         return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}に使ったが何も起きなかった` };
       }
       // ブロック
-      const b = findBlockNear(bot, ch, ctx);
+      let b = findBlockNear(bot, ch, ctx);
       if (!b) return { ok: false, msg: `${ch.target}が見えない` };
       try { await walkToBlock(lib, bot, b, ctx, 4); } catch (e) { return { ok: false, msg: `${ch.target}へ行けなかった: ${lib.pathErr(e)}` }; }
+      // ボートは自分と重なる所には置けない (サーバーが断る)。水・溶岩は自分の足元の所を狙うとすくえないことがある。
+      // 同じ種類のブロックで、少し離れた (ボートは 2.5m、水・溶岩は 1.5m 以上) 手の届く所を狙い直す
+      const minD = VEHICLE_ITEM.test(item) ? 2.5 : FLUID.test(b.name) ? 1.5 : 0;
+      if (minD && hdist(b.position, bot.entity.position) < minD) {
+        const alt = bot.findBlocks({ matching: (x) => x && x.name === b.name, maxDistance: 6, count: 80 })
+          .filter((q) => hdist(q, bot.entity.position) >= minD && q.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.62, 0)) <= 4.5 && blockVisible(bot, q))
+          .sort((q, r) => q.distanceTo(bot.entity.position) - r.distanceTo(bot.entity.position))[0];
+        if (alt) b = bot.blockAt(alt);
+      }
       if (b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.62, 0)) > 5) return { ok: false, msg: `${ch.target}に手が届かない` };
       if (!(await holdItem(bot, item))) return { ok: false, msg: `${item}を持てなかった` };
       const face = pickFace(bot, b);
       const facePt = b.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5);
       const a = snapshot(bot, b.position, face);
       if (item === 'fishing_rod') {
-        await bot.lookAt(facePt, true);
+        await bot.lookAt(facePt, true); await sleep(LOOK_MS);
         const err = await fishOnce(bot, ctx);
         await sleep(800);
         const t = changeText(a, snapshot(bot, b.position, face));
@@ -266,14 +329,14 @@ function moreHandlers(lib) {
         return { ok: !!t, msg: `${itemTxt}を${ch.target}に向けて使った${t ? ': ' + t : ''}` };
       }
       const cursor = new Vec3(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5);
-      await bot.lookAt(facePt, true);
+      await bot.lookAt(facePt, true); await sleep(LOOK_MS);
       await bot.activateBlock(b, face, cursor);
       await sleep(600);
       let win = closeAnyWindow(bot, ctx, b.position, b.name);
       let t = changeText(a, snapshot(bot, b.position, face), ch.target);
       // ブロックに使って何も起きなければ、狙ったまま持ち物そのものを使う (バケツで水をすくう・ボートを浮かべるなど)
       if (!t && !win && item !== HAND) {
-        await bot.lookAt(facePt, true);
+        await bot.lookAt(facePt, true); await sleep(LOOK_MS);
         bot.activateItem(); await sleep(HOLD_MS[item] ?? 300); bot.deactivateItem(); await sleep(500);
         win = closeAnyWindow(bot, ctx, b.position, b.name);
         t = changeText(a, snapshot(bot, b.position, face), ch.target);
@@ -284,7 +347,8 @@ function moreHandlers(lib) {
       if (ctx.memory && nb && nb.name !== a.nb && /^(furnace|crafting_table|chest|barrel|brewing_stand|enchanting_table|anvil|torch)$|_bed$/.test(nb.name)) {
         ctx.memory.notePlace(nb.name, nb.position, { imp: 0.8 });
       }
-      return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}に使ったが何も起きなかった` };
+      const far = b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.62, 0)).toFixed(1);
+      return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}(${b.position.x},${b.position.y},${b.position.z} ${far}m)に使ったが何も起きなかった${bot.entity.isInWater ? ' (自分は水の中)' : ''}` };
     },
 
     // use_item: その場で使う
@@ -313,10 +377,17 @@ function moreHandlers(lib) {
     },
 
     async dismount(bot) {
+      fixVehicleTracking(bot);
       if (!bot.vehicle) return { ok: false, msg: '何にも乗っていない' };
       const v = bot.vehicle.name || '乗り物';
-      bot.dismount();
-      for (let i = 0; i < 20 && bot.vehicle; i++) await sleep(100);
+      // 降りる = 乗っているあいだスニークを押す。サーバーは次の tick に見るので、しばらく押し続ける
+      try { bot.dismount(); } catch (_) { /* ignore */ }
+      bot.setControlState('sneak', true);
+      for (let i = 0; i < 20 && bot.vehicle; i++) {
+        try { bot._client.write('steer_vehicle', { sideways: 0, forward: 0, jump: 0x02 }); } catch (_) { /* ignore */ }
+        await sleep(100);
+      }
+      bot.setControlState('sneak', false);
       return bot.vehicle ? { ok: false, msg: `${v}から降りられなかった` } : { ok: true, msg: `${v}から降りた` };
     },
 
@@ -358,14 +429,19 @@ function moreHandlers(lib) {
           const type = bot.registry.itemsByName[ch.item];
           const have = (before.find((i) => i.name === ch.item) || {}).count || 0;
           if (type && have) {
-            const n0 = lib.invCount(bot, ch.item);
             try { await w.withdraw(type.id, null, have); } catch (e) { err = /full/i.test(errText(e)) ? '持ち物が一杯' : errText(e); }
-            took = lib.invCount(bot, ch.item) - n0;
           }
         }
         const items = summarize(w.containerItems());
         noteContainer(ctx, b.position, b.name, items);
         w.close();
+        // 持ち物の数は画面を閉じてから確かめる (開いているあいだは bot.inventory に反映されないことがある)
+        if (!ch.look) {
+          await sleep(300);
+          const was = (before.find((i) => i.name === ch.item) || {}).count || 0;
+          const now = (items.find((i) => i.name === ch.item) || {}).count || 0;
+          took = Math.max(0, was - now);
+        }
         if (ctx.memory) ctx.memory.notePlace(b.name, b.position, { imp: 0.8 });
         const content = items.length ? items.map((i) => `${i.name}x${i.count}`).join(', ') : '空';
         if (ch.look) return { ok: true, msg: `${b.name}を開けて見た (中身: ${content})` };
@@ -461,7 +537,7 @@ function moreHandlers(lib) {
         await t.putTargetItem(wTarget);
         await t.putLapis(wLapis);
         const t0 = Date.now();
-        while (Date.now() - t0 < 4000 && t.enchantments.some((x) => x.level < 0)) await sleep(200);
+        while (Date.now() - t0 < 4000 && !(t.enchantments[ch.slot - 1].level > 0) && !t.enchantments.some((x) => x.level > 0 && Date.now() - t0 > 1500)) await sleep(200);
         const opts = t.enchantments.map((x) => x.level);
         const need = opts[ch.slot - 1];
         let msg = '';
@@ -469,10 +545,15 @@ function moreHandlers(lib) {
         if (!(need > 0)) msg = `${ch.slot}段目は選べない (段ごとの必要レベル: ${opts.join('/')})`;
         else if ((bot.experience ? bot.experience.level : 0) < need) msg = `経験値レベルが足りない (${ch.slot}段目は${need}以上、今${bot.experience ? bot.experience.level : 0})`;
         else {
-          const it = await withTimeout(t.enchant(ch.slot - 1), 5000, () => {});
-          const ench = (it && it.enchants) ? it.enchants.map((x) => `${x.name} ${x.lvl}`).join(', ') : '';
-          msg = `${ch.item}にエンチャントした${ench ? ` (${ench})` : ''}`;
-          ok = true;
+          // 出来上がりの知らせを待つ。知らせを取りこぼすことがあるので、台の上の物にエンチャントが付いたかも見る
+          // mineflayer の enchant() は3段すべてが出るまで待つ (本棚が無いと3段目が出ず、待ち続ける)。知らせを直接送る
+          let it = null;
+          bot._client.write('enchant_item', { windowId: t.id, enchantment: ch.slot - 1 });
+          const enchOf = (x) => { try { return x && x.enchants && x.enchants.length ? x.enchants : null; } catch (_) { return null; } };
+          for (let k = 0; k < 20 && !enchOf(it); k++) { it = t.slots[0]; if (!enchOf(it)) await sleep(150); }
+          const e = enchOf(it);
+          ok = !!e;
+          msg = e ? `${ch.item}にエンチャントした (${e.map((x) => `${x.name} ${x.lvl}`).join(', ')})` : `${ch.item}にエンチャントできなかった (段ごとの必要レベル: ${opts.join('/')}、台の上: ${t.slots[0] ? t.slots[0].name : 'なし'}、ラピス: ${t.slots[1] ? t.slots[1].count : 0})`;
         }
         try { if (t.targetItem()) await t.takeTargetItem(); } catch (_) { /* ignore */ }
         try { if (t.slots[1]) await bot.putAway(1); } catch (_) { /* ignore */ }
@@ -539,11 +620,30 @@ function moreHandlers(lib) {
       const a = invMap(bot);
       let w = null;
       try {
-        w = await withTimeout(bot.openAnvil(b), 8000, () => {});
-        await withTimeout(w.combine(one, two), 8000, () => {});
+        // mineflayer の combine は費用の見積もりで断ることがあるので、2つを置いて、サーバーが出来上がりの枠に出した物を取る
+        w = await withTimeout(bot.openBlock(b), 8000, () => {});
+        if (!/anvil/.test(w.type)) { w.close(); return { ok: false, msg: `金床の画面ではなかった (${w.type})` }; }
+        const inv = { sourceStart: w.inventoryStart, sourceEnd: w.inventoryEnd };
+        const wi = w.items();
+        const w1 = wi.find((i) => i.name === ch.a);
+        const w2 = wi.find((i) => i.name === ch.b && i.slot !== w1.slot);
+        await bot.moveSlotItem(w1.slot, 0);
+        await bot.moveSlotItem(w2.slot, 1);
+        const t0 = Date.now();
+        while (!w.slots[2] && Date.now() - t0 < 2000) await sleep(100);
+        let msg = '';
+        let ok = false;
+        if (w.slots[2]) {
+          try { await bot.putAway(2); } catch (_) { /* ignore */ }
+          await sleep(300);
+          ok = !w.slots[2] && !w.slots[0];
+          if (!ok) msg = `出来上がりを取れなかった (経験値レベル: 今${bot.experience ? bot.experience.level : '?'})`;
+        } else msg = 'この2つは合わせられない (出来上がりの枠が空のまま)';
+        for (const s of [0, 1, 2]) if (w.slots[s]) { try { await bot.putAway(s); } catch (_) { /* ignore */ } }
         try { w.close(); } catch (_) { /* ignore */ }
         await sleep(300);
-        return { ok: true, msg: `${ch.a}と${ch.b}を合わせた: 持ち物 ${diffText(invDiff(a, invMap(bot))) || '変わらない'}` };
+        const dt = diffText(invDiff(a, invMap(bot)));
+        return ok ? { ok, msg: `${ch.a}と${ch.b}を合わせた: 持ち物 ${dt || '変わらない'}` } : { ok, msg: `合わせられなかった: ${msg}` };
       } catch (e) {
         try { if (bot.currentWindow) bot.closeWindow(bot.currentWindow); } catch (_) { /* ignore */ }
         return { ok: false, msg: `合わせられなかった: ${errText(e)}` };
@@ -578,16 +678,22 @@ function moreHandlers(lib) {
       const type = bot.registry.itemsByName[ch.item];
       const have = lib.invCount(bot, ch.item);
       if (!type || !have) return { ok: false, msg: `${ch.item}を持っていない` };
-      if (!(await approach(lib, bot, e, ctx.giveRange ?? 2.5, 15000, ctx))) return { ok: false, msg: `${ch.player}に近づけなかった` };
+      if (!(await approach(lib, bot, e, ctx.giveRange ?? 2, 15000, ctx))) return { ok: false, msg: `${ch.player}に近づけなかった` };
       const n = Math.min(have, ch.count || 1);
       try {
-        await bot.lookAt(e.position.offset(0, 1.2, 0), true);
+        // 相手の足元へ向けて投げる (投げた物は2秒たつと拾える。足元に落ちれば相手が拾う)
+        await bot.lookAt(e.position.offset(0, 0.2, 0), true); await sleep(LOOK_MS);
         await bot.toss(type.id, null, n);
-      } catch (err) { return { ok: false, msg: `投げられなかった: ${errText(err)}` }; }
-      // 相手が拾ったか (落ちた物が相手の近くから消えたか) を少し見る
-      await sleep(1500);
-      const still = Object.values(bot.entities).some((x) => x.name === 'item' && x.position && dist3(x.position, e.position) < 4 && (() => { try { const it = x.getDroppedItem(); return it && it.name === ch.item; } catch (_) { return false; } })());
-      return { ok: true, msg: `${ch.player}に${ch.item}を${n}個投げ渡した${still ? ' (まだ地面に落ちている)' : ''}`, gave: { to: ch.player, item: ch.item, n } };
+        // 投げた物は2秒たつと誰でも拾える。近い方が拾うので、投げたら少し下がる (自分で拾い直さないように)
+        bot.setControlState('back', true);
+        await sleep(ctx.giveBackMs ?? 700);
+        bot.setControlState('back', false);
+      } catch (err) { try { bot.setControlState('back', false); } catch (_) { /* ignore */ } return { ok: false, msg: `投げられなかった: ${errText(err)}` }; }
+      await sleep(ctx.giveWaitMs ?? 3000);
+      const still = Object.values(bot.entities).find((x) => x.name === 'item' && x.position && dist3(x.position, e.position) < 6 && (() => { try { const it = x.getDroppedItem(); return it && it.name === ch.item; } catch (_) { return false; } })());
+      const back = lib.invCount(bot, ch.item) - (have - n); // 自分で拾い直した数
+      const where = back > 0 ? ` (自分で${back}個拾い直した)` : still ? ` (まだ地面に落ちている、${ch.player}から${dist3(still.position, e.position).toFixed(1)}m)` : '';
+      return { ok: back < n, msg: `${ch.player}に${ch.item}を${n}個投げ渡した${where}`, gave: { to: ch.player, item: ch.item, n, onGround: !!still, back } };
     },
 
     // call: 人を呼ぶ
