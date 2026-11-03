@@ -270,12 +270,24 @@ summarize_run の「build で置いた物」(原木・板材・そのほかの�
 - **自分で目標を決める** (`help.selfGoal`、`src/selfgoal.js`): 最初・済んだ・困りごとが新しく出た・30ループごとに、2B が
   状態・持ち物・記憶・① から「今の目標と 2〜4 個の段取り」を書く (json_schema)。Jev の state の `plan` に入れる。
   済んだかは Jev の noul `goal_done` で毎回聞き、0.7 以上で次のループに書き直す (2B の呼び出しを増やさないため)。記録は `self_goal`。
+- **ゴール → 逆向きの手順 → 1段ずつ** (`help.goalPlan`、`src/goalplan.js`。survival では selfGoal の代わりにこちらを使う):
+  2B がゴールを1つ決め (達成するか捨てるまで変えない)、ゴールから逆向きにさかのぼって (`needs`) 最初にやる手順から並べる (`steps`、6個まで。
+  済んだか確かめられる形の文)。Jev の noul で各手順が facts と行動の一覧でできるかをまとめて聞き、`checkThreshold` 未満の手順だけ 2B が
+  書き直す (`maxRewrites` 回まで)。行動を選ぶ Jev の `plan` にはゴールと今の手順 (何手順目か) だけを出し、noul `step_done` ≥ `stepDoneThreshold`
+  で次の手順へ。困りごとが `troubleTicks` 判断続く・今の手順が `stepPatience` 判断進まないと残りの手順だけを作り直し、作り直しが `abandonAfter` 回を
+  超えたらゴールを捨てる。一定判断ごとの書き直しはしない。2B の材料: 今の様子・時間と夜までの目安・関係する facts・行動の名前と説明・覚えていること・
+  これまでのゴールと結果。記録は event `goal_plan` (kind: goal/steps/check/rewrite/plan/advance/rebuild/goal_done/abandon)、summarize_run の `goalPlan`。
+- **ほかの人が拾った・壊したこと** (`others`、`src/others.js`): collect・pick_up・attack・hunt の間に近く (visionRadius) でほかの人が拾った物
+  (サーバーの collect) と壊したブロック (掘っている途中の様子が見えていたマスが空気になった / すぐ壊れるブロックはすぐ近くに1人だけ居たとき。葉は除く)
+  を、結果の文にそのまま足す (例: 「jungle_logを3個掘って0個拾った。Kenがjungle_logを2個拾った」)。記憶にも入る。`result.others` にも残す。
+- **1段で選ぶ**: survival は `decider.jev.twoStage.enabled: false`。代わりに use_on (`act.maxUseChoices` 12) と give (`act.maxGiveChoices` 8) を、
+  近い対象 (人)・数の多い持ち物の組 (順位の和の小さい順) から上限まで並べる (意味のある組み合わせかは判断しない)。
 - **拠点**: `world.base: "self"`。最初は無く、`set_base` で自分で決める。大事さ 1 の記憶で、近くに居るあいだは新しくし続ける。
 - **行動** (`act.enable` で有効): attack (いちばん強い武器を自動で持つ)・flee・smelt (最大30秒待つ、終わらなければ入れたまま)・
   sleep (夜が明けなければ待ってから起きる)・equip (防具は体、道具は手)。hunt・build は `act.disabled`。collect は道具があれば石・鉱石も。
 - **マイクラでできることを広く** (`src/actions_more.js` が一覧、`src/act_more.js` が実行。`act.enable` で有効):
   - `use_on`: 持ち物 (か素手) を見えているブロック/生き物に使う (右クリック)。候補は 持ち物+素手 × (近いブロック5種 + 目印4種 + 生き物4種)、
-    `act.maxUseChoices` (200) を超えるときは遠い対象から落とす。何が意味のある組み合わせかは絞らない。プログラムは歩いて狙い、
+    `act.maxUseChoices` (既定 200、survival は 12) を超えるときは、近い対象・数の多い持ち物の組から上限まで。何が意味のある組み合わせかは絞らない。プログラムは歩いて狙い、
     ブロックに使って何も変わらなければ、狙ったまま持ち物そのものを使う (バケツ・瓶・ボート)。結果は変わったこと (ブロック・隣・持ち物・乗り物) をそのまま返す。
     弓・雪玉などは離れて狙って撃つ、釣り竿は投げて掛かるまで待つ (`act.fishMs`)。
   - `use_item` (その場で使う。盾は構える)・`dismount`。

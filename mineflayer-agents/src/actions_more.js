@@ -74,6 +74,16 @@ function nearestBlock(raw, re, maxD = Infinity) {
 
 function cap(choices, n = MAX_CHOICES) { return choices.slice(0, n); }
 
+const dOf = (here, t) => Math.hypot(t.pos.x - here.x, t.pos.y - here.y, t.pos.z - here.z);
+// 持ち物を数の多い順に (同じ数なら持ち物の並びの順)
+function byCount(inv) { return inv.map((x, i) => ({ x, i })).sort((a, b) => (b.x.count - a.x.count) || (a.i - b.i)).map((y) => y.x); }
+// 2つの並び (それぞれ順位の小さい方が先) の組 [a, b] を、順位の和の小さい順に (同じなら b の順位の小さい順)
+function rankPairs(na, nb) {
+  const out = [];
+  for (let s = 0; s <= na + nb - 2; s++) for (let b = 0; b <= s; b++) { const a = s - b; if (a < na && b < nb) out.push([a, b]); }
+  return out;
+}
+
 // on(name): この設定でその行動を使うか。blocked: 続けて失敗した "action:arg"
 function moreActions(raw, ctx = {}, on = () => true) {
   const out = [];
@@ -83,21 +93,21 @@ function moreActions(raw, ctx = {}, on = () => true) {
   const inv = raw.inventory;
   const players = raw.entities.filter((e) => e.kind === 'player');
 
-  // use_on: 持ち物 (と素手) × 見えている対象。多すぎるときは遠い対象から落とす
+  // use_on: 持ち物 (と素手) × 見えている対象。maxUseChoices を超えるときは、近い対象・数の多い持ち物の組から
+  //   (対象の近さの順位 + 持ち物の数の順位 の小さい順) 上限まで。組み合わせに意味があるかは判断しない
   if (on('use_on')) {
-    let targets = useTargets(raw, ctx);
-    const items = [HAND, ...heldItems(raw)];
+    const targets = useTargets(raw, ctx).map((t, i) => ({ t, i })).sort((a, b) => (dOf(here, a.t) - dOf(here, b.t)) || (a.i - b.i)).map((x) => x.t);
+    const items = [HAND, ...byCount(inv).map((i) => i.name)];
     const maxN = Math.min(MAX_CHOICES, ctx.maxUseChoices ?? 200);
-    while (targets.length > 1 && items.length * targets.length > maxN) targets = targets.slice(0, -1);
     const ch = [];
-    for (const it of items) {
-      for (const t of targets) {
-        const id = `${it}>${t.name}`;
-        if (!ok('use_on', id)) continue;
-        ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null });
-      }
+    for (const [ii, ti] of rankPairs(items.length, targets.length)) {
+      const it = items[ii]; const t = targets[ti];
+      const id = `${it}>${t.name}`;
+      if (!ok('use_on', id)) continue;
+      ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null });
+      if (ch.length >= maxN) break;
     }
-    if (ch.length) out.push({ name: 'use_on', desc: '持ち物(か素手)を見えているブロックか生き物に使う (右クリック。近くへ歩いて狙う)', argType: 'choice', choices: cap(ch, maxN) });
+    if (ch.length) out.push({ name: 'use_on', desc: '持ち物(か素手)を見えているブロックか生き物に使う (右クリック。近くへ歩いて狙う)', argType: 'choice', choices: ch });
   }
 
   // use_item: 持ち物をその場で使う (右クリックを押す。弓は引いて放す、盾は構える、釣り竿は投げて待つ)
@@ -197,18 +207,22 @@ function moreActions(raw, ctx = {}, on = () => true) {
     if (ch.length) out.push({ name: 'follow', desc: `人について行く (${Math.round((ctx.followMs ?? 30000) / 1000)}秒ほど)`, argType: 'choice', choices: ch });
   }
 
-  // give: 見えている人に持ち物を投げ渡す (1個か、その種類を全部)
+  // give: 見えている人に持ち物を投げ渡す (1個か、その種類を全部)。maxGiveChoices を超えるときは、
+  //   近い人・数の多い持ち物の組から (順位の和の小さい順) 上限まで
   if (on('give') && players.length && inv.length) {
+    const ps = [...players].sort((a, b) => a.d - b.d);
+    const items = byCount(inv);
+    const maxN = Math.min(MAX_CHOICES, ctx.maxGiveChoices ?? MAX_CHOICES);
     const ch = [];
-    for (const p of players) {
-      for (const i of inv) {
-        for (const n of i.count > 1 ? [1, 'all'] : [1]) {
-          const id = `${p.name}:${i.name}:${n}`;
-          if (ok('give', id)) ch.push({ id, label: `${p.name}に${i.name}を${n === 'all' ? `全部(${i.count}個)` : '1個'}`, player: p.name, item: i.name, count: n === 'all' ? i.count : 1 });
-        }
+    for (const [pi, ii] of rankPairs(ps.length, items.length)) {
+      const p = ps[pi]; const i = items[ii];
+      for (const n of i.count > 1 ? [1, 'all'] : [1]) {
+        const id = `${p.name}:${i.name}:${n}`;
+        if (ok('give', id) && ch.length < maxN) ch.push({ id, label: `${p.name}に${i.name}を${n === 'all' ? `全部(${i.count}個)` : '1個'}`, player: p.name, item: i.name, count: n === 'all' ? i.count : 1 });
       }
+      if (ch.length >= maxN) break;
     }
-    if (ch.length) out.push({ name: 'give', desc: '人の近くへ行って持ち物を投げ渡す', argType: 'choice', choices: cap(ch) });
+    if (ch.length) out.push({ name: 'give', desc: '人の近くへ行って持ち物を投げ渡す', argType: 'choice', choices: ch });
   }
 
   // call: 聞こえる範囲に見えている人を呼ぶ (「来て」と言う。相手の「今聞こえた話」に入る)
@@ -230,4 +244,4 @@ function hasInputs(inv, t) {
 
 const MORE_ACTIONS = ['use_on', 'use_item', 'dismount', 'chest_put', 'chest_take', 'furnace_take', 'trade', 'enchant', 'brew', 'anvil', 'follow', 'give', 'call'];
 
-module.exports = { moreActions, useTargets, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };
+module.exports = { moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };

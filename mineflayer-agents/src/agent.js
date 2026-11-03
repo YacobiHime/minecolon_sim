@@ -17,12 +17,14 @@ const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
 const nochange = require('./nochange');
 const { SelfGoal } = require('./selfgoal');
+const { GoalPlan } = require('./goalplan');
+const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
 // noChange: 成功しても状態が変わらない繰り返しを困りごとにし、その行動に負の重みをつける (実験的。nochange.js)
-const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true, hut: true, selfGoal: false };
+const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true, hut: true, selfGoal: false, goalPlan: false };
 
 function helpOf(cfg) { return { ...DEFAULT_HELP, ...(cfg.help || {}) }; }
 function noChangeCfg(cfg) { return { ...nochange.DEFAULTS, ...(cfg.noChange || {}) }; }
@@ -54,13 +56,13 @@ function buildContext(raw, memory, cfg, extra = {}) {
     selfBase: !!(cfg.world && cfg.world.base === 'self'), fleeRadius: cfg.act.fleeRadius,
     // 入れ物の中身・村人の取引 (開けて見たときに覚えたもの。act_more.js)。use_on などの候補の絞り方 (cfg.act)
     containers: (memory.extra && memory.extra.containers) || {}, trades: (memory.extra && memory.extra.trades) || {},
-    visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices,
+    visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
   if (steps) prog = help.progress ? progressText(steps, raw) : steps.map((s, i) => `(${i + 1})${s.text}`).join(' ');
-  if (help.selfGoal) prog = extra.planText || ''; // 自分で決めた目標と段取り (selfgoal.js)
+  if (help.selfGoal || help.goalPlan) prog = extra.planText || ''; // 自分で決めた目標と段取り (selfgoal.js) / ゴールと今の手順 (goalplan.js)
   // 知っていること: goal.hints (残っているもの) + facts.json のうち今に関係するもの (持ち物・見えている物・選択肢の対象・plan の名前)
   const kn = help.hints ? (extra.knowledge !== undefined ? extra.knowledge : loadKnowledge(cfg)) : null;
   let factsShown = [];
@@ -76,7 +78,8 @@ function buildContext(raw, memory, cfg, extra = {}) {
     goal,
     showHints: help.hints,
     askHint: help.askHint,
-    selfGoal: !!help.selfGoal,
+    selfGoal: !!help.selfGoal && !help.goalPlan,
+    goalPlan: !!help.goalPlan,
     raw,
     actions,
     troubles,
@@ -142,6 +145,48 @@ class Agent {
     this.lastDeathMsg = null;
     this.knowledge = loadKnowledge(cfg);
     this.loopHist = []; // 行動の後の状態の履歴 (nochange.netNoChange 用。netWindow + 1 件)
+    // ほかの人が拾った・壊したこと (others.js)。cfg.others.enabled: false で使わない
+    this.othersCfg = { ...OTHERS_DEFAULTS, radius: cfg.perception.visionRadius ?? OTHERS_DEFAULTS.radius, ...(cfg.others || {}) };
+    this.others = this.othersCfg.enabled === false ? null : new OthersLog(this.othersCfg);
+    // ゴール → 逆向きの手順 → 1段ずつ (help.goalPlan。goalplan.js)
+    this.goalPlan = this.help.goalPlan
+      ? new GoalPlan({ cfg: cfg.goalPlan || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.goalPlan && cfg.goalPlan.llm) || {}) }, meter,
+        jev: decider && decider.kind === 'jev' ? decider : null, log: (e) => this.recorder.write({ event: 'goal_plan', ...e }) })
+      : null;
+  }
+
+  // ほかの人が拾った物・壊したブロックを見張る (行動の結果の文に足す)
+  watchOthers() {
+    const bot = this.bot;
+    const o = this.others;
+    if (!o) return;
+    const me = () => (bot.entity ? bot.entity.position : null);
+    const nameOf = (e) => (e && e.type === 'player' ? e.username : null);
+    bot._client.on('collect', (packet) => {
+      try {
+        const who = nameOf(bot.entities[packet.collectorEntityId]);
+        const it = bot.entities[packet.collectedEntityId];
+        if (!who || !it || it.name !== 'item') return;
+        const d = it.getDroppedItem && it.getDroppedItem();
+        if (!d) return;
+        o.notePickup({ who, self: bot.username, me: me(), item: d.name, count: packet.pickupItemCount || d.count || 1, pos: it.position });
+      } catch (_) { /* ignore */ }
+    });
+    bot.on('blockBreakProgressObserved', (block, stage, entity) => {
+      const who = nameOf(entity);
+      if (who && block) o.noteBreakProgress({ who, self: bot.username, pos: block.position });
+    });
+    bot.on('diggingCompleted', (block) => { if (block) o.noteMyDig(block.position); });
+    bot.on('blockUpdate', (oldB, newB) => {
+      try {
+        if (!oldB || !newB || oldB.name === newB.name) return;
+        // 自分が掘り終えた直後 (mineflayer は掘り終えたとき lastDigTime を新しくしてから空気にする) は自分の分
+        const p0 = me();
+        if (p0 && bot.lastDigTime && performance.now() - bot.lastDigTime < 500 && newB.position.offset(0.5, 0.5, 0.5).distanceTo(p0) <= 6) o.noteMyDig(newB.position);
+        const players = Object.values(bot.players).filter((p) => p.username !== bot.username && p.entity).map((p) => ({ name: p.username, pos: p.entity.position }));
+        o.noteBlockGone({ pos: newB.position, oldName: oldB.name, newName: newB.name, me: me(), players });
+      } catch (_) { /* ignore */ }
+    });
   }
 
   connect() {
@@ -184,6 +229,7 @@ class Agent {
         bot.pathfinder.thinkTimeout = 5000;
         try { await Promise.race([bot.waitForChunksToLoad(), sleep(10000)]); } catch (_) { /* ignore */ }
         this.setupBase();
+        this.watchOthers();
         resolve();
       });
       bot.once('error', reject);
@@ -414,7 +460,7 @@ class Agent {
       else if (dist3(raw.self.pos, this.base) <= (cfg.perception.visionRadius ?? 16)) this.memory.notePlace(BASE_KIND, this.base, { imp: 1 });
     }
     const socialText = this.social.words();
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, planText: this.selfGoal ? this.selfGoal.planText() : '' });
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, planText: this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
     if (this.selfGoal) {
@@ -432,6 +478,19 @@ class Agent {
         ctx.progress = this.selfGoal.planText();
       }
     }
+    // ゴール → 手順 → 1段ずつ: 前の判断で Jev が答えた「今の手順は済んだか」で進め、詰まったら残りを作り直す
+    let planUpdate = null;
+    if (this.goalPlan) {
+      const kn = this.help.hints ? this.knowledge : null;
+      const facts = (text) => (kn && kn.facts.length
+        ? knowledge.selectFacts(kn.facts, { names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
+      planUpdate = await this.goalPlan.update({
+        persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, actions: ctx.actions, memText: ctx.memText, socialText, troubles,
+      }, tick, { stepDoneP: this.lastStepDoneP, troubles });
+      this.lastStepDoneP = null;
+      ctx.progress = this.goalPlan.planText();
+      if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
+    }
     const obsMs = Date.now() - tObs;
 
     const dec = await this.decider.decide(ctx);
@@ -447,6 +506,7 @@ class Agent {
     // Jev の Score を記憶の大事さと好感に (直前の出来事 = 前のループの結果と、今聞こえた話)
     if (dec.jev) {
       if (this.selfGoal) this.lastGoalDoneP = dec.jev.goalDoneP ?? null;
+      if (this.goalPlan) this.lastStepDoneP = dec.jev.stepDoneP ?? null;
       if (Number.isFinite(dec.jev.remember)) this.memory.setRecentImportance(dec.jev.remember / 4, tick - 1);
       for (const [name, sc] of Object.entries(dec.jev.relations || {})) this.social.onRelationScore(name, sc);
     }
@@ -457,12 +517,18 @@ class Agent {
     if (dec.say && resolved.action !== 'say' && this.chat(dec.say)) said = dec.say;
     const before = nochange.snapshot({ inventory: raw.inventory, pos: raw.self.pos, hutFilled: this.trueHut ? this.trueHut.filled : null });
     const tAct = Date.now();
+    const othersMark = this.others ? this.others.mark() : 0;
     const result = await executeAction(bot, resolved, {
       ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t, o) => this.chat(t, o),
       base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
       setBase: () => this.setBase(),
     });
     const actMs = Date.now() - tAct;
+    // 行動中に近くでほかの人が拾った物・壊したブロックを、結果の文にそのまま足す (記憶にも入る)
+    if (this.others && (this.othersCfg.actions || []).includes(resolved.action)) {
+      const seen = this.others.since(othersMark);
+      if (seen.length) { result.others = seen; result.msg = OthersLog.appendTo(result.msg, seen); }
+    }
     if (resolved.action === 'say') said = resolved.arg;
     const key = `${resolved.action}:${resolved.arg}`;
     const inv = bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
@@ -513,6 +579,8 @@ class Agent {
       actions: ctx.actions.map((a) => (a.choices ? `${a.name}:${a.choices.length}` : a.name)),
       progress: ctx.progress || null,
       goalUpdated: goalUpdate ? goalUpdate.reason : null,
+      planUpdated: planUpdate,
+      planStep: this.goalPlan && this.goalPlan.goal ? { goal: this.goalPlan.goal.n, idx: this.goalPlan.idx, of: this.goalPlan.steps.length } : null,
       steps: stepSt,
       promptChars: dec.promptChars,
       promptTokens: dec.promptTokens ?? null,
@@ -583,7 +651,7 @@ class Agent {
     }
     // 発言・答えの途中なら少し待つ (記録を閉じる前に)
     for (let i = 0; i < 60 && (this.talking || this.answering); i++) await sleep(250);
-    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
+    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
     this.memory.extra.social = this.social.toJSON();
     this.memory.save();
     await this.recorder.close();

@@ -44,7 +44,7 @@ class SelfGoal {
     if (doneP != null && doneP >= this.cfg.doneThreshold) return 'done';
     const tk = troubles.map((t) => t.key).sort().join('|');
     if (tk && tk !== this.troubleKey) return 'trouble';
-    if (tick - this.current.setAt >= this.cfg.every) return 'interval';
+    if (this.cfg.every && tick - this.current.setAt >= this.cfg.every) return 'interval'; // every: 0 か null で書き直さない
     return null;
   }
 

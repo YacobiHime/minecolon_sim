@@ -23,7 +23,11 @@ test('survival_3days.json: 目標は「3日生き延びる」だけ。小屋・�
   assert.strictEqual(cfg.help.hut, false);
   assert.strictEqual(cfg.help.steps, false);
   assert.strictEqual(cfg.help.progress, false);
-  assert.strictEqual(cfg.help.selfGoal, true);
+  assert.strictEqual(cfg.help.selfGoal, false);
+  assert.strictEqual(cfg.help.goalPlan, true);
+  assert.strictEqual(cfg.decider.jev.twoStage.enabled, false);
+  assert.strictEqual(cfg.act.maxUseChoices, 12);
+  assert.strictEqual(cfg.act.maxGiveChoices, 8);
   assert.strictEqual(cfg.world.base, 'self');
   assert.strictEqual(cfg.usage.maxJevInputTokens, 12000000);
   assert.strictEqual(cfg.loop.minutes, 60);
@@ -32,8 +36,8 @@ test('survival_3days.json: 目標は「3日生き延びる」だけ。小屋・�
   for (const h of cfg.goal.hints) assert.doesNotMatch(h, /小屋|協力/, h);
 });
 
-function survivalCtx(over = {}, extra = {}, memory = null) {
-  const cfg = loadConfig(CFG, { persona: { name: 'Taro' } });
+function survivalCtx(over = {}, extra = {}, memory = null, cfgOver = {}) {
+  const cfg = loadConfig(CFG, { persona: { name: 'Taro' }, ...cfgOver });
   return buildContext(mockRaw(over), memory || new Memory({ limits: cfg.memory.limits }), cfg, { foods: new Set(['bread', 'beef']), ...extra });
 }
 const names = (acts) => acts.map((a) => a.name);
@@ -106,7 +110,7 @@ test('SelfGoal: 最初・済んだ・困った・一定ループで書き直す�
 });
 
 test('JevDecider: selfGoal のとき plan は自分の目標と書き、goal_done (noul) を聞いて読む', async () => {
-  const c = survivalCtx({}, { planText: '目標: 木を集める / 段取り: (1)原木 (2)板材' });
+  const c = survivalCtx({}, { planText: '目標: 木を集める / 段取り: (1)原木 (2)板材' }, null, { help: { selfGoal: true, goalPlan: false } });
   assert.strictEqual(c.progress, '目標: 木を集める / 段取り: (1)原木 (2)板材');
   const bodies = [];
   const fetch = async (url, init) => {
