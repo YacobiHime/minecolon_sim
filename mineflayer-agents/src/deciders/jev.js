@@ -99,6 +99,7 @@ function buildState(ctx, opts = {}) {
   if (hasGoal(ctx)) st.goal = ctx.goal.text; // 全体の目標が無い設定 (survival_3days) では渡さない
   if (ctx.showHints && ctx.goal.hints && ctx.goal.hints.length) st.knowledge = ctx.goal.hints.join(' ');
   if (ctx.progress) st.plan = ctx.progress;
+  if (ctx.policy) st.policy = ctx.policy; // 振り返りで自分が書いた方針 (reflect.js)
   st.now = ctx.obsText;
   if (opts.table && Object.keys(opts.table).length) st.actions = opts.table;
   if (ctx.socialText) st.feelings = ctx.socialText;
@@ -151,7 +152,8 @@ function buildQuestions(ctx, opts) {
     instructions: (hasGoal(ctx) ? 'Choose the single next action for `you` that best advances `goal`. ' : 'Choose the single next action for `you`. ')
       + (!hasGoal(ctx) && ctx.socialText ? '`feelings` is how `you` feel in body and mind right now. ' : '')
       + (opts.hasTable ? '`actions` explains each kind of action; an option ending in "*" is a kind of action whose target is chosen next. ' : '')
-      + (ctx.goalPath ? '`plan` is the goal `you` set for yourself; for an item goal it lists the things it needs in order ("X n ← Y": X is obtained from or made of Y) and the next one. '
+      + (ctx.goalPath ? '`plan` is the goal `you` set for yourself; for an item goal it lists the things it needs in order ("X n ← Y": X is obtained from or made of Y) and the next one; for a state goal it also lists the actions after the things. '
+        + (ctx.policy ? '`policy` is what `you` decided to keep doing when looking back on your days. ' : '')
         : ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
         : ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ')
       + 'Check `now` (inventory and what is visible) and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'

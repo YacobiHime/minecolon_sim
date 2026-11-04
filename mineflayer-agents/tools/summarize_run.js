@@ -218,6 +218,25 @@ function goalPlanStats(all, n = 20) {
   return { ...stats(ev), perAgent: Object.fromEntries(names.map((nm) => [nm, stats(ev.filter((r) => r._name === nm))])), timeline: timeline.slice(0, n) };
 }
 
+// 振り返りと方針 (cfg.reflect): event 'reflect' の一覧
+function reflectStats(all, n = 20) {
+  const ev = all.filter((r) => r.event === 'reflect').sort((a, b) => (a.ts < b.ts ? -1 : 1));
+  return {
+    count: ev.length, ok: ev.filter((r) => r.ok).length, byReason: countBy(ev, (r) => r.reason),
+    list: ev.slice(0, n).map((r) => `[${hhmmss(r.ts)}] ${r._name} t${r.tick} (${r.reason}) ${r.ok ? `方針: ${r.policy} / 何のため: ${r.why || '-'}` : '(書けなかった)'} ← ${(r.facts || []).slice(0, 4).join(' / ')}`),
+  };
+}
+
+// lure・enclose の結果 (付いてきた・着いた頭数、置いた数・囲えたか)
+function penActStats(loops) {
+  const lu = loops.filter((r) => r.action === 'lure');
+  const en = loops.filter((r) => r.action === 'enclose');
+  return {
+    lure: { n: lu.length, ok: lu.filter((r) => r.result.ok).length, followed: sum(lu.map((r) => (r.result.lure ? r.result.lure.followed : 0))), arrived: sum(lu.map((r) => (r.result.lure ? r.result.lure.arrived : 0))) },
+    enclose: { n: en.length, ok: en.filter((r) => r.result.ok).length, placed: sum(en.map((r) => (r.result.enclose ? r.result.enclose.placed : 0))), enclosed: en.filter((r) => r.result.enclose && r.result.enclose.enclosed).length },
+  };
+}
+
 // ゴール → 道筋 (help.goalPath) の記録: event 'goal_path'。ゴールの一覧・達成・選び直し (理由ごと)・道筋の進み
 function goalPathStats(all, n = 30) {
   const ev = all.filter((r) => r.event === 'goal_path').sort((a, b) => (a.ts < b.ts ? -1 : 1));
@@ -233,6 +252,12 @@ function goalPathStats(all, n = 30) {
       reselect: countBy(sel, (r) => r.result),
       pathChanges: rows.filter((r) => r.kind === 'path').length,
       reachTook: { p50: pct(rows.filter((r) => r.kind === 'reached').map((r) => r.took), 50) },
+      // いちばんつらい欲求 (worst) とゴールの need が合っていた割合 (worst と need の両方があるゴールのうち)
+      worstMatch: (() => {
+        const g = rows.filter((r) => r.kind === 'goal' && r.ok && r.worst && r.need);
+        const m = g.filter((r) => r.worst === r.need).length;
+        return { matched: m, judged: g.length, rate: g.length ? Number((m / g.length).toFixed(3)) : null, pairs: countBy(g, (r) => `${r.worst}→${r.need}`) };
+      })(),
     };
   };
   const names = [...new Set(ev.map((r) => r._name))];
@@ -454,6 +479,8 @@ function main() {
     selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
     goalPlan: all.some((r) => r.event === 'goal_plan') ? goalPlanStats(all) : null,
     goalPath: all.some((r) => r.event === 'goal_path') ? goalPathStats(all) : null,
+    reflect: all.some((r) => r.event === 'reflect') ? reflectStats(all) : null,
+    penActs: penActStats(loops),
     baseSite: all.some((r) => r.event === 'base_site') ? baseSiteStats(all) : null,
     needs: needsStats(all),
     goalWhy: goalWhyList(all),
@@ -499,7 +526,15 @@ function main() {
         console.log(`  人ごと: ${Object.entries(g.perAgent).map(([k, v]) => `${k} ゴール${v.goals}・達成${v.done}・選び直し${Object.values(v.reselect).reduce((a, b) => a + b, 0)}`).join(' / ')}`);
         for (const l of g.timeline.slice(0, 10)) console.log(`  ${l}`);
         for (const l of g.progress.slice(0, 8)) console.log(`  道筋の進み ${l}`);
+        const wm = g.worstMatch;
+        console.log(`  いちばんつらい欲求とゴールの need が合っていた ${wm.matched}/${wm.judged}${wm.rate != null ? ` (${Math.round(wm.rate * 100)}%)` : ''} ${JSON.stringify(wm.pairs)}`);
       }
+      if (out.reflect) {
+        console.log(`振り返り ${out.reflect.count} 回 (方針を書けた ${out.reflect.ok}、${JSON.stringify(out.reflect.byReason)})`);
+        for (const l of out.reflect.list.slice(0, 10)) console.log(`  ${l}`);
+      }
+      const pa = out.penActs;
+      if (pa.lure.n || pa.enclose.n) console.log(`lure ${pa.lure.n} 回 (着いた ${pa.lure.ok}、付いてきた ${pa.lure.followed} 頭・着いた ${pa.lure.arrived} 頭)・enclose ${pa.enclose.n} 回 (置いた ${pa.enclose.placed} 個、囲えた ${pa.enclose.enclosed} 回)`);
       if (out.baseSite) for (const [nm, b] of Object.entries(out.baseSite)) console.log(`  拠点 ${nm}: ${b.last ? b.last.text : '-'} (一番多かった数 ${JSON.stringify(b.max)})`);
       if (out.needs) {
         for (const [nm, v] of Object.entries(out.needs)) {

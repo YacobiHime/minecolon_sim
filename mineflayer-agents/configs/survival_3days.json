@@ -151,7 +151,31 @@
     "arriveDist": 6,
     "farDist": 48,
     "maxShown": 5,
-    "maxTokens": 120
+    "maxTokens": 120,
+    "_comment_states": "states: 状態のゴール (kind: state。src/states.js) を候補に出す: 囲いの中の動物 (pen_cow 等)・水の近くの耕地 (farmland)・拠点の明かり (lit_base)・拠点が囲われている (walled_base)・拠点のチェストの物 (chest_<物>)。済んだかはプログラムが確かめる。物の候補には先にたどった道筋の事実 (入手元が見えるか・要る物・手間 小/中/大) を添える (annotate)",
+    "states": true,
+    "annotate": true,
+    "stateOpts": {
+      "penSize": 5,
+      "wallSize": 3,
+      "counts": {
+        "pen": 2,
+        "farmland": 8,
+        "lit": 4,
+        "walled": 1,
+        "chest": 8
+      }
+    }
+  },
+  "reflect": {
+    "_comment": "振り返りと方針 (src/reflect.js): 1日の終わり (夕方に入ったとき)・寝る前 (寝られるようになったとき)・死んだあと・ゴールを afterGoals 個終えたあとに、記録から数えた事実を材料に 2B が方針 (長く続けたいこと) と何のためを書く。方針はゴールを選ぶ 2B と Jev の state.policy に出す。minGap 判断あける",
+    "enabled": true,
+    "onDayEnd": true,
+    "onSleep": true,
+    "onDeath": true,
+    "afterGoals": 3,
+    "minGap": 10,
+    "maxTokens": 160
   },
   "others": {
     "_comment": "行動中に近く (radius、既定は visionRadius) でほかの人が拾った物・壊したブロックを、actions の行動の結果の文に足す (記憶にも入る)",
@@ -259,7 +283,9 @@
       "anvil",
       "follow",
       "give",
-      "call"
+      "call",
+      "lure",
+      "enclose"
     ],
     "disabled": [
       "hunt",
