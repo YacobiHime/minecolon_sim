@@ -99,7 +99,7 @@ function blockDelta(action, result) {
   const msg = String(result.msg || '');
   let m;
   if ((m = msg.match(/を(\d+)個積んで/))) return Number(m[1]);
-  if ((m = msg.match(/を(\d+)個掘って/))) return -Number(m[1]);
+  if ((m = msg.match(/(\d+)個掘って/))) return -Number(m[1]); // 「…を素手で3個掘って」も
   if (action === 'place' && /に置いた/.test(msg)) return 1;
   return 0;
 }

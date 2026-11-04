@@ -71,15 +71,41 @@ async function gotoGoal(bot, goal) {
   await bot.pathfinder.goto(goal);
 }
 
-// 掘る速さが一番よい道具を持つ (なければ素手)
+// 掘る速さが一番よい道具を持つ (なければ素手)。持った道具の名前を返す (素手なら null)。
+// 素手より速くならない物を手に持っているときは、手を空ける (空けられなければ、その物の名前を返す)
 async function equipBestTool(bot, block) {
   let best = null;
-  let bestTime = block.digTime(null, false, false, false, [], []);
+  const dt = (type) => (typeof block.digTime === 'function' ? block.digTime(type, false, false, false, [], []) : 0);
+  let bestTime = dt(null);
   for (const it of bot.inventory.items()) {
-    const t = block.digTime(it.type, false, false, false, [], []);
+    const t = dt(it.type);
     if (t < bestTime) { best = it; bestTime = t; }
   }
-  if (best) await bot.equip(best, 'hand');
+  if (best) { await bot.equip(best, 'hand'); return best.name; }
+  if (bot.heldItem && typeof bot.unequip === 'function') {
+    try { await bot.unequip('hand'); } catch (_) { /* 空けられなくても掘る */ }
+  }
+  return bot.heldItem ? bot.heldItem.name : null;
+}
+
+// 置く所の草・雪などを壊してどける。文を返す: 「grassを素手でどけた (掘るのに1秒未満)」
+async function clearBlock(bot, block) {
+  const tool = bot.heldItem ? bot.heldItem.name : null;
+  const t0 = Date.now();
+  await bot.dig(block, true);
+  return `${block.name}を${toolText([tool])}どけた (${digTimeText(Date.now() - t0)})`;
+}
+
+// 掘った道具の文: 「素手で」「wooden_axeで」「wooden_axe・素手で」(使った順)
+function toolText(tools) {
+  const names = [...new Set(tools)].map((t) => t || '素手');
+  return names.length ? `${names.join('・')}で` : '';
+}
+
+// 掘っていた時間の文: 「(掘るのに12秒)」(1秒未満は「1秒未満」)
+function digTimeText(ms) {
+  const s = ms / 1000;
+  return `掘るのに${s < 1 ? '1秒未満' : `${Math.round(s)}秒`}`;
 }
 
 // 右クリックで開く・動く物 (この上に置こうとすると、置かずに開いてしまう)
@@ -112,6 +138,8 @@ const handlers = {
     // 作物は育ちきった所を先に掘る (育ちきった物が見えていればそれだけ)
     const ripeOf = (p) => { const b = bot.blockAt(p); return b ? cropRipe(bot, b) : null; };
     let dug = 0;
+    const tools = []; // 掘ったときに持っていた道具 (素手は null)
+    let digMs = 0; // 掘っていた時間の合計 (歩く・拾うは入れない)
     let lastPos = null;
     let lastErr = '';
     const bad = new Set();
@@ -145,8 +173,11 @@ const handlers = {
         const b = bot.blockAt(p);
         if (!b || b.name !== name) { bad.add(p.toString()); continue; }
         if (!bot.canDigBlock(b)) { lastErr = '手が届かない'; bad.add(p.toString()); continue; }
-        await equipBestTool(bot, b);
+        const tool = await equipBestTool(bot, b);
+        const t0 = Date.now();
         await bot.dig(b, true);
+        digMs += Date.now() - t0;
+        tools.push(tool);
         dug += 1;
         lastPos = p;
         await pickUpNear(bot, p);
@@ -163,7 +194,11 @@ const handlers = {
     const gained = invDiff(beforeAll, invMapAll(bot)).filter((x) => x.d > 0);
     const other = gained.filter((x) => x.name !== dropName(bot, name));
     const otherTxt = other.length ? ` (${other.map((x) => `${x.name}+${x.d}`).join(', ')})` : '';
-    return { ok: got > 0 || other.length > 0, msg: `${name}を${dug}個掘って${got}個拾った${otherTxt}${lastErr ? '(' + lastErr + ')' : ''}` };
+    return {
+      ok: got > 0 || other.length > 0,
+      msg: `${name}を${toolText(tools)}${dug}個掘って${got}個拾った${otherTxt} (${digTimeText(digMs)})${lastErr ? '(' + lastErr + ')' : ''}`,
+      tools: [...new Set(tools.map((t) => t || 'hand'))], digMs,
+    };
   },
 
   async go_to(bot, ch, ctx) {
@@ -358,12 +393,13 @@ const handlers = {
         if (!hb || !REPLACEABLE.has(hb.name) || !hbelow || hbelow.boundingBox !== 'block') continue;
       }
       try {
-        if (tb.name !== 'air' && tb.name !== 'cave_air') await bot.dig(tb, true); // 雪や草をどける
+        let cleared = '';
+        if (tb.name !== 'air' && tb.name !== 'cave_air') cleared = await clearBlock(bot, tb); // 雪や草をどける
         await bot.equip(it, 'hand');
         await bot.placeBlock(below, new Vec3(0, 1, 0));
         // 置いた設備 (かまど・作業台・チェスト・ベッド・松明) の場所は覚える
         if (ctx.memory && /^(furnace|crafting_table|chest|torch)$|_bed$/.test(ch.item)) ctx.memory.notePlace(ch.item, t, { imp: 0.8 });
-        return { ok: true, msg: `${ch.item}を(${t.x},${t.y},${t.z})に置いた`, placedItem: ch.item };
+        return { ok: true, msg: `${ch.item}を(${t.x},${t.y},${t.z})に置いた${cleared ? ` (${cleared})` : ''}`, placedItem: ch.item };
       } catch (e) {
         return { ok: false, msg: `${ch.item}を置けなかった: ${String(e.message).slice(0, 50)}` };
       }
@@ -389,6 +425,7 @@ const handlers = {
     const skip = new Set();
     let placed = 0;
     let lastErr = '';
+    const cleared = []; // 置く所からどけた物の文
     const nameAt = (p) => { const b = bot.blockAt(new Vec3(p.x, p.y, p.z)); return b ? b.name : null; };
     for (let tries = 0; tries < per + 6 && placed < per; tries++) {
       if (ctx.signal && ctx.signal.aborted) break;
@@ -413,7 +450,7 @@ const handlers = {
       try {
         await withTimeout(gotoGoal(bot, new goals.GoalPlaceBlock(tv, bot.world, { range: 4.5, LOS: true })), ctx.perTargetMs ?? 15000, () => haltPath(bot));
         const cur = bot.blockAt(tv);
-        if (cur && cur.name !== 'air' && cur.name !== 'cave_air' && cur.boundingBox !== 'block') await bot.dig(cur, true); // 草や雪をどける
+        if (cur && cur.name !== 'air' && cur.name !== 'cave_air' && cur.boundingBox !== 'block') cleared.push(await clearBlock(bot, cur)); // 草や雪をどける
         if (!faceReachable(bot, ref, tv.minus(ref.position))) { lastErr = '置く面が見えない・届かない'; skip.add(key); continue; }
         await bot.equip(it, 'hand');
         await bot.placeBlock(ref, tv.minus(ref.position));
@@ -426,7 +463,8 @@ const handlers = {
     const st = hutStatus(slots, nameAt);
     const pct = st.ratio == null ? '' : ` (小屋は${Math.round(st.ratio * 100)}%)`;
     if (!placed) return { ok: false, msg: `小屋に置けなかった: ${lastErr || '理由不明'}${pct}`, placed };
-    return { ok: true, msg: `小屋に${ch.item}を${placed}個置いた${pct}`, placed };
+    const clr = cleared.length ? ` (${[...new Set(cleared)].join('、')})` : '';
+    return { ok: true, msg: `小屋に${ch.item}を${placed}個置いた${pct}${clr}`, placed };
   },
 
   // 動物を追いかけて倒し、落ちた物を拾う
@@ -613,4 +651,4 @@ async function executeAction(bot, resolved, ctx) {
   }
 }
 
-module.exports = { executeAction, handlers, DEFAULT_TIMEOUTS, faceReachable, bestWeapon };
+module.exports = { executeAction, handlers, DEFAULT_TIMEOUTS, faceReachable, bestWeapon, equipBestTool, toolText, digTimeText };
