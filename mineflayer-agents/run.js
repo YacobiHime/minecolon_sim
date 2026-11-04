@@ -2,7 +2,7 @@
 'use strict';
 // 使い方: node mineflayer-agents/run.js --config mineflayer-agents/configs/first_setting.json [--agents 1|5|20] [--minutes 15]
 //         [--decider llm|split|jev|random] [--llm http://127.0.0.1:18081] [--name Taro] [--host 127.0.0.1] [--port 25565]
-//         [--max-jev-tokens 3000000] [--stagger-ms 1500] [--procs 1] [--monitor-sec 30] [--random-talk 0.2]
+//         [--max-jev-tokens 3000000] [--stagger-ms 1500] [--procs ceil(N/5)] [--monitor-sec 30] [--random-talk 0.2]
 // 1プロセスで --agents 人を動かす。Jev の使用量の上限・2B の窓口は全員で共有する。
 // --procs P (P > 1) なら、P 個の子プロセス (node run.js --child) に人を分ける (pathfinder の計算は1プロセスの中では直列なので)。
 //   子は同じ runs/<時刻>/ に書き、親が Jev の入力トークンを合計して上限で全員を止め、最後に run.json にまとめる。
@@ -134,7 +134,8 @@ async function main() {
   if (args['random-talk']) ov.decider = { ...(ov.decider || {}), talkP: Number(args['random-talk']) };
   const base = loadConfig(args.config, ov);
   const n = Math.max(1, Number(args.agents || base.agents || 1));
-  const procs = Math.max(1, Number(args.procs || 1));
+  // 既定は 5人ずつ (20人なら4プロセス)。1プロセスに20人だとイベントループが 1〜2 秒止まり、keepalive で切断された (2026-11-04 の試験)
+  const procs = Math.max(1, args.procs ? Number(args.procs) : Math.ceil(n / 5));
   const child = args.child ? Number(args.child) : 0;
   if (!child && procs > 1 && n > 1) return runParent(args, base, n, procs);
   const from = child ? Number(args['agent-from']) : 0;

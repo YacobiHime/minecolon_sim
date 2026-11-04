@@ -318,3 +318,73 @@ bash /root/mc-server-fabric/stop.sh && bash mineflayer-agents/server-fabric/firs
 
 行動の実機の試験: `prepare_action_test` → start → `init_action_test` → `node mineflayer-agents/tools/action_test.js [--part base|more|all]` (試験用のボット1人。
 `more` は足元を平らにして右クリック・GUI・協力を試し、協力には2人目のボット `Tester2` を出す)。
+
+# 20人で動かす (`--agents 20`)
+
+`configs/survival_3days.json` の personas は20人 (先頭の5人は Taro・Hanako・Jiro・Yuki・Ken のまま。`--agents N` で先頭から N 人)。
+名前は英字 (Minecraft の名前、ほかの名前の先頭に含まれない)。性格の文・話し方・気質 (bravery・empathy・obedience・greed・sociability) と
+欲求の係数 (`needs`) を人ごとに変え、気質はどれも 0.3 未満と 0.7 以上の人がいて平均 0.4〜0.5 になるようにした。職業・役割は書かない (test/scale20.test.js)。
+
+| 名前 | 性格 (短く) | 欲求の差 |
+| --- | --- | --- |
+| Taro / Hanako / Jiro / Yuki / Ken | (前のまま) 木こり・世話好き・せっかち・怖がり・話し好き | |
+| Mai | 素直、言われたことを信じる | 褒められたい |
+| Sota | 無口、一人で黙々 | 人恋しくなりにくい |
+| Aoi | 好奇心が強い | 好奇心 0.9 |
+| Daiki | 欲張り | 物が欲しい 0.9 |
+| Rin | ずる賢い、損をしない | 物が欲しい 0.7 |
+| Haruto | 勇敢、危ない所にも先に行く | 怖がりにくい |
+| Emi | 心配性 | 不安・空腹を早めに気にする |
+| Shota | のんき | ストレスがたまりにくい・空腹になりにくい |
+| Nana | 寂しがり | 人恋しくなりやすい |
+| Ryo | 頑固 | 眠気に強い |
+| Kaori | 几帳面 | 眠くなりやすい |
+| Takumi | 見栄っ張り | 認められたい |
+| Mio | 人見知り | 人の役に立ちたい 0.7 |
+| Goro | 気が短い | ストレスがたまりやすい・よく食べる |
+| Sayaka | お人よし、頼まれると断れない | 人の役に立ちたい 0.85 |
+
+## 同時に動かす仕組み (run.js)
+
+- **プロセスを分ける** (`--procs P`、既定は `ceil(N/5)` = 20人で4プロセス)。mineflayer の物理と pathfinder・ゴールの候補作り (約0.5秒) は
+  1プロセスの中では直列なので、20人を1プロセスにするとイベントループが 1〜2 秒止まり、2人が keepalive で切られた (`disconnect.timeout`)。
+  親が子 (`run.js --child k`) を起こし、子は同じ `runs/<時刻>/` に書く (1人1ファイルはこれまでどおり)。子は 5 秒ごとに Jev の入力トークンを親に送り、
+  **親が全プロセスの合計で `--max-jev-tokens` に達したら全員を止める**。最後に親が子の `run-part<k>.json` を `run.json` にまとめる (使用量は足し直す)。
+- **接続**: `--stagger-ms` (1500) ずつずらす。プロセスが複数でも全体で1人ずつ (子 k は k×stagger 待ってから、P×stagger おきに入る)。
+  60 秒で spawn しなければ 3 回まで再試行し、だめならその人を外して続ける。走っている途中の切断 (end / kicked) は数えて `run.json` の `disconnects` に残す
+  (自動でつなぎ直しはしない)。Fabric は max-players 60、rate-limit 0。
+- **負荷の見張り** (`--monitor-sec`、既定 30): `runs/<時刻>/monitor[-k].jsonl` に CPU・RSS・イベントループの遅れ・生きているボット・判断の数と間隔・
+  2B の呼び出しと待ち・Jev の呼び出しと 429。
+- **2B の待ち時間**: llama-server の応答の `timings` (prompt_ms + predicted_ms) を処理時間とし、全体の時間から引いた残りを待ち (スロットの空き待ち。
+  イベントループの遅れも入る) として数える (`src/deciders/llm.js` の `LLM_STATS`)。`run.json` の `twoBLatency`。
+- **Jev**: 429 / 529 は `jev_client.js` が retry-after (無ければ 0.5・1・2・4 秒) で4回まで再試行する。同時の呼び出しは1プロセス `decider.jev.maxConcurrent` (8) まで。
+- `--decider random --random-talk 0.15`: Jev を使わずに、でたらめな行動と確率 0.15 の発言 (2B) で負荷を試す。
+
+## 負荷の試験 (2026-11-04、world_action_test・peaceful、2B は gpu-server の `-np 8`)
+
+| 構成 | 判断 (3〜4分、20人) | 判断の間隔 p50 / p95 | node の CPU (1プロセス) | RSS | イベントループの遅れ p99 (中央値 / 最大) | 2B の待ち p50 / p95 / 最大 | 切断 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| random、1プロセス (4分) | 337 | 7.6s / 62s | 118% (張りつき) | 1.4GB | 1.3s / 1.8s | 1.0s / 13.5s / 18.8s | 0 |
+| random、1プロセス (3分、reflect 等を入れた後) | 261 | 7.0s / 42s | 117% | 1.4GB | 1.1s / 2.2s | 0.6s / 14.4s / 19.4s | **2 (timeout)** |
+| random、4プロセス (3分) | 429 | 3.8s / 31s | 55〜91% | 各 0.6GB | 0.3s / 1.6s | 0.2s / 3.5s / 5.9s | 0 |
+| random、10プロセス (3分) | 483 | 3.3s / 31s | 15〜65% | 各 0.4GB | 0.1s / 1.5s | 0.03s / 0.9s / 1.1s | 0 |
+| Jev、4プロセス (約50秒、上限で停止) | 114 | — | 60〜120% | 各 0.6GB | 0.25〜0.77s / — | 0.2s / 3.7s / 4.4s | 0 |
+
+- 2B の待ちは始めの1分 (20人が一斉にゴールを作る) がいちばん長く、そのあとは p95 1 秒前後。
+- Jev: 1判断 **3,545 トークン** (1段)、平均 551ms、**429 は 0 回** (32 本まで同時)。20人で約 2.5 判断/秒 → 60分で約 9,000 判断・**約 3,200 万トークン**
+  (ゴールや振り返りで state が増えれば 4,000 万前後)。**`--max-jev-tokens 45000000` を勧める** (設定の既定 1,200 万では 20 分ほどで止まる)。
+- Fabric サーバー (Java) は 20人で CPU 30〜90% (1コア = 100%)、RSS 2.7GB。`Can't keep up` は出なかった。
+- 寝る: `playersSleepingPercentage 50` なので、20人なら 10 人が寝ないと夜は明けない。
+
+```bash
+# 本番 (20人・60分)。世界は prepare_survival → start → init_survival で作ったもの
+bash mineflayer-agents/server-fabric/first_setting_world.sh morning
+node mineflayer-agents/run.js --config mineflayer-agents/configs/survival_3days.json --agents 20 --procs 4 \
+  --llm http://192.168.15.30:18081 --max-jev-tokens 45000000
+node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ --text
+```
+
+summarize_run (20人向けに足したもの): 集まり (16m 以内でつながった2人以上のまとまりの数と大きさ、60秒ごとの推移、1人で居た割合)・
+判断の間隔・関係の行列 (好感の初期値 50 からの変化。会っていない所は「.」、列は名前の先頭3文字)・上がった/下がった組とお互いに変わった組・
+人ごとの1行の要約 (判断・成功率・多かった行動・死んだ回数・集まりに居た割合と一緒の相手・持ち物)・負荷 (monitor と 2B の待ち)。
+2人組の距離 (190 組) は JSON の `pairDistance.perPair` にだけ残し、文章には全体の数だけを出す。

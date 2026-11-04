@@ -60,7 +60,7 @@ case "$1" in
     ;;
   init_survival)
     # 夜に敵が出る・空腹が進む (normal)。死んだら持ち物は落ちる (keepInventory false)。
-    # ベッドは寝ている人が半分以上なら夜が明ける (playersSleepingPercentage 50、5人なら3人)。すぐに生き返る (doImmediateRespawn)
+    # ベッドは寝ている人が半分以上なら夜が明ける (playersSleepingPercentage 50、5人なら3人、20人なら10人)。すぐに生き返る (doImmediateRespawn)
     init_world normal 'gamerule keepInventory false' 'gamerule playersSleepingPercentage 50' 'gamerule doImmediateRespawn true' 'gamerule naturalRegeneration true' 'gamerule showDeathMessages true'
     ;;
   prepare_action_test)

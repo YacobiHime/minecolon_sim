@@ -168,7 +168,8 @@ function monitorStats(dir) {
       cpuPct: { p50: pct(col((r) => r.cpuPct), 50), max: mx(col((r) => r.cpuPct)) },
       rssMb: { max: mx(col((r) => r.rssMb)) },
       loopLagP99: { p50: pct(col((r) => r.loopLag && r.loopLag.p99), 50), max: mx(col((r) => r.loopLag && r.loopLag.max)) },
-      bots: { minAlive: Math.min(...col((r) => r.bots && r.bots.alive)), total: rows[rows.length - 1].bots ? rows[rows.length - 1].bots.total : null, disconnects: mx(col((r) => r.bots && r.bots.disconnects)) },
+      // 終わりかけ (最後の1行) は止まっていく途中なので除く
+      bots: { minAlive: Math.min(...(rows.length > 1 ? rows.slice(0, -1) : rows).map((r) => r.bots && r.bots.alive).filter((x) => Number.isFinite(x))), total: rows[rows.length - 1].bots ? rows[rows.length - 1].bots.total : null, disconnects: mx(col((r) => r.bots && r.bots.disconnects)) },
       decisionIntervalSec: { p50: pct(col((r) => r.decisions && r.decisions.intervalSec), 50) },
       twoBWaitP95: { p50: pct(col((r) => r.twoB && r.twoB.waitMs && r.twoB.waitMs.p95), 50), max: mx(col((r) => r.twoB && r.twoB.waitMs && r.twoB.waitMs.max)) },
       twoBCalls: col((r) => r.twoB && r.twoB.calls).reduce((s, x) => s + x, 0),
