@@ -9,8 +9,10 @@
 //   enchant / brew / anvil : エンチャント台・醸造台・金床
 //   follow / give / call : 人について行く・物を投げ渡す・呼ぶ
 // 何が意味のある組み合わせかは教えない (研究方針: 仕様は見せてよいが、どう使うかは教えない)。
+// 持ち物の側は、マイクラで右クリックに意味がある物だけ (usable.js の一覧。モデルには見せず、選択肢から外れるだけ)。
 // 候補は「近いもの数個」に絞るだけにする。1つの行動の choices は MAX_CHOICES (255) を超えない
 const { relDir } = require('./util');
+const { usefulOn, usefulItem } = require('./usable');
 
 const MAX_CHOICES = 255;
 const CONTAINER = /^(chest|trapped_chest|barrel)$|_shulker_box$|^shulker_box$/;
@@ -98,8 +100,10 @@ function moreActions(raw, ctx = {}, on = () => true) {
   if (on('use_on')) {
     const targets = useTargets(raw, ctx).map((t, i) => ({ t, i })).sort((a, b) => (dOf(here, a.t) - dOf(here, b.t)) || (a.i - b.i)).map((x) => x.t);
     // useOnSkip(name): 持ち物の側から外す物 (survival_3days では置けるブロック。種・苗木など使う=植えるになる物は残す)
+    //   usableOn(name): 持ち物の側に出す物 (既定は usable.js の usefulOn。右クリックで何も起きない剣・ツルハシ・棒・ブロック等は外す)
     const skip = ctx.useOnSkip || null;
-    const items = [HAND, ...byCount(inv).map((i) => i.name).filter((n) => !(skip && skip(n)))];
+    const usable = ctx.usableOn || usefulOn;
+    const items = [HAND, ...[...new Set(byCount(inv).map((i) => i.name))].filter((n) => usable(n) && !(skip && skip(n)))];
     const maxN = Math.min(MAX_CHOICES, ctx.maxUseChoices ?? 200);
     const ch = [];
     for (const [ii, ti] of rankPairs(items.length, targets.length)) {
@@ -114,7 +118,9 @@ function moreActions(raw, ctx = {}, on = () => true) {
 
   // use_item: 持ち物をその場で使う (右クリックを押す。弓は引いて放す、盾は構える、釣り竿は投げて待つ)
   if (on('use_item')) {
-    const ch = heldItems(raw).filter((n) => ok('use_item', n)).map((n) => ({ id: n, label: n, item: n }));
+    // usableItem(name): その場で使って何かが起きうる物だけ (既定は usable.js の usefulItem。ブロック・原木などは外す)
+    const usable = ctx.usableItem || usefulItem;
+    const ch = [...new Set(heldItems(raw))].filter((n) => usable(n) && ok('use_item', n)).map((n) => ({ id: n, label: n, item: n }));
     if (ch.length) out.push({ name: 'use_item', desc: '持ち物をその場で使う (向いている方へ。右クリック)', argType: 'choice', choices: cap(ch) });
   }
 

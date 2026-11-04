@@ -57,13 +57,35 @@ test('more: use_on は 持ち物と素手 × 見えている対象。近い物 +
   for (const x of a.choices) assert.doesNotMatch(x.label, /耕す|植える|とよい|べき/);
 });
 
+test('more: use_on / use_item の持ち物の側は、右クリックで何かが起きうる物だけ (剣・ツルハシ・棒・ブロックは外す。素手は残す)', () => {
+  const inventory = ['wooden_pickaxe', 'stick', 'jungle_log', 'wooden_sword', 'oak_planks', 'poppy', 'wooden_axe', 'wooden_hoe', 'wooden_shovel', 'shears', 'oak_sapling',
+    'wheat_seeds', 'bone_meal', 'bucket', 'water_bucket', 'glass_bottle', 'flint_and_steel', 'wheat', 'name_tag', 'lead', 'white_dye', 'oak_boat', 'bread', 'apple',
+    'fishing_rod', 'bow', 'shield', 'snowball', 'iron_helmet', 'potion', 'cobblestone', 'dirt']
+    .map((name) => ({ name, count: 1 }));
+  const raw = mockRaw({ inventory, blocks: [blk('oak_leaves', 1, 64, 0, 1.4)], entities: [] });
+  const on = moreActions(raw, { maxUseChoices: 255 }, all).find((x) => x.name === 'use_on');
+  const onItems = new Set(on.choices.map((x) => x.item));
+  for (const n of ['hand', 'wooden_axe', 'wooden_hoe', 'wooden_shovel', 'shears', 'oak_sapling', 'wheat_seeds', 'bone_meal', 'bucket', 'water_bucket', 'glass_bottle',
+    'flint_and_steel', 'wheat', 'name_tag', 'lead', 'white_dye', 'oak_boat', 'apple', 'poppy', 'potion']) assert.ok(onItems.has(n), n);
+  for (const n of ['wooden_pickaxe', 'stick', 'jungle_log', 'wooden_sword', 'oak_planks', 'cobblestone', 'dirt', 'fishing_rod', 'bow', 'shield', 'bread', 'iron_helmet'])
+    assert.ok(!onItems.has(n), n);
+  const ui = new Set(moreActions(raw, {}, all).find((x) => x.name === 'use_item').choices.map((x) => x.id));
+  for (const n of ['bread', 'apple', 'fishing_rod', 'bow', 'shield', 'snowball', 'iron_helmet', 'potion', 'bucket', 'water_bucket']) assert.ok(ui.has(n), n);
+  for (const n of ['jungle_log', 'stick', 'wooden_pickaxe', 'wooden_sword', 'oak_planks', 'cobblestone', 'dirt', 'wooden_hoe', 'name_tag', 'oak_sapling']) assert.ok(!ui.has(n), n);
+  // 持ち物が素手だけになっても素手は残る
+  const raw2 = mockRaw({ inventory: [{ name: 'stick', count: 4 }], blocks: [blk('oak_leaves', 1, 64, 0, 1.4)], entities: [] });
+  assert.deepStrictEqual(moreActions(raw2, {}, all).find((x) => x.name === 'use_on').choices.map((x) => x.id), ['hand>oak_leaves']);
+  assert.ok(!moreActions(raw2, {}, all).some((x) => x.name === 'use_item'));
+});
+
 test('more: use_on の候補は上限を超えない (遠い対象から落とす)', () => {
   const inventory = Array.from({ length: 40 }, (_, i) => ({ name: `item${i}`, count: 1 }));
   const blocks = Array.from({ length: 12 }, (_, i) => blk(`b${i}`, i, 64, 0, i + 1, { notable: i % 2 === 0 }));
   const raw = mockRaw({ inventory, blocks, entities: [] });
-  const a = moreActions(raw, { maxUseChoices: 300 }, all).find((x) => x.name === 'use_on');
-  assert.ok(a.choices.length <= MAX_CHOICES);
-  const a2 = moreActions(raw, { maxUseChoices: 100 }, all).find((x) => x.name === 'use_on');
+  const usableOn = () => true; // 名前の無い物も持ち物の側に出す (上限だけを試す)
+  const a = moreActions(raw, { maxUseChoices: 300, usableOn }, all).find((x) => x.name === 'use_on');
+  assert.ok(a.choices.length === MAX_CHOICES);
+  const a2 = moreActions(raw, { maxUseChoices: 100, usableOn }, all).find((x) => x.name === 'use_on');
   assert.ok(a2.choices.length <= 100);
   assert.ok(a2.choices.some((x) => x.target === 'b0'));
 });
