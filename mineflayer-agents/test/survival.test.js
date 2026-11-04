@@ -31,7 +31,7 @@ test('survival_3days.json: 全体の目標は渡さない。小屋・手順・�
   assert.strictEqual(cfg.world.base, 'self');
   assert.strictEqual(cfg.usage.maxJevInputTokens, 12000000);
   assert.strictEqual(cfg.loop.minutes, 60);
-  assert.strictEqual(cfg.personas.length, 5);
+  assert.strictEqual(cfg.personas.length, 20); // 先頭の5人は前と同じ (test/scale20.test.js)
   for (const h of cfg.goal.hints) assert.doesNotMatch(h, ADVICE, h);
   for (const h of cfg.goal.hints) assert.doesNotMatch(h, /小屋|協力/, h);
 });

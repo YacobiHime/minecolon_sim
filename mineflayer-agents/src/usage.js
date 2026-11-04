@@ -96,4 +96,26 @@ class UsageMeter {
   }
 }
 
-module.exports = { UsageMeter, estimateTokens, JEV_USD_PER_MTOK };
+// 複数のプロセス (run.js --procs) の summary() を1つにまとめる。数は足し、平均・費用は足した数から出し直す
+function mergeUsageSummaries(list, { maxInputTokens = null } = {}) {
+  const jev = emptyJev();
+  const twoB = emptyTwoB();
+  let exceeded = false;
+  const addInto = (dst, src) => { for (const [k, v] of Object.entries(src || {})) if (typeof v === 'number' && typeof dst[k] === 'number') dst[k] += v; };
+  for (const u of list.filter(Boolean)) {
+    const j = u.jev || {};
+    addInto(jev, j);
+    for (const [st, v] of Object.entries(j.byStage || {})) addInto((jev.byStage[st] = jev.byStage[st] || { calls: 0, inputChars: 0, inputTokens: 0 }), v);
+    exceeded = exceeded || !!j.exceeded;
+    const t = u.twoB || {};
+    addInto(twoB, t);
+    for (const [k, v] of Object.entries(t.byKind || {})) addInto((twoB.byKind[k] = twoB.byKind[k] || { calls: 0, promptChars: 0, promptTokens: 0, ms: 0 }), v);
+  }
+  const m = new UsageMeter({ maxJevInputTokens: maxInputTokens ?? Math.max(0, ...list.filter(Boolean).map((u) => (u.jev && u.jev.maxInputTokens) || 0)) });
+  m.jev = jev;
+  m.twoB = twoB;
+  m.exceeded = exceeded;
+  return m.summary();
+}
+
+module.exports = { UsageMeter, estimateTokens, JEV_USD_PER_MTOK, mergeUsageSummaries };

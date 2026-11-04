@@ -133,6 +133,13 @@ function goalMet(goal, inventory, raw = null) {
   return conds.length > 0 && conds.every(Boolean);
 }
 
+// 相手ごとの好感 (50 = 初期値から動いたものだけ。summarize_run の関係の行列に使う)
+function affinityOf(social) {
+  const out = {};
+  for (const [n, r] of Object.entries(social.relations || {})) if (r && Number.isFinite(r.affinity) && Math.round(r.affinity) !== 50) out[n] = Math.round(r.affinity);
+  return out;
+}
+
 class Agent {
   constructor(cfg, { decider, log = console.log, meter = null, talker = null, recordDir = null, recordStamp = null } = {}) {
     this.cfg = cfg;
@@ -536,9 +543,11 @@ class Agent {
   // Jev の talk (Noul) が閾値を超えたら、2B に発言を作らせる (待たずに次へ進む)
   maybeTalk(ctx, dec, plannedText) {
     const tcfg = this.cfg.talk || {};
-    if (!this.talker || this.talking || !dec.jev || dec.jev.talkP == null) return null;
+    // 話すかは Jev の talk。random の decider の talkP (負荷の試験用) も同じに扱う
+    const talkP = dec.jev ? dec.jev.talkP : dec.talkP;
+    if (!this.talker || this.talking || talkP == null) return null;
     const thr = (tcfg.threshold ?? 0.6) + (0.5 - (this.social.temperament.sociability ?? 0.5)) * 0.2;
-    if (dec.jev.talkP < thr) return null;
+    if (talkP < thr) return null;
     this.talking = true;
     const players = ctx.raw.entities.filter((e) => e.kind === 'player');
     const tctx = {
@@ -550,8 +559,8 @@ class Agent {
     const loop = this.memory.tick;
     this.talker.talk(tctx).then((r) => {
       const said = r.say && this.chat(r.say) ? r.say : null;
-      this.recorder.write({ event: 'talk', loop, talkP: dec.jev.talkP, threshold: Number(thr.toFixed(3)), say: said, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
-      if (said) this.log(`[${this.cfg.persona.name}] say「${said}」 (talk ${dec.jev.talkP.toFixed(2)})`);
+      this.recorder.write({ event: 'talk', loop, talkP, threshold: Number(thr.toFixed(3)), say: said, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
+      if (said) this.log(`[${this.cfg.persona.name}] say「${said}」 (talk ${talkP.toFixed(2)})`);
     }).catch(() => {}).finally(() => { this.talking = false; });
     return thr;
   }
@@ -754,7 +763,7 @@ class Agent {
       memText: ctx.memText,
       memSelection: this.memory.lastSelection || null,
       forgotten,
-      social: { words: socialText, emotions: this.social.emotions, needs: this.social.needs, stress: this.social.stress, worst: worst ? worst.need : null },
+      social: { words: socialText, emotions: this.social.emotions, needs: this.social.needs, stress: this.social.stress, worst: worst ? worst.need : null, aff: affinityOf(this.social) },
       troubles: troubles.map((t) => t.key),
       troubleKinds: troubles.map((t) => t.kind),
       stateChanged,

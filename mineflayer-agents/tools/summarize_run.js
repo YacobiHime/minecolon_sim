@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { JEV_USD_PER_MTOK } = require('../src/usage');
+const scale = require('./scale_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -422,15 +423,17 @@ function main() {
   const ei = args.indexOf('--excerpt');
   const nEx = ei >= 0 ? Number(args[ei + 1]) : 40;
   const isDir = fs.statSync(target).isDirectory();
-  const files = isDir ? fs.readdirSync(target).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(target, f)) : [target];
+  const files = isDir ? fs.readdirSync(target).filter((f) => f.endsWith('.jsonl') && !/^monitor(-\d+)?\.jsonl$/.test(f)).map((f) => path.join(target, f)) : [target];
   const runJson = isDir && fs.existsSync(path.join(target, 'run.json')) ? JSON.parse(fs.readFileSync(path.join(target, 'run.json'), 'utf8')) : null;
 
   const all = [];
   const agents = [];
+  const rowsByName = {};
   for (const f of files) {
     const rows = readJsonl(f);
     const s = summarizeAgent(f, rows);
     agents.push(s);
+    rowsByName[s.name] = rows;
     for (const r of rows) all.push({ ...r, _name: s.name });
   }
   const loops = all.filter(isStep);
@@ -493,6 +496,13 @@ function main() {
     perAgent: agents,
     conversation: conversation(all, nEx),
   };
+  // 人数が多いとき向け: 集まり・関係の行列・判断の間隔・人ごとの短い要約・負荷 (monitor)
+  out.decisions.intervalSec = scale.intervalStats(rowsByName);
+  out.clusters = scale.clusterStats(all);
+  out.relations = scale.relationMatrix(rowsByName);
+  out.brief = scale.briefPerAgent(agents, { clusters: out.clusters, deathsPerAgent: out.survival.perAgent, intervals: out.decisions.intervalSec });
+  out.load = { monitor: isDir ? scale.monitorStats(target) : null, twoBLatency: runJson ? runJson.twoBLatency || null : null,
+    disconnects: runJson ? (typeof runJson.disconnects === 'number' ? runJson.disconnects : runJson.disconnects ? runJson.disconnects.n : null) : null, procs: runJson ? runJson.procs || 1 : null };
   console.log(JSON.stringify(out, null, 2));
   if (args.includes('--text')) {
     console.log('\n--- 週次報告用 ---');
@@ -552,6 +562,25 @@ function main() {
     else console.log(`死んだ回数 (人ごと) ${Object.entries(sv2.perAgent).map(([k, v]) => `${k} ${v}`).join('・')}`);
     const pdl = out.pairDistance.timeline;
     console.log(`2人組の距離 (${out.pairDistance.bucketSec}秒ごと、${out.pairDistance.near}m 以内の組の数 / 中央値): ${pdl.filter((_, i) => i % Math.max(1, Math.ceil(pdl.length / 12)) === 0).map((x) => `${x.min}分 ${x.withinNear}/${x.pairs}組 ${x.median}m`).join('、')}`);
+    const cs = out.clusters;
+    if (cs.summary) {
+      const tl = cs.timeline.filter((_, i) => i % Math.max(1, Math.ceil(cs.timeline.length / 12)) === 0);
+      console.log(`集まり (${cs.near}m 以内でつながった2人以上、${cs.bucketSec}秒ごと): 平均 ${cs.summary.groupsAvg} 個・最大 ${cs.summary.groupsMax} 個、いちばん大きい集まり 中央値 ${cs.summary.largestP50} 人・最大 ${cs.summary.largestMax} 人、1人で居た割合 平均 ${Math.round(cs.summary.aloneShareAvg * 100)}%`);
+      console.log(`  推移: ${tl.map((x) => `${x.min}分 ${x.groups}個[${x.sizes.join(',')}]`).join('、')}`);
+    }
+    const iv = out.decisions.intervalSec;
+    console.log(`判断の間隔 p50 ${iv.p50}s・p95 ${iv.p95}s・最大 ${iv.max}s`);
+    const rm = out.relations;
+    console.log(`関係 (好感の変化、初期値 50 から): 変わった ${rm.changed} 組 (上がった ${rm.positive}・下がった ${rm.negative})、上位 ${rm.top.map((p) => `${p.from}→${p.to} ${p.delta > 0 ? '+' : ''}${p.delta}`).join('・') || 'なし'}${rm.bottom.length ? `、下位 ${rm.bottom.map((p) => `${p.from}→${p.to} ${p.delta}`).join('・')}` : ''}`);
+    if (rm.mutual.length) console.log(`  お互いに変わった組: ${rm.mutual.map((x) => `${x.pair} (${x.a > 0 ? '+' : ''}${x.a}/${x.b > 0 ? '+' : ''}${x.b})`).join('・')}`);
+    if (rm.changed) for (const l of scale.matrixText(rm)) console.log(`  ${l}`);
+    console.log('人ごと:');
+    for (const l of out.brief) console.log(`  ${l}`);
+    if (out.load.monitor || out.load.twoBLatency) {
+      for (const [k, v] of Object.entries(out.load.monitor || {})) console.log(`負荷 ${k}: CPU p50 ${v.cpuPct.p50}%・最大 ${v.cpuPct.max}%、RSS 最大 ${v.rssMb.max}MB、イベントループの遅れ p99 の中央値 ${v.loopLagP99.p50}ms・最大 ${v.loopLagP99.max}ms、ボット ${v.bots.minAlive}/${v.bots.total} (切断 ${v.bots.disconnects})、2B の待ち p95 の中央値 ${v.twoBWaitP95.p50}ms・最大 ${v.twoBWaitP95.max}ms、Jev の 429 ${v.jevRateLimited} 回`);
+      const tl = out.load.twoBLatency;
+      if (tl) console.log(`2B の応答 (全体): ${tl.calls} 回、全体 p50 ${tl.ms.p50}ms・p95 ${tl.ms.p95}ms、待ち p50 ${tl.waitMs.p50}ms・p95 ${tl.waitMs.p95}ms・最大 ${tl.waitMs.max}ms、切断 ${out.load.disconnects ?? '-'}`);
+    }
     console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
     console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision}・呼び出し ${out.jev.callsPerDecision} 回、1呼び出し ${out.jev.inputTokensPerCall})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);

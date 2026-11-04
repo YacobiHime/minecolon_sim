@@ -53,7 +53,7 @@ function main() {
   if (!target) { console.error('usage: node tools/replay_nochange.js <runs/<時刻>/ | x.jsonl> [--json] [--netWindow N]'); process.exit(2); }
   const opts = {};
   for (let i = 0; i < args.length; i++) if (args[i].startsWith('--') && args[i] !== '--json' && args[i + 1] != null) opts[args[i].slice(2)] = Number(args[i + 1]);
-  const files = fs.statSync(target).isDirectory() ? fs.readdirSync(target).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(target, f)) : [target];
+  const files = fs.statSync(target).isDirectory() ? fs.readdirSync(target).filter((f) => f.endsWith('.jsonl') && !/^monitor(-\d+)?\.jsonl$/.test(f)).map((f) => path.join(target, f)) : [target];
   const res = {};
   for (const f of files) {
     const rows = readRows(f);

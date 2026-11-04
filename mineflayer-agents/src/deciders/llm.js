@@ -30,6 +30,24 @@ function decisionSchema(actions, allowSay, constrainArgs = true, think = false) 
   };
 }
 
+// 2B (llama-server) の呼び出しの待ち時間を、プロセスの中の全員でまとめて数える (20人で -np 8 の待ち行列を見るため)。
+//   ms: 呼び出しから応答まで。serverMs: サーバーが実際に処理した時間 (timings.prompt_ms + predicted_ms)。
+//   waitMs = ms − serverMs ≈ スロットの空き待ち (と通信)。window() は前回の window() からの分
+const LLM_STATS = {
+  all: [], since: 0,
+  add(r) { this.all.push(r); if (this.all.length > 20000) { this.all.splice(0, 10000); this.since = Math.max(0, this.since - 10000); } },
+  summarize(rows) {
+    const q = (a, p) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return Math.round(s[Math.min(s.length - 1, Math.floor(p * s.length))]); };
+    const ok = rows.filter((r) => !r.error);
+    const f = (k) => ok.map((r) => r[k]).filter((x) => Number.isFinite(x));
+    return { calls: rows.length, errors: rows.length - ok.length, ms: { p50: q(f('ms'), 0.5), p95: q(f('ms'), 0.95), max: q(f('ms'), 1) },
+      serverMs: { p50: q(f('serverMs'), 0.5), p95: q(f('serverMs'), 0.95) }, waitMs: { p50: q(f('waitMs'), 0.5), p95: q(f('waitMs'), 0.95), max: q(f('waitMs'), 1) } };
+  },
+  total() { return this.summarize(this.all); },
+  window() { const rows = this.all.slice(this.since); this.since = this.all.length; return this.summarize(rows); },
+  reset() { this.all = []; this.since = 0; },
+};
+
 class LLMDecider {
   constructor(opts = {}) {
     this.kind = 'llm';
@@ -67,6 +85,8 @@ class LLMDecider {
     if (this.constrained && schema) body.response_format = { type: 'json_schema', json_schema: { name: 'decision', schema, strict: true } };
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.timeoutMs);
+    const t0 = Date.now();
+    let stat = { ms: null, serverMs: null, waitMs: null, error: true };
     try {
       const res = await this.fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
@@ -76,14 +96,20 @@ class LLMDecider {
       });
       if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const d = await res.json();
+      const ms = Date.now() - t0;
+      const serverMs = d.timings && Number.isFinite(d.timings.prompt_ms) ? Math.round((d.timings.prompt_ms || 0) + (d.timings.predicted_ms || 0)) : null;
+      stat = { ms, serverMs, waitMs: serverMs == null ? null : Math.max(0, ms - serverMs), error: false };
       return {
         text: d.choices?.[0]?.message?.content ?? '',
         promptTokens: d.usage?.prompt_tokens ?? null,
         completionTokens: d.usage?.completion_tokens ?? null,
         cachedTokens: d.timings?.cache_n ?? d.usage?.prompt_tokens_details?.cached_tokens ?? null,
+        ms, serverMs, waitMs: stat.waitMs,
       };
     } finally {
       clearTimeout(timer);
+      if (stat.ms == null) stat.ms = Date.now() - t0;
+      LLM_STATS.add(stat);
     }
   }
 
@@ -120,4 +146,4 @@ class LLMDecider {
   }
 }
 
-module.exports = { LLMDecider, decisionSchema };
+module.exports = { LLMDecider, decisionSchema, LLM_STATS };
