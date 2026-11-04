@@ -23,7 +23,8 @@ test('survival_3days.json: 全体の目標は渡さない。小屋・手順・�
   assert.strictEqual(cfg.help.steps, false);
   assert.strictEqual(cfg.help.progress, false);
   assert.strictEqual(cfg.help.selfGoal, false);
-  assert.strictEqual(cfg.help.goalPlan, true);
+  assert.strictEqual(cfg.help.goalPlan, false); // 手順の文 (goalplan.js) はやめ、ゴール → 道筋 (planner) → Jev (goalpath.js)
+  assert.strictEqual(cfg.help.goalPath, true);
   assert.strictEqual(cfg.decider.jev.twoStage.enabled, false);
   assert.strictEqual(cfg.act.maxUseChoices, 12);
   assert.strictEqual(cfg.act.maxGiveChoices, 8);

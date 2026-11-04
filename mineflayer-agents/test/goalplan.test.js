@@ -58,8 +58,8 @@ test('rankPairs: 順位の和の小さい順', () => {
   assert.deepStrictEqual(rankPairs(2, 3), [[0, 0], [1, 0], [0, 1], [1, 1], [0, 2], [1, 2]]);
 });
 
-function survivalCtx(over = {}, extra = {}) {
-  const cfg = loadConfig(CFG, { persona: { name: 'Taro' } });
+function survivalCtx(over = {}, extra = {}, cfgOver = {}) {
+  const cfg = loadConfig(CFG, { persona: { name: 'Taro' }, ...cfgOver });
   return buildContext(mockRaw(over), new Memory({ limits: cfg.memory.limits }), cfg, { foods: new Set(['bread']), ...extra });
 }
 
@@ -72,9 +72,15 @@ test('survival: use_on は12個・give は8個まで。近い対象・数の多�
   const use = c.actions.find((a) => a.name === 'use_on');
   assert.strictEqual(use.choices.length, 12);
   assert.strictEqual(use.choices[0].id, 'hand>grass_block'); // 素手 × 一番近い対象
-  assert.strictEqual(use.choices[1].id, 'oak_log>grass_block'); // 一番多い持ち物 × 一番近い対象
+  // 置けるブロック (oak_log・oak_planks・dirt) は持ち物の側から外す (act.useOnPlaceable: false)。種は残す。棒は置けないので残る
+  assert.strictEqual(use.choices[1].id, 'wheat_seeds>grass_block'); // 一番多い持ち物 (置ける物を除く) × 一番近い対象
   assert.strictEqual(use.choices[2].id, 'hand>dirt');
-  assert.ok(!use.choices.some((x) => x.item === 'bread' || x.target === 'water')); // 少ない持ち物・遠い対象は落ちる
+  assert.ok(!use.choices.some((x) => ['oak_log', 'oak_planks', 'dirt'].includes(x.item)));
+  assert.ok(!use.choices.some((x) => x.target === 'water')); // 遠い対象は落ちる
+  // collect の候補から地面そのもの (dirt・grass_block) を外す。sand・gravel は残す
+  const coll = c.actions.find((a) => a.name === 'collect').choices.map((x) => x.id);
+  assert.ok(!coll.includes('dirt') && !coll.includes('grass_block'));
+  assert.ok(coll.includes('sand') && coll.includes('gravel'));
   const give = c.actions.find((a) => a.name === 'give');
   assert.strictEqual(give.choices.length, 8);
   assert.deepStrictEqual(give.choices.slice(0, 4).map((x) => x.id), ['Hanako:oak_log:1', 'Hanako:oak_log:all', 'Ken:oak_log:1', 'Ken:oak_log:all']);
@@ -209,7 +215,7 @@ test('parseSteps / parseGoalText / timeText', () => {
 });
 
 test('JevDecider: goalPlan のとき plan はゴールと今の手順。step_done (noul) を聞いて読む。goal_done は聞かない', async () => {
-  const c = survivalCtx({}, { planText: 'ゴール: 作業台を置く / 今の手順 (1/3): jungle_logを1個持っている' });
+  const c = survivalCtx({}, { planText: 'ゴール: 作業台を置く / 今の手順 (1/3): jungle_logを1個持っている' }, { help: { goalPlan: true, goalPath: false } });
   assert.ok(c.goalPlan && !c.selfGoal);
   const bodies = [];
   const fetch = async (url, init) => {

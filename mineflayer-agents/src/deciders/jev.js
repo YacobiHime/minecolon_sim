@@ -151,7 +151,8 @@ function buildQuestions(ctx, opts) {
     instructions: (hasGoal(ctx) ? 'Choose the single next action for `you` that best advances `goal`. ' : 'Choose the single next action for `you`. ')
       + (!hasGoal(ctx) && ctx.socialText ? '`feelings` is how `you` feel in body and mind right now. ' : '')
       + (opts.hasTable ? '`actions` explains each kind of action; an option ending in "*" is a kind of action whose target is chosen next. ' : '')
-      + (ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
+      + (ctx.goalPath ? '`plan` is the goal `you` set for yourself; for an item goal it lists the things it needs in order ("X n ← Y": X is obtained from or made of Y) and the next one. '
+        : ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
         : ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ')
       + 'Check `now` (inventory and what is visible) and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'
       // help.askHint: 困ったら聞くよう後押しする一文 (first_setting では外し、無しで聞くかを観察する)

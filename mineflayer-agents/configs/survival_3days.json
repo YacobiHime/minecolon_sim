@@ -1,5 +1,5 @@
 {
-  "_comment": "5人を normal・昼夜あり・等倍で60分 (= 3日) 動かす。3日は実験の長さ・環境の厳しさで、全体の目標は渡さない (goal.text は空。ユーザー決定 2026-11-03)。人としての欲求 (needs.js: 空腹・眠気・安心・つながり・認められたい・性格ごとの欲求) とストレスを持ち、ゴールは欲求から自分で決める (help.goalPlan)。小屋・build・②手順・③進み具合は使わない。拠点は set_base で自分で決める",
+  "_comment": "5人を normal・昼夜あり・等倍で60分 (= 3日) 動かす。3日は実験の長さ・環境の厳しさで、全体の目標は渡さない (goal.text は空。ユーザー決定 2026-11-03)。人としての欲求 (needs.js: 空腹・眠気・安心・つながり・認められたい・性格ごとの欲求) とストレスを持ち、ゴールは欲求から 2B が物・人・場所で決め、物のゴールはプログラムがレシピをたどって道筋を作り、Jev が道筋の次の物と目の前の様子から行動を選ぶ (help.goalPath。2026-11-04)。小屋・build・②手順・③進み具合は使わない。拠点は set_base で自分で決める",
   "personas": [
     {
       "name": "Taro",
@@ -135,23 +135,23 @@
     "askHint": false,
     "hut": false,
     "selfGoal": false,
-    "goalPlan": true
+    "goalPlan": false,
+    "goalPath": true
   },
-  "goalPlan": {
-    "_comment": "help.goalPlan: 2B がゴールを1つ決め、逆向きにさかのぼって手順 (maxSteps 個まで) を作る。Jev の noul で各手順ができるかを確かめ、checkThreshold 未満はその手順だけ 2B が書き直す (maxRewrites 回まで)。行動を選ぶ Jev にはゴールと今の手順だけを出し、step_done (noul) ≥ stepDoneThreshold で次の手順へ。困りごとが troubleTicks 判断続く・今の手順が stepPatience 判断進まないと残りの手順だけ作り直す。作り直しが abandonAfter 回を超えたらゴールを捨てる。一定判断ごとの書き直しはしない",
-    "maxSteps": 6,
-    "checkThreshold": 0.5,
-    "maxRewrites": 2,
-    "rewriteMax": 1,
-    "stepDoneThreshold": 0.7,
-    "stepPatience": 15,
+  "goalPath": {
+    "_comment": "help.goalPath (src/goalpath.js・planner.js・vocab.js): 2B がゴール {kind: item/person/place, target (候補から), count, why, need} を決める。物のゴールは毎判断、持ち物と見えている物から planner がレシピ・焼く・掘る・倒すをたどって道筋を作り、Jev の plan に「ゴール / 道筋 / 次」だけを出す (手順の文・Jev の手順の確認・step_done は使わない)。済んだか: 物を持った・人の近く (渡した)・場所に着いた + 元の欲求が needDrop 下がる か needLow 以下。needWait 判断待っても下がらなければ選び直し。困りごとが troubleTicks 判断続く・道筋の残り (人・場所までの距離) が patience 判断縮まない → 選び直し。たどれない物は 2B に maxTries 回まで聞き直す。候補の物は maxItems 個まで",
+    "maxItems": 40,
+    "maxTries": 2,
+    "needDrop": 0.15,
+    "needLow": 0.3,
+    "needWait": 12,
     "troubleTicks": 4,
-    "abandonAfter": 3,
-    "maxTokens": {
-      "goal": 120,
-      "steps": 420,
-      "rewrite": 160
-    }
+    "patience": 15,
+    "nearDist": 5,
+    "arriveDist": 6,
+    "farDist": 48,
+    "maxShown": 5,
+    "maxTokens": 120
   },
   "others": {
     "_comment": "行動中に近く (radius、既定は visionRadius) でほかの人が拾った物・壊したブロックを、actions の行動の結果の文に足す (記憶にも入る)",
@@ -286,7 +286,19 @@
     "_comment_more": "use_on: 持ち物(と素手) x 見えている対象 (近いブロック5種+目印4種+生き物4種)。maxUseChoices で上限。craftables: all = レシピのある物すべて、placeable: .* = 持っているブロックすべて",
     "maxUseChoices": 12,
     "maxGiveChoices": 8,
-    "_comment_caps": "use_on・give は、近い対象 (人)・数の多い持ち物の組から上限まで (2段をやめて1段で全部並べるため)"
+    "_comment_caps": "use_on・give は、近い対象 (人)・数の多い持ち物の組から上限まで (2段をやめて1段で全部並べるため)",
+    "_comment_ground": "collectExclude: collect の候補から外すブロック (地面そのもの。sand・gravel は残す。耕す・植えるはその場の土に use_on でできる)。useOnPlaceable: false で use_on の持ち物の側からブロックとして置ける物を外す (苗木・種など植える物は残す)",
+    "collectExclude": [
+      "dirt",
+      "grass_block",
+      "coarse_dirt",
+      "podzol",
+      "mycelium",
+      "rooted_dirt",
+      "dirt_path",
+      "mud"
+    ],
+    "useOnPlaceable": false
   },
   "craftables": "all",
   "placeable": [

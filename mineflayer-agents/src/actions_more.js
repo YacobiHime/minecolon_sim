@@ -97,7 +97,9 @@ function moreActions(raw, ctx = {}, on = () => true) {
   //   (対象の近さの順位 + 持ち物の数の順位 の小さい順) 上限まで。組み合わせに意味があるかは判断しない
   if (on('use_on')) {
     const targets = useTargets(raw, ctx).map((t, i) => ({ t, i })).sort((a, b) => (dOf(here, a.t) - dOf(here, b.t)) || (a.i - b.i)).map((x) => x.t);
-    const items = [HAND, ...byCount(inv).map((i) => i.name)];
+    // useOnSkip(name): 持ち物の側から外す物 (survival_3days では置けるブロック。種・苗木など使う=植えるになる物は残す)
+    const skip = ctx.useOnSkip || null;
+    const items = [HAND, ...byCount(inv).map((i) => i.name).filter((n) => !(skip && skip(n)))];
     const maxN = Math.min(MAX_CHOICES, ctx.maxUseChoices ?? 200);
     const ch = [];
     for (const [ii, ti] of rankPairs(items.length, targets.length)) {

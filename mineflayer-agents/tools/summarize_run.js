@@ -218,6 +218,60 @@ function goalPlanStats(all, n = 20) {
   return { ...stats(ev), perAgent: Object.fromEntries(names.map((nm) => [nm, stats(ev.filter((r) => r._name === nm))])), timeline: timeline.slice(0, n) };
 }
 
+// ゴール → 道筋 (help.goalPath) の記録: event 'goal_path'。ゴールの一覧・達成・選び直し (理由ごと)・道筋の進み
+function goalPathStats(all, n = 30) {
+  const ev = all.filter((r) => r.event === 'goal_path').sort((a, b) => (a.ts < b.ts ? -1 : 1));
+  const goalOf = (r) => (r.kind === 'goal' ? `${r.target}${r.count ? ` ${r.count}` : ''}` : r.goal || r.target);
+  const stats = (rows) => {
+    const sel = rows.filter((r) => r.kind === 'reselect');
+    return {
+      goals: rows.filter((r) => r.kind === 'goal' && r.ok).length, goalFailed: rows.filter((r) => r.kind === 'goal' && !r.ok).length,
+      byKind: countBy(rows.filter((r) => r.kind === 'goal' && r.ok), (r) => r.goalKind || '-'),
+      unplannable: rows.filter((r) => r.kind === 'unplannable').length,
+      reached: rows.filter((r) => r.kind === 'reached').length,
+      done: rows.filter((r) => r.kind === 'goal_done').length,
+      reselect: countBy(sel, (r) => r.result),
+      pathChanges: rows.filter((r) => r.kind === 'path').length,
+      reachTook: { p50: pct(rows.filter((r) => r.kind === 'reached').map((r) => r.took), 50) },
+    };
+  };
+  const names = [...new Set(ev.map((r) => r._name))];
+  const timeline = ev.filter((r) => ['goal', 'unplannable', 'reached', 'goal_done', 'reselect'].includes(r.kind)).map((r) => {
+    const h = `[${hhmmss(r.ts)}] ${r._name} t${r.tick} ${r.kind}`;
+    if (r.kind === 'goal') {
+      if (!r.ok) return `${h} (読めなかった)`;
+      const p = r.path && r.path.steps ? ` / 道筋 ${r.path.steps.map((s) => `${s.item} ${s.count}`).join('、') || '揃っている'}` : '';
+      return `${h} ${r.goalKind}:${goalOf(r)}${r.give ? ` give=${r.give}` : ''} (何のため: ${r.why || '-'} / need: ${r.need || '-'} / 理由: ${r.reason})${p}`;
+    }
+    if (r.kind === 'unplannable') return `${h} ${goalOf(r)} (たどれない: ${r.missing || '-'})`;
+    if (r.kind === 'reached') return `${h} ${r.goal} (${r.took}判断)`;
+    return `${h} ${r.target}${r.count ? ` ${r.count}` : ''} → ${r.result}${r.reason ? ` (${r.reason})` : ''}`;
+  });
+  // 道筋の進み: ゴールごとに、次の物が移っていった順
+  const progress = [];
+  let cur = null;
+  for (const r of ev) {
+    if (r.kind === 'goal' && r.ok) { cur = { who: r._name, goal: goalOf(r), nexts: [] }; progress.push(cur); }
+    else if (r.kind === 'path' && cur && cur.who === r._name && r.next && cur.nexts[cur.nexts.length - 1] !== r.next) cur.nexts.push(r.next);
+  }
+  return { ...stats(ev), perAgent: Object.fromEntries(names.map((nm) => [nm, stats(ev.filter((r) => r._name === nm))])), timeline: timeline.slice(0, n),
+    progress: progress.slice(0, n).map((p) => `${p.who} ${p.goal}: ${p.nexts.join(' → ') || '-'}`) };
+}
+
+function countBy(rows, f) { const m = {}; for (const r of rows) { const k = f(r); m[k] = (m[k] || 0) + 1; } return m; }
+
+// 拠点に何が集まったか (event 'base_site'): 人ごとに最後に見た様子と、それまでで一番多かった数
+function baseSiteStats(all) {
+  const out = {};
+  for (const r of all.filter((x) => x.event === 'base_site').sort((a, b) => (a.ts < b.ts ? -1 : 1))) {
+    const o = out[r._name] || (out[r._name] = { seen: 0, last: null, max: {} });
+    o.seen += 1;
+    o.last = { loop: r.loop, center: r.center, isBase: r.isBase, counts: r.counts, light: r.light, enclosed: r.enclosed, text: r.text };
+    for (const [k, v] of Object.entries(r.counts || {})) o.max[k] = Math.max(o.max[k] || 0, v);
+  }
+  return out;
+}
+
 // 協力に関わる出来事: 聞く・答える・話す・同じ所 (近さ near 以内) に同じ時間帯 (bucketSec) に居た組
 function cooperationStats(all, { near = 8, bucketSec = 10 } = {}) {
   const loops = all.filter((r) => isStep(r) && r.pos && r.ts);
@@ -399,6 +453,8 @@ function main() {
     survival: survivalStats(agents, all),
     selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
     goalPlan: all.some((r) => r.event === 'goal_plan') ? goalPlanStats(all) : null,
+    goalPath: all.some((r) => r.event === 'goal_path') ? goalPathStats(all) : null,
+    baseSite: all.some((r) => r.event === 'base_site') ? baseSiteStats(all) : null,
     needs: needsStats(all),
     goalWhy: goalWhyList(all),
     others: { appended: loops.filter((r) => r.result && r.result.others && r.result.others.length).length,
@@ -426,7 +482,7 @@ function main() {
     console.log(`build で置いた物: 原木 ${bs('log', 'placed')} 個 (${bs('log', 'n')} 回)・板材 ${bs('planks', 'placed')} 個 (${bs('planks', 'n')} 回)・そのほか ${bs('other', 'placed')} 個 (${bs('other', 'n')} 回)`);
     console.log(`pillar ${acts('pillar')} 回 (成功 ${actsOk('pillar')})、pick_up ${acts('pick_up')} 回 (成功 ${actsOk('pick_up')})、go_to ${acts('go_to')} 回 (成功 ${actsOk('go_to')})`);
     const sv = out.survival;
-    if (sv.deaths || all.some((r) => r.event === 'self_goal' || r.event === 'goal_plan')) {
+    if (sv.deaths || all.some((r) => r.event === 'self_goal' || r.event === 'goal_plan' || r.event === 'goal_path')) {
       console.log(`死んだ ${sv.deaths} 回 (${Object.entries(sv.causes).map(([k, v]) => `${k} ${v}`).join('・') || 'なし'})、各日の終わりに一度も死なずに生きていた人数 ${sv.aliveAtDayEnd.map((d) => `${d.day}日目 ${d.alive}/${d.reached}`).join('・')}、3日生き延びた (一度も死ななかった) ${sv.survivedNoDeath.length} 人`);
       console.log(`攻撃 ${acts('attack')} 回 (成功 ${actsOk('attack')})・逃げる ${acts('flee')}・焼く ${acts('smelt')} (成功 ${actsOk('smelt')})・寝る ${acts('sleep')} (成功 ${actsOk('sleep')})・置いた ${JSON.stringify(out.placed)}・拠点を決めた ${out.cooperation.setBase.length} 回`);
       console.log(`自分で決めた目標 ${out.selfGoals.count} 回 (${JSON.stringify(out.selfGoals.byReason)})`);
@@ -437,6 +493,14 @@ function main() {
         console.log(`  人ごと: ${Object.entries(g.perAgent).map(([k, v]) => `${k} ゴール${v.goals}・進んだ${v.stepsAdvanced}・作り直し${v.rebuilds}`).join(' / ')}`);
         for (const l of g.timeline.slice(0, 8)) console.log(`  ${l}`);
       }
+      if (out.goalPath) {
+        const g = out.goalPath;
+        console.log(`ゴール ${g.goals} 個 (${Object.entries(g.byKind).map(([k, v]) => `${k} ${v}`).join('・')}、読めなかった ${g.goalFailed}、たどれなかった ${g.unplannable})、着いた/手に入れた ${g.reached} (p50 ${g.reachTook.p50} 判断)、達成 ${g.done}、選び直し ${JSON.stringify(g.reselect)}、道筋の次の物が変わった ${g.pathChanges} 回`);
+        console.log(`  人ごと: ${Object.entries(g.perAgent).map(([k, v]) => `${k} ゴール${v.goals}・達成${v.done}・選び直し${Object.values(v.reselect).reduce((a, b) => a + b, 0)}`).join(' / ')}`);
+        for (const l of g.timeline.slice(0, 10)) console.log(`  ${l}`);
+        for (const l of g.progress.slice(0, 8)) console.log(`  道筋の進み ${l}`);
+      }
+      if (out.baseSite) for (const [nm, b] of Object.entries(out.baseSite)) console.log(`  拠点 ${nm}: ${b.last ? b.last.text : '-'} (一番多かった数 ${JSON.stringify(b.max)})`);
       if (out.needs) {
         for (const [nm, v] of Object.entries(out.needs)) {
           const o = v.overall;
@@ -449,7 +513,7 @@ function main() {
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
     }
     const sv2 = out.survival;
-    if (!(sv2.deaths || all.some((r) => r.event === 'self_goal' || r.event === 'goal_plan'))) console.log(`死んだ 0 回`);
+    if (!(sv2.deaths || all.some((r) => r.event === 'self_goal' || r.event === 'goal_plan' || r.event === 'goal_path'))) console.log(`死んだ 0 回`);
     else console.log(`死んだ回数 (人ごと) ${Object.entries(sv2.perAgent).map(([k, v]) => `${k} ${v}`).join('・')}`);
     const pdl = out.pairDistance.timeline;
     console.log(`2人組の距離 (${out.pairDistance.bucketSec}秒ごと、${out.pairDistance.near}m 以内の組の数 / 中央値): ${pdl.filter((_, i) => i % Math.max(1, Math.ceil(pdl.length / 12)) === 0).map((x) => `${x.min}分 ${x.withinNear}/${x.pairs}組 ${x.median}m`).join('、')}`);

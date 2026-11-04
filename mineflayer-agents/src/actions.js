@@ -58,8 +58,10 @@ function listActions(raw, ctx = {}) {
   const on = (n) => enabled.has(n) && !disabled.has(n);
 
   // collect: 見えていて、今の道具で掘れて、手の届く高さ (足場を積まない) にあるブロック
+  // collectExclude: 候補にしないブロック (survival_3days では地面そのもの: dirt・grass_block など。耕す・植えるはその場の土に use_on でできる)
+  const collEx = ctx.collectExclude || null;
   const coll = raw.blocks
-    .filter((b) => b.diggable && !blocked.has(`collect:${b.name}`))
+    .filter((b) => b.diggable && !blocked.has(`collect:${b.name}`) && !(collEx && collEx.test(b.name)))
     .map((b) => ({ b, reach: (b.positions && b.positions.length ? b.positions : [b.nearest]).filter((p) => p.y - Math.floor(here.y) <= maxReachUp) }))
     .filter((x) => x.reach.length)
     .sort((x, y) => (y.b.notable - x.b.notable) || (x.reach[0].d - y.reach[0].d))

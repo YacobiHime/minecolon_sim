@@ -19,15 +19,23 @@ const ask = require('./ask');
 const nochange = require('./nochange');
 const { SelfGoal } = require('./selfgoal');
 const { GoalPlan } = require('./goalplan');
+const { GoalPath } = require('./goalpath');
+const { baseSite, baseSiteText } = require('./basesite');
+const { isPlaceableBlockItem } = require('./planner');
 const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
 // noChange: 成功しても状態が変わらない繰り返しを困りごとにし、その行動に負の重みをつける (実験的。nochange.js)
-const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true, hut: true, selfGoal: false, goalPlan: false };
+const DEFAULT_HELP = { hints: true, steps: true, progress: true, askOthers: false, excludeFailures: true, noChange: false, askHint: true, hut: true, selfGoal: false, goalPlan: false, goalPath: false };
 
 function helpOf(cfg) { return { ...DEFAULT_HELP, ...(cfg.help || {}) }; }
+// cfg.act.collectExclude (ブロックの名前の配列) → RegExp | null
+function collectExcludeOf(cfg) {
+  const l = cfg.act && cfg.act.collectExclude;
+  return Array.isArray(l) && l.length ? new RegExp(`^(${l.join('|')})$`) : null;
+}
 function noChangeCfg(cfg) { return { ...nochange.DEFAULTS, ...(cfg.noChange || {}) }; }
 // 知っていること (knowledge/facts.json) の設定。cfg.knowledge が無ければ使わない (first_setting などは goal.hints のまま)
 function knowledgeCfg(cfg) {
@@ -57,13 +65,15 @@ function buildContext(raw, memory, cfg, extra = {}) {
     selfBase: !!(cfg.world && cfg.world.base === 'self'), fleeRadius: cfg.act.fleeRadius,
     // 入れ物の中身・村人の取引 (開けて見たときに覚えたもの。act_more.js)。use_on などの候補の絞り方 (cfg.act)
     containers: (memory.extra && memory.extra.containers) || {}, trades: (memory.extra && memory.extra.trades) || {},
+    collectExclude: collectExcludeOf(cfg),
+    useOnSkip: cfg.act.useOnPlaceable === false ? (n) => isPlaceableBlockItem(n, (cfg.server && cfg.server.version) || undefined) : null,
     visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
   if (steps) prog = help.progress ? progressText(steps, raw) : steps.map((s, i) => `(${i + 1})${s.text}`).join(' ');
-  if (help.selfGoal || help.goalPlan) prog = extra.planText || ''; // 自分で決めた目標と段取り (selfgoal.js) / ゴールと今の手順 (goalplan.js)
+  if (help.selfGoal || help.goalPlan || help.goalPath) prog = extra.planText || ''; // 自分で決めた目標と段取り (selfgoal.js) / ゴールと今の手順 (goalplan.js)
   // 知っていること: goal.hints (残っているもの) + facts.json のうち今に関係するもの (持ち物・見えている物・選択肢の対象・plan の名前)
   const kn = help.hints ? (extra.knowledge !== undefined ? extra.knowledge : loadKnowledge(cfg)) : null;
   let factsShown = [];
@@ -80,12 +90,13 @@ function buildContext(raw, memory, cfg, extra = {}) {
     showHints: help.hints,
     askHint: help.askHint,
     selfGoal: !!help.selfGoal && !help.goalPlan,
-    goalPlan: !!help.goalPlan,
+    goalPlan: !!help.goalPlan && !help.goalPath,
+    goalPath: !!help.goalPath,
     raw,
     actions,
     troubles,
     progress: prog,
-    obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes, showDay: cfg.perception.showDay }),
+    obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes, showDay: cfg.perception.showDay }) + (extra.baseText ? `\n${extra.baseText}` : ''),
     memText: memory.toPromptText(here, { places: memPlaces }),
     socialText: extra.socialText || '',
     lastResult: extra.lastResult || '',
@@ -154,6 +165,52 @@ class Agent {
       ? new GoalPlan({ cfg: cfg.goalPlan || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.goalPlan && cfg.goalPlan.llm) || {}) }, meter,
         jev: decider && decider.kind === 'jev' ? decider : null, log: (e) => this.recorder.write({ event: 'goal_plan', ...e }) })
       : null;
+    // ゴール (2B) → 道筋 (planner) → 行動 (Jev) (help.goalPath。goalpath.js)。goalPlan より先に見る
+    if (this.help.goalPath) {
+      this.goalPlan = null;
+      this.goalPath = new GoalPath({ cfg: cfg.goalPath || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.goalPath && cfg.goalPath.llm) || {}) }, meter,
+        log: (e) => this.recorder.write({ event: 'goal_path', ...e }) });
+    } else this.goalPath = null;
+    this.homeSpot = null; // 拠点が無いとき: 最後にベッドかチェストを置いた所
+    this.baseSeen = null; // 最後に見た拠点の様子 { site, tick }
+    this.lastBaseText = null;
+    this.lastGave = [];
+  }
+
+  // 拠点の様子 (観察に出す文)。拠点 = set_base の場所、なければ最後にベッド/チェストを置いた所。
+  // 近く (visionRadius) にいれば数え直し、遠ければ前に見たときの様子。変わったら記録に残す
+  baseView(raw, memPlaces) {
+    if (this.cfg.baseSite === false || this.help.goalPath !== true) return '';
+    const center = this.base || this.homeSpot;
+    if (!center) return '';
+    const m = memPlaces.find((p) => p.kind === BASE_KIND);
+    const label = this.base ? `拠点${m ? ` (${m.id})` : ''}` : '自分のベッド/チェストを置いた所';
+    const here = raw.self.pos;
+    const near = dist3(here, center) <= (this.cfg.perception.visionRadius ?? 16);
+    if (near && this.bot && typeof this.bot.blockAt === 'function') {
+      const site = baseSite((x, y, z) => this.bot.blockAt(new Vec3(x, y, z)), center, (this.cfg.baseSiteOpts || {}));
+      if (site) this.baseSeen = { site, tick: this.memory.tick };
+    }
+    if (!this.baseSeen) return near ? `${label}の近く: まだ数えていない` : `${label}: ${relDir(here, center)}`;
+    const text = baseSiteText(this.baseSeen.site, { label, near, dirText: relDir(here, center) });
+    const key = JSON.stringify(this.baseSeen.site.counts) + this.baseSeen.site.enclosed + (this.baseSeen.site.light >= 8);
+    if (near && key !== this.lastBaseText) {
+      this.lastBaseText = key;
+      this.recorder.write({ event: 'base_site', loop: this.memory.tick, center, isBase: !!this.base, counts: this.baseSeen.site.counts, light: this.baseSeen.site.light, enclosed: this.baseSeen.site.enclosed, roof: this.baseSeen.site.roof, walls: this.baseSeen.site.walls, text });
+    }
+    return text;
+  }
+
+  // 周りの人 (ゴールの候補): 名前・関係・今見えているか
+  peopleList(raw) {
+    const me = this.cfg.persona.name;
+    const names = new Set(Object.keys(this.social.relations));
+    for (const e of raw.entities.filter((x) => x.kind === 'player')) names.add(e.name);
+    for (const h of this.memory.heard) if (h.from !== '自分' && h.from !== me) names.add(h.from);
+    return [...names].filter((n) => n && n !== me).map((name) => {
+      const e = raw.entities.find((x) => x.kind === 'player' && x.name === name);
+      return { name, relation: this.social.relationWord(name), seen: e ? relDir(raw.self.pos, e.pos) : null };
+    });
   }
 
   // ほかの人が拾った物・壊したブロックを見張る (行動の結果の文に足す)
@@ -519,7 +576,10 @@ class Agent {
     }
     const socialText = this.social.words();
     const worst = this.social.worstNeed();
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, planText: this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
+    const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)));
+    const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText,
+      planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
     if (this.selfGoal) {
@@ -539,7 +599,7 @@ class Agent {
     }
     // ゴール → 手順 → 1段ずつ: 前の判断で Jev が答えた「今の手順は済んだか」で進め、詰まったら残りを作り直す
     let planUpdate = null;
-    if (this.goalPlan) {
+    if (this.goalPlan && !this.goalPath) {
       const kn = this.help.hints ? this.knowledge : null;
       const facts = (text) => (kn && kn.facts.length
         ? knowledge.selectFacts(kn.facts, { names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
@@ -549,6 +609,22 @@ class Agent {
       }, tick, { stepDoneP: this.lastStepDoneP, troubles });
       this.lastStepDoneP = null;
       ctx.progress = this.goalPlan.planText();
+      if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
+    }
+    if (this.goalPath) {
+      const kn = this.help.hints ? this.knowledge : null;
+      const facts = (text) => (kn && kn.facts.length
+        ? knowledge.selectFacts(kn.facts, { names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
+      const cellSize = this.memory.limits.exploreCell;
+      planUpdate = await this.goalPath.update({
+        persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, allFacts: kn ? kn.facts : [], memText: ctx.memText, socialText, troubles,
+        worst, peopleText: this.peopleText(raw), people: this.peopleList(raw), needNow: (k) => this.social.needsModel.effective()[k],
+        places: memPlacesNow, placeKinds: [...new Set(this.memory.places.map((q) => q.kind))], base: this.base, baseText: null, // 拠点の様子は obsText に入っている
+        baseLabel: this.base ? `自分の拠点 (${relDir(raw.self.pos, this.base)})` : null,
+        cellAt: (x, z) => this.memory.cellAt(Math.floor(x / cellSize), Math.floor(z / cellSize)), gave: this.lastGave,
+      }, tick, { troubles });
+      this.lastGave = [];
+      ctx.progress = this.goalPath.planText();
       if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
     }
     const obsMs = Date.now() - tObs;
@@ -590,6 +666,16 @@ class Agent {
       if (seen.length) { result.others = seen; result.msg = OthersLog.appendTo(result.msg, seen); }
     }
     if (resolved.action === 'say') said = resolved.arg;
+    // 渡した (人のゴールの済んだかに使う)・ベッド/チェストを置いた所 (拠点が無いときの拠点の様子に使う)
+    if (result.ok && resolved.action === 'give') {
+      const ga = ctx.actions.find((a) => a.name === 'give');
+      const gc = ga && ga.choices.find((c) => c.id === resolved.arg);
+      if (gc) this.lastGave.push({ to: gc.player, item: gc.item });
+    }
+    if (result.ok && resolved.action === 'place' && /_bed$|^chest$/.test(resolved.arg) && bot.entity) {
+      const p = bot.entity.position;
+      this.homeSpot = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+    }
     const key = `${resolved.action}:${resolved.arg}`;
     const inv = bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
     const after = nochange.snapshot({ inventory: inv, pos: bot.entity.position, hutFilled: this.trueHutFilled() });
@@ -642,6 +728,8 @@ class Agent {
       goalUpdated: goalUpdate ? goalUpdate.reason : null,
       planUpdated: planUpdate,
       planStep: this.goalPlan && this.goalPlan.goal ? { goal: this.goalPlan.goal.n, idx: this.goalPlan.idx, of: this.goalPlan.steps.length } : null,
+      goalPath: this.goalPath && this.goalPath.goal ? { goal: this.goalPath.goal.n, kind: this.goalPath.goal.kind, target: this.goalPath.goal.target, met: this.goalPath.goal.metAt != null,
+        next: this.goalPath.path && this.goalPath.path.next ? this.goalPath.path.next.item : null, steps: this.goalPath.path && this.goalPath.path.ok ? this.goalPath.path.steps.length : null } : null,
       steps: stepSt,
       promptChars: dec.promptChars,
       promptTokens: dec.promptTokens ?? null,
@@ -712,7 +800,7 @@ class Agent {
     }
     // 発言・答えの途中なら少し待つ (記録を閉じる前に)
     for (let i = 0; i < 60 && (this.talking || this.answering); i++) await sleep(250);
-    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
+    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
     this.memory.extra.social = this.social.toJSON();
     this.memory.save();
     await this.recorder.close();
