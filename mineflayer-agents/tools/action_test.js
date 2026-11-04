@@ -5,6 +5,8 @@
 // サーバーのコンソール (cmd_pipe) で持ち物を渡し、act.js の行動を順に呼んで結果を出す。
 // more: use_on (耕す・植える・骨粉・水・瓶・釣り・ボート・牛乳・毛刈り・繁殖・扉・レバー・ゲート・弓) → use_item → chest/furnace → trade → enchant/brew/anvil → follow/give/call (2人目のボット)
 // base: place (かまど・作業台・チェスト・松明・ベッド) → smelt → sleep → equip → attack → pick_up → pillar (+ collect) → flee
+// pen: lure (wheat を持って cow 2頭を連れて行く) → enclose (その周りを柵で 5x5・門つき) → 状態 pen_cow を確かめる → enclose (丸石 3x3・2段)
+//   node tools/action_test.js --part pen   (all にも入る。more には入らない)
 const fs = require('fs');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
@@ -14,7 +16,8 @@ const { Memory } = require('../src/memory');
 const { sleep } = require('../src/util');
 const { collectRaw } = require('../src/observe');
 const { listActions } = require('../src/actions');
-const { MORE_ACTIONS } = require('../src/actions_more');
+const { MORE_ACTIONS, lureChoices, encloseChoices } = require('../src/actions_more');
+const states = require('../src/states');
 
 const args = process.argv.slice(2);
 const NAME = args.includes('--name') ? args[args.indexOf('--name') + 1] : 'Tester';
@@ -45,7 +48,8 @@ async function main() {
   const p0 = bot.entity.position.floored();
   console.log(`spawned at ${p0}`);
   if (PART === 'more' || PART === 'all') await moreTests(bot, run, mem);
-  if (PART === 'more') {
+  if (PART === 'pen' || PART === 'all') await penTests(bot, run, mem);
+  if (PART === 'more' || PART === 'pen') {
     console.log(JSON.stringify({ results: out }));
     bot.quit();
     setTimeout(() => process.exit(0), 500);
@@ -241,6 +245,45 @@ async function moreTests(bot, run0, mem) {
   const acts = listActions(raw, { enable, foods: new Set(Object.keys(bot.registry.foodsByName)), containers: mem.extra.containers, trades: mem.extra.trades });
   console.log(`  actions: ${acts.map((a) => `${a.name}:${a.choices ? a.choices.length : 1}`).join(' ')}`);
   console.log(`  containers: ${JSON.stringify(mem.extra.containers)}`);
+}
+
+// lure・enclose (act_pen.js)。足元を平らにし、牛2頭を出して、餌を持って 12m 先の「拠点」へ連れて行き、その周りを柵で囲う
+async function penTests(bot, run0, mem) {
+  const run = (name, fn) => (ONLY && ![...ONLY].some((k) => name.includes(k)) ? null : run0(name, fn));
+  const H = handlers;
+  const ctx = { memory: mem, visionRadius: 16, maxReachUp: 4 };
+  const { x, y, z } = bot.entity.position.floored();
+  await cmd(`clear ${NAME}`);
+  await cmd('time set 1000');
+  await cmd(`kill @e[type=!player,x=${x},y=${y},z=${z},distance=..40]`, 500);
+  await cmd(`fill ${x - 14} ${y - 3} ${z - 20} ${x + 14} ${y - 2} ${z + 14} minecraft:dirt`, 300);
+  await cmd(`fill ${x - 14} ${y - 1} ${z - 20} ${x + 14} ${y - 1} ${z + 14} minecraft:grass_block`, 300);
+  await cmd(`fill ${x - 14} ${y} ${z - 20} ${x + 14} ${y + 6} ${z + 14} minecraft:air`, 300);
+  await cmd(`tp ${NAME} ${x + 0.5} ${y} ${z + 0.5}`, 800);
+  for (const [it, n] of [['wheat', 4], ['oak_fence', 23], ['oak_fence_gate', 1], ['cobblestone', 40]]) await cmd(`give ${NAME} minecraft:${it} ${n}`, 120);
+  await cmd(`summon minecraft:cow ${x + 3} ${y} ${z + 2}`, 200);
+  await cmd(`summon minecraft:cow ${x + 4} ${y} ${z + 3}`, 1500);
+  const base = { x, y, z: z - 12 };
+  const raw = collectRaw(bot, { visionRadius: 16 });
+  const lu = lureChoices(raw, { base });
+  console.log(`  lure choices: ${lu.map((c) => c.label).join(' | ')}`);
+  const lc = lu.find((c) => c.animal === 'cow');
+  await run('lure cow>拠点 (wheat)', () => (lc ? H.lure(bot, lc, ctx) : { ok: false, msg: 'lure の選択肢が無い' }));
+  const en = encloseChoices(collectRaw(bot, { visionRadius: 16 }), { base });
+  console.log(`  enclose choices: ${en.length} (${en.slice(0, 3).map((c) => c.id).join(', ')} …)`);
+  const ec = en.find((c) => c.id === '拠点:5x5:oak_fence');
+  const r = await run('enclose 拠点:5x5:oak_fence', () => (ec ? H.enclose(bot, ec, ctx) : { ok: false, msg: 'enclose の選択肢が無い' }));
+  if (r && r.enclose) console.log(`  enclose: ${JSON.stringify(r.enclose)}`);
+  await sleep(2000);
+  const blockAt = (bx, by, bz) => bot.blockAt(new Vec3(bx, by, bz));
+  const ents = Object.values(bot.entities).filter((e) => e.name === 'cow').map((e) => ({ kind: 'mob', name: 'cow', pos: e.position }));
+  const st = states.senseState({ type: 'pen', animal: 'cow' }, { blockAt, here: bot.entity.position, anchor: base, entities: ents });
+  console.log(`  state pen_cow: ${JSON.stringify(st)}`);
+  await cmd(`tp ${NAME} ${x + 8.5} ${y} ${z + 8.5}`, 800);
+  const en2 = encloseChoices(collectRaw(bot, { visionRadius: 16 }), {});
+  const ec2 = en2.find((c) => c.id === 'ここ:3x3:cobblestone');
+  const r2 = await run('enclose ここ:3x3:cobblestone (2段)', () => (ec2 ? H.enclose(bot, ec2, ctx) : { ok: false, msg: 'enclose の選択肢が無い' }));
+  if (r2 && r2.enclose) console.log(`  enclose: ${JSON.stringify(r2.enclose)}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

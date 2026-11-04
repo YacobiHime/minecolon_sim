@@ -8,11 +8,14 @@
 //   trade    : 見えている村人と取引する (取引の一覧を見てから選ぶ)
 //   enchant / brew / anvil : エンチャント台・醸造台・金床
 //   follow / give / call : 人について行く・物を投げ渡す・呼ぶ
+//   lure     : 餌になる物を手に持って歩き、付いてくる動物を拠点・覚えた場所まで連れて行く (act_pen.js)
+//   enclose  : 柵・塀・ブロックで、拠点か今いる所の周り (内側 3x3・5x5・7x7) を1周囲う。門があれば1つ門にする (act_pen.js)
 // 何が意味のある組み合わせかは教えない (研究方針: 仕様は見せてよいが、どう使うかは教えない)。
 // 持ち物の側は、マイクラで右クリックに意味がある物だけ (usable.js の一覧。モデルには見せず、選択肢から外れるだけ)。
 // 候補は「近いもの数個」に絞るだけにする。1つの行動の choices は MAX_CHOICES (255) を超えない
 const { relDir } = require('./util');
 const { usefulOn, usefulItem } = require('./usable');
+const { BREED_FOOD } = require('./animals');
 
 const MAX_CHOICES = 255;
 const CONTAINER = /^(chest|trapped_chest|barrel)$|_shulker_box$|^shulker_box$/;
@@ -238,6 +241,68 @@ function moreActions(raw, ctx = {}, on = () => true) {
     const ch = players.filter((p) => p.d <= (ctx.hearRadius ?? 24) && ok('call', p.name)).map((p) => ({ id: p.name, label: `${p.name} ${relDir(here, p.pos)}`, player: p.name }));
     if (ch.length) out.push({ name: 'call', desc: '人を呼ぶ (「来て」と自分の場所を言う)', argType: 'choice', choices: ch });
   }
+  // lure: 見えている動物 (餌の分かる物) × 持っている餌 × 行き先 (拠点・覚えている場所)
+  if (on('lure')) {
+    const ch = lureChoices(raw, ctx).filter((c) => ok('lure', c.id));
+    if (ch.length) out.push({ name: 'lure', desc: '餌を手に持って歩き、付いてくる動物をその場所まで連れて行く', argType: 'choice', choices: cap(ch, ctx.maxLureChoices ?? 8) });
+  }
+  // enclose: 場所 (拠点・ここ) × 大きさ × 持っている柵・塀・ブロック
+  if (on('enclose')) {
+    const ch = encloseChoices(raw, ctx).filter((c) => ok('enclose', c.id));
+    if (ch.length) out.push({ name: 'enclose', desc: '持っている柵・塀・ブロックで、その場所の周りを1周囲う (柵の門があれば1つ門にする。足りなければ置ける所まで)', argType: 'choice', choices: cap(ch, ctx.maxEncloseChoices ?? 18) });
+  }
+  return out;
+}
+
+// 柵・塀 (1段で越えられない)・ブロック (2段に積む) として囲いに使える物
+const FENCE_ITEM = /_fence$|_wall$/;
+const WALL_BLOCK = /^(cobblestone|cobbled_deepslate|stone|dirt|coarse_dirt|deepslate|andesite|diorite|granite|tuff|sandstone|red_sandstone|bricks|stone_bricks|mud_bricks|.*_planks|.*_log)$/;
+const GATE_ITEM = /_fence_gate$/;
+const ENCLOSE_SIZES = [3, 5, 7];
+function encloseNeed(item, size) { return (4 * size + 4) * (FENCE_ITEM.test(item) ? 1 : 2); }
+
+function encloseChoices(raw, ctx = {}) {
+  const here = raw.self.pos;
+  const counts = new Map();
+  for (const i of raw.inventory) counts.set(i.name, (counts.get(i.name) || 0) + i.count);
+  const mats = [...counts].filter(([n]) => FENCE_ITEM.test(n) || WALL_BLOCK.test(n))
+    .sort((a, b) => (FENCE_ITEM.test(b[0]) - FENCE_ITEM.test(a[0])) || (b[1] - a[1])).slice(0, ctx.encloseMaterials ?? 3);
+  if (!mats.length) return [];
+  const gate = [...counts.keys()].find((n) => GATE_ITEM.test(n)) || null;
+  const places = [];
+  if (ctx.base) places.push({ id: '拠点', label: `拠点 (${relDir(here, ctx.base)})`, center: { x: Math.floor(ctx.base.x), y: Math.floor(ctx.base.y), z: Math.floor(ctx.base.z) } });
+  if (!ctx.base || Math.hypot(ctx.base.x - here.x, ctx.base.z - here.z) > 6) places.push({ id: 'ここ', label: '今いる所', center: { x: Math.floor(here.x), y: Math.floor(here.y), z: Math.floor(here.z) } });
+  const out = [];
+  for (const pl of places) {
+    for (const size of ENCLOSE_SIZES) {
+      for (const [m, n] of mats) {
+        const need = encloseNeed(m, size);
+        out.push({ id: `${pl.id}:${size}x${size}:${m}`, label: `${m}x${n} で${pl.label}の周り (内側${size}x${size}) を囲う (要る数${need}${FENCE_ITEM.test(m) ? '' : '・2段'}${FENCE_ITEM.test(m) && gate ? `・うち1つ ${gate}` : ''})`,
+          center: pl.center, size, item: m, gate: FENCE_ITEM.test(m) ? gate : null, height: FENCE_ITEM.test(m) ? 1 : 2, need, place: pl.id });
+      }
+    }
+  }
+  return out;
+}
+
+function lureChoices(raw, ctx = {}) {
+  const here = raw.self.pos;
+  const counts = new Set(raw.inventory.map((i) => i.name));
+  const dests = [];
+  if (ctx.base && Math.hypot(ctx.base.x - here.x, ctx.base.z - here.z) > 4) dests.push({ id: '拠点', label: `拠点 (${relDir(here, ctx.base)})`, pos: ctx.base });
+  for (const p of (ctx.memPlaces || []).filter((q) => q.kind !== '拠点' && q.pos && (q.d == null || q.d > 4)).slice(0, ctx.lureDests ?? 2)) dests.push({ id: p.id, label: p.label, pos: p.pos });
+  if (!dests.length) return [];
+  const seen = new Map();
+  for (const e of raw.entities) if (e.kind === 'mob' && BREED_FOOD[e.name] && e.d <= (ctx.visionRadius ?? 16) && !seen.has(e.name)) seen.set(e.name, e);
+  const out = [];
+  for (const [animal, e] of seen) {
+    const food = BREED_FOOD[animal].find((f) => counts.has(f));
+    if (!food) continue;
+    const n = raw.entities.filter((x) => x.name === animal && x.kind === 'mob').length;
+    for (const d of dests) {
+      out.push({ id: `${animal}>${d.id}`, label: `${food} を持って ${animal} (${relDir(here, e.pos)}・見えている${n}頭) を${d.label}へ`, animal, food, dest: { x: d.pos.x, y: d.pos.y, z: d.pos.z }, destId: d.id, entityId: e.id ?? null });
+    }
+  }
   return out;
 }
 
@@ -250,6 +315,6 @@ function hasInputs(inv, t) {
   return [t.in1, t.in2].filter(Boolean).every((x) => c(x.name) >= x.count);
 }
 
-const MORE_ACTIONS = ['use_on', 'use_item', 'dismount', 'chest_put', 'chest_take', 'furnace_take', 'trade', 'enchant', 'brew', 'anvil', 'follow', 'give', 'call'];
+const MORE_ACTIONS = ['use_on', 'use_item', 'dismount', 'chest_put', 'chest_take', 'furnace_take', 'trade', 'enchant', 'brew', 'anvil', 'follow', 'give', 'call', 'lure', 'enclose'];
 
-module.exports = { moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };
+module.exports = { lureChoices, encloseChoices, encloseNeed, FENCE_ITEM, WALL_BLOCK, GATE_ITEM, ENCLOSE_SIZES, moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };
