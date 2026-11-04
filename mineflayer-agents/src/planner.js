@@ -10,7 +10,11 @@
 const { SMELTABLE } = require('./actions');
 
 const DEFAULT_VERSION = '1.20.1';
-const COST = { visible: 1, known: 2, unseen: 6, unseenRare: 12, mobVisible: 2, mobUnseen: 6, mobRare: Infinity, craft: 0.3, smelt: 0.6, toolShare: 0.5, stationShare: 0.5 };
+// rebreak / rekill: 落ちる確率が低い物を、同じ所でもう1回壊す・もう1匹倒す手間 (1回目は探して歩く手間を含むので、2回目からは小さい)
+const COST = { visible: 1, known: 2, unseen: 6, unseenRare: 12, mobVisible: 2, mobUnseen: 6, mobRare: Infinity, craft: 0.3, smelt: 0.6, toolShare: 0.5, stationShare: 0.5,
+  rebreak: 0.25, rekill: 1 };
+// 期待値で 1/期待値 回壊す (倒す) ときの手間: 1回目の手間 + 2回目からの手間 × (1/期待値 − 1)。1回で1個以上落ちる物は1回分
+function chanceCost(base, expect, again) { const e = expect || 1; return base + again * Math.max(0, 1 / e - 1); }
 // 地上・浅い所でふつうに見つかるブロックと生き物 (まだ見ていなくても、探せば見つかるとみなす手間を小さくする)。
 // それ以外の自然のブロックは手間を大きく見る。それ以外の生き物は、見えていなければ入手元にしない (ネザーにしかいない・村のゴーレム等)
 const COMMON_BLOCKS = /_log$|_leaves$|^(stone|deepslate|sand|gravel|clay|grass|tall_grass|fern|coal_ore|iron_ore|copper_ore|sugar_cane|pumpkin|melon|wheat|carrots|potatoes|beetroots|sweet_berry_bush|andesite|diorite|granite|water)$/;
@@ -24,8 +28,51 @@ const FUELS = [['coal', 8], ['charcoal', 8], [/_planks$/, 1.5], [/_log$/, 1.5], 
 const GROUND = /^(dirt|grass_block|coarse_dirt|podzol|mycelium|rooted_dirt|dirt_path|farmland|mud)$/;
 // entityLoot に無い落とし物 (仕様の補い): 羊は倒すとその色の羊毛を落とす
 const EXTRA_MOB_DROPS = { sheep: ['white_wool'] };
-// 落ちる物のうち、とても出にくいもの (ゾンビの鉄など) は入手元にしない
-const MIN_DROP_CHANCE = 0.05;
+// 1回で落ちる数の期待値がこれより小さい物は入手元にしない (ほぼ出ない物)
+const MIN_DROP_CHANCE = 0.001;
+// 2B に見せる「見えている物から取れる物」(vocab.js) は前と同じく dropChance 0.05 以上だけ
+const VOCAB_MIN_CHANCE = 0.05;
+// blockLoot の dropChance は、シルクタッチの有無・育ち具合などの分かれ道を等分した値 (0.5・0.33) が入っていて、
+// 本当の確率ではないことが多い。0.3 以上は分かれ道とみなして 1 (その道ではかならず落ちる) として扱い、
+// それより小さい値 (草の種など) は確率として使う。そのうえで、minecraft-data の値が仕様と違う物は下の表で補う
+const BRANCH_CHANCE = 0.3;
+// 仕様の補い (1.20.1 のバニラ、幸運なし): (ブロック, 落ちる物) → { chance: 1回で落ちる確率, avg: 落ちたときの平均の数, tools: 要る道具 }
+//   葉: 苗木 5% (ジャングル 2.5%)・棒 2% (1〜2本)・りんご 0.5% (オーク・ダークオーク)。葉そのものはハサミのときだけ
+//   砂利: 火打石 10%。草・シダ: 小麦の種 12.5%、草・シダそのものはハサミのときだけ。ツタ・枯れ木・クモの巣・海草そのものもハサミ
+const SHEARS_ONLY = /_leaves$|^(grass|short_grass|tall_grass|fern|large_fern|dead_bush|vine|cobweb|seagrass|tall_seagrass|hanging_roots|glow_lichen)$/;
+const SAPLING_DROP = /_sapling$|^(azalea|flowering_azalea)$/;
+function dropFix(block, item) {
+  if (/_leaves$/.test(block)) {
+    if (SAPLING_DROP.test(item)) return { chance: block === 'jungle_leaves' ? 0.025 : 0.05, avg: 1 };
+    if (item === 'stick') return { chance: 0.02, avg: 1.5 };
+    if (item === 'apple') return { chance: 0.005, avg: 1 };
+  }
+  if (block === 'gravel' && item === 'flint') return { chance: 0.1, avg: 1 };
+  if (block === 'gravel' && item === 'gravel') return { chance: 0.9, avg: 1 };
+  if (/^(grass|short_grass|tall_grass|fern|large_fern)$/.test(block) && item === 'wheat_seeds') return { chance: 0.125, avg: 1 };
+  if (block === 'gilded_blackstone' && item === 'gold_nugget') return { chance: 0.1, avg: 3.5 };
+  if (block === 'melon' && item === 'melon_slice') return { chance: 1, avg: 5 };
+  if (block === 'glowstone' && item === 'glowstone_dust') return { chance: 1, avg: 3 };
+  if (block === 'dead_bush' && item === 'stick') return { chance: 1, avg: 1 };
+  // ハサミのときだけ落ちるブロックそのもの (草は2マスの草も「grass」「fern」が落ちる)
+  if (SHEARS_ONLY.test(block) && (item === block || (block === 'tall_grass' && item === 'grass') || (block === 'large_fern' && item === 'fern')
+    || (block === 'tall_seagrass' && item === 'seagrass'))) return { chance: 1, avg: block === 'tall_grass' || block === 'large_fern' ? 2 : 1, tools: ['shears'] };
+  return null;
+}
+// stackSizeRange の平均 (無い・壊れている所は 1)
+function avgCount(range) {
+  const r = (range || []).filter((x) => Number.isFinite(x));
+  if (!r.length) return 1;
+  return Math.max(1, (Math.min(...r) + Math.max(...r)) / 2);
+}
+// 1回 (1つのブロックを壊す・1匹倒す) で落ちる数の期待値 (1 が上限の目安。手間は 1/期待値 倍になる)
+function blockDropExpect(block, d) {
+  const fx = dropFix(block, d.item);
+  if (fx) return { expect: fx.chance * fx.avg, tools: fx.tools || null };
+  const p = d.dropChance ?? 1;
+  return { expect: (p >= BRANCH_CHANCE ? 1 : p) * avgCount(d.stackSizeRange), tools: null };
+}
+function mobDropExpect(d) { return (d.dropChance ?? 1) * 1; } // entityLoot の数の幅は [1,1] が多い (実際は 0〜2 などで平均 1 前後)
 
 const caches = new Map();
 
@@ -61,23 +108,32 @@ function index(version = DEFAULT_VERSION) {
   for (const bl of md.blockLootArray || []) {
     const b = md.blocksByName[bl.block];
     if (!b) continue;
-    const tools = b.harvestTools ? Object.keys(b.harvestTools).map((id) => name(Number(id))).filter(Boolean) : null;
-    const seen = new Set();
+    const harvest = b.harvestTools ? Object.keys(b.harvestTools).map((id) => name(Number(id))).filter(Boolean) : null;
+    const best = new Map(); // 落ちる物 → いちばん期待値の大きい落ち方 (同じ物が分かれ道ごとに何行もある)
     for (const d of bl.drops || []) {
-      if (d.silkTouch || seen.has(d.item) || !md.itemsByName[d.item] || (d.dropChance ?? 1) < MIN_DROP_CHANCE) continue;
-      seen.add(d.item);
-      blocks.set(d.item, [...(blocks.get(d.item) || []), { block: bl.block, tools }]);
+      if (d.silkTouch || !md.itemsByName[d.item]) continue;
+      const e = { ...blockDropExpect(bl.block, d), rawChance: d.dropChance ?? 1 };
+      if (e.expect < MIN_DROP_CHANCE) continue;
+      const prev = best.get(d.item);
+      if (!prev || e.expect > prev.expect) best.set(d.item, { ...e, rawChance: Math.max(e.rawChance, prev ? prev.rawChance : 0) });
     }
+    // rawChance: minecraft-data の dropChance そのもの (vocab.js の「見えている物から取れる」の判断は前と同じ 0.05 以上で)
+    for (const [item, e] of best) blocks.set(item, [...(blocks.get(item) || []), { block: bl.block, tools: e.tools || harvest, expect: e.expect, rawChance: e.rawChance }]);
   }
-  const mobs = new Map(); // 物 → [生き物]
+  const mobs = new Map(); // 物 → [{ mob, expect }]
+  const addMob = (item, mob, expect) => {
+    const l = mobs.get(item) || [];
+    const o = l.find((x) => x.mob === mob);
+    if (!o) mobs.set(item, [...l, { mob, expect, rawChance: expect }]); else { o.expect = Math.max(o.expect, expect); o.rawChance = o.expect; }
+  };
   for (const el of md.entityLootArray || []) {
     for (const d of el.drops || []) {
-      if ((d.dropChance ?? 1) < MIN_DROP_CHANCE || !md.itemsByName[d.item]) continue;
-      const l = mobs.get(d.item) || [];
-      if (!l.includes(el.entity)) mobs.set(d.item, [...l, el.entity]);
+      const e = mobDropExpect(d);
+      if (e < MIN_DROP_CHANCE || !md.itemsByName[d.item]) continue;
+      addMob(d.item, el.entity, e);
     }
   }
-  for (const [mob, items] of Object.entries(EXTRA_MOB_DROPS)) for (const it of items) { const l = mobs.get(it) || []; if (!l.includes(mob)) mobs.set(it, [...l, mob]); }
+  for (const [mob, items] of Object.entries(EXTRA_MOB_DROPS)) for (const it of items) addMob(it, mob, 1);
   const ix = { md, recipes, smelt, blocks, mobs, version };
   caches.set(version, ix);
   return ix;
@@ -140,9 +196,11 @@ class Planner {
     const consider = (o) => { if (o.c < best.c) best = o; };
     for (const s of this.ix.blocks.get(item) || []) {
       if (this.exclude.test(s.block)) continue;
-      const where = this.vis.has(s.block) ? 'visible' : this.known.has(s.block) ? 'known' : (this.natural(s.block) ? 'unseen' : null);
+      // 植えた苗木 (ブロック) は、自然には生えていないので、見えている・覚えている所だけ
+      const where = this.vis.has(s.block) ? 'visible' : this.known.has(s.block) ? 'known' : (this.natural(s.block) && !SAPLING_DROP.test(s.block) ? 'unseen' : null);
       if (!where) continue;
-      let c = where === 'unseen' && !COMMON_BLOCKS.test(s.block) ? COST.unseenRare : COST[where];
+      // 落ちる確率が低い物は、期待値で 1/確率 回壊す手間を足す (りんご 0.5% → 200 回壊す)
+      let c = chanceCost(where === 'unseen' && !COMMON_BLOCKS.test(s.block) ? COST.unseenRare : COST[where], s.expect, COST.rebreak);
       let tool = null;
       if (s.tools && !s.tools.some((t) => this.hasTool(t))) {
         let tb = { c: Infinity };
@@ -150,11 +208,12 @@ class Planner {
         if (!Number.isFinite(tb.c)) continue;
         c += tb.c * COST.toolShare; tool = tb.t;
       }
-      consider({ c, how: 'collect', from: s.block, where, tool });
+      consider({ c, how: 'collect', from: s.block, where, tool, expect: s.expect || 1 });
     }
-    for (const m of this.ix.mobs.get(item) || []) {
+    for (const { mob: m, expect } of this.ix.mobs.get(item) || []) {
       const where = this.mobsVis.has(m) ? 'visible' : 'unseen';
-      consider({ c: where === 'visible' ? COST.mobVisible : COMMON_MOBS.test(m) ? COST.mobUnseen : COST.mobRare, how: 'kill', from: m, where });
+      const base = where === 'visible' ? COST.mobVisible : COMMON_MOBS.test(m) ? COST.mobUnseen : COST.mobRare;
+      consider({ c: chanceCost(base, expect, COST.rekill), how: 'kill', from: m, where, expect: expect || 1 });
     }
     const tableC = this.stationAvail('crafting_table') ? 0 : cOf('crafting_table') * COST.stationShare;
     for (const r of this.ix.recipes.get(item) || []) {
@@ -224,10 +283,11 @@ class Planner {
         if (!this.expand(best.tool, 1, sim, st)) return false;
         sim.tools.add(best.tool); this.dirty = true;
       }
-      sim.out.push({ item, count: n, how: 'collect', from: best.from, where: best.where, tool: best.tool || null });
+      // tries: 期待値で何回壊すか (落ちる数の期待値から)。文 (pathText) には出さない
+      sim.out.push({ item, count: n, how: 'collect', from: best.from, where: best.where, tool: best.tool || null, tries: Math.ceil(n / (best.expect || 1)) });
       return true;
     }
-    if (best.how === 'kill') { sim.out.push({ item, count: n, how: 'kill', from: best.from, where: best.where }); return true; }
+    if (best.how === 'kill') { sim.out.push({ item, count: n, how: 'kill', from: best.from, where: best.where, tries: Math.ceil(n / (best.expect || 1)) }); return true; }
     if (best.how === 'craft') {
       const r = best.recipe;
       const k = Math.ceil(n / r.count);
@@ -290,6 +350,7 @@ function mergeSteps(out) {
     const same = res.find((r) => r.item === s.item && r.how === s.how && r.from === s.from);
     if (same) {
       same.count += s.count;
+      if (s.tries != null) same.tries = (same.tries || 0) + s.tries;
       if (s.ings) for (const [k, v] of Object.entries(s.ings)) same.ings[k] = (same.ings[k] || 0) + v;
     } else res.push({ ...s, ings: s.ings ? { ...s.ings } : undefined });
   }
@@ -341,4 +402,4 @@ function isPlaceableBlockItem(name, version = DEFAULT_VERSION) {
 
 function plan(target, count, world, opts) { return new Planner(world, opts).plan(target, count); }
 
-module.exports = { Planner, plan, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST };
+module.exports = { Planner, plan, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };

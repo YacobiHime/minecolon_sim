@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { plan, pathText, Planner } = require('../src/planner');
+const { plan, pathText, Planner, COST } = require('../src/planner');
 const { itemCandidates, placeCandidates, familyKey } = require('../src/vocab');
 const { GoalPath, parseGoal, goalSchema } = require('../src/goalpath');
 const { baseSite, baseSiteText } = require('../src/basesite');
@@ -36,12 +36,52 @@ test('planner: bed は 原木 → 板材 → 作業台、羊毛 ← sheep を要
   assert.strictEqual(step(p, 'jungle_log').how, 'collect');
   assert.strictEqual(step(p, 'jungle_log').where, 'visible');
   assert.strictEqual(step(p, 'jungle_planks').count, 7); // 作業台 4 + ベッド 3
-  assert.deepStrictEqual(step(p, 'white_wool'), { item: 'white_wool', count: 3, how: 'kill', from: 'sheep', where: 'unseen', ings: undefined });
+  assert.deepStrictEqual(step(p, 'white_wool'), { item: 'white_wool', count: 3, how: 'kill', from: 'sheep', where: 'unseen', tries: 3, ings: undefined });
   assert.deepStrictEqual(step(p, 'white_bed').ings, { white_wool: 3, jungle_planks: 3 });
   assert.strictEqual(step(p, 'white_bed').station, 'crafting_table');
   assert.strictEqual(p.next.item, 'jungle_log');
   // 種類の名前 "bed" も、いちばん手間の小さい … _bed にする
   assert.strictEqual(plan('bed', 1, JUNGLE).target, 'white_bed');
+});
+
+test('planner: 落ちる確率を手間に入れる (期待値で 1/確率 回壊す)。りんご・苗木・火打石・種・葉の棒は手間が大きい', () => {
+  const world = { visibleBlocks: ['oak_leaves', 'jungle_leaves', 'gravel', 'grass', 'oak_log'] };
+  const c = (it) => new Planner(world).cost(it);
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  // 見えている所: 1 + rebreak × (1/確率 − 1)
+  const want = (p) => COST.visible + COST.rebreak * (1 / p - 1);
+  assert.strictEqual(c('oak_log').c, 1); // 確率 1
+  // りんご: オークの葉から 0.5% → 200 回壊す
+  assert.strictEqual(c('apple').how, 'collect');
+  assert.strictEqual(c('apple').from, 'oak_leaves');
+  assert.ok(near(c('apple').c, want(0.005)), String(c('apple').c));
+  // 苗木 5%、ジャングルの苗木 2.5%、火打石 (砂利) 10%、小麦の種 (草) 12.5%
+  assert.ok(near(c('oak_sapling').c, want(0.05)), String(c('oak_sapling').c));
+  assert.ok(near(c('jungle_sapling').c, want(0.025)), String(c('jungle_sapling').c));
+  assert.ok(near(c('flint').c, want(0.1)), String(c('flint').c));
+  assert.ok(near(c('wheat_seeds').c, want(0.125)), String(c('wheat_seeds').c));
+  assert.strictEqual(c('wheat_seeds').from, 'grass'); // まだ見ていない小麦畑より、見えている草
+  // 苗木のブロック (植えた所) は、まだ見ていなければ入手元にしない (ジャングルの葉から)
+  assert.strictEqual(new Planner({}).cost('jungle_sapling').from, 'jungle_leaves');
+  // 棒は葉から (2%・1〜2本) ではなく板材から作る
+  assert.strictEqual(c('stick').how, 'craft');
+  // 確率の低い物ほど手間が大きい
+  for (const [lo, hi] of [['oak_log', 'wheat_seeds'], ['wheat_seeds', 'flint'], ['flint', 'oak_sapling'], ['oak_sapling', 'jungle_sapling'], ['jungle_sapling', 'apple']]) {
+    assert.ok(c(lo).c < c(hi).c, `${lo} < ${hi}`);
+  }
+  // 葉そのものはハサミが要る (素手では落ちない)
+  assert.strictEqual(c('oak_leaves').tool, 'shears');
+  // 道筋の手順には、期待値で何回壊すか (tries) を持つ。文には出さない
+  const p = plan('apple', 1, world);
+  assert.ok(p.ok);
+  assert.strictEqual(step(p, 'apple').tries, 200);
+  assert.doesNotMatch(pathText(p), /200/);
+  // 石炭の鉱石の dropChance 0.5 はシルクタッチの分かれ道なので、確率 1 として扱う
+  const q = new Planner({ visibleBlocks: ['coal_ore'], inventory: [{ name: 'wooden_pickaxe', count: 1 }] }).cost('coal');
+  assert.strictEqual(q.from, 'coal_ore');
+  assert.strictEqual(q.c, 1);
+  // 倒す: ゾンビの鉄 (0.83%) は焼く道筋より手間が大きいので選ばれない
+  assert.notStrictEqual(new Planner({ visibleMobs: ['zombie'] }).cost('iron_ingot').how, 'kill');
 });
 
 test('planner: 作業台を持っている・見えているなら作業台は要る物に入れない。持ち物の分は引く', () => {

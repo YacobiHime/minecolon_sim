@@ -5,7 +5,7 @@
 //       道筋 (planner) でたどれない物は入れない。maxItems 個まで。説明は日本語名と、持っている/見える/食べ物 (仕様) だけ。
 //   「この欲求にはこの物」という対応はここでは作らない (2B が選ぶ)。
 //   人: 知っている人・見えている人。場所: 拠点・覚えている場所 (M番号)・8方位の遠く (行ったことがあるか)。
-const { index, Planner, GROUND } = require('./planner');
+const { index, Planner, GROUND, VOCAB_MIN_CHANCE } = require('./planner');
 const { jaName, WOOD, COLOR } = require('./names_ja');
 const { matchName } = require('./knowledge');
 
@@ -49,11 +49,11 @@ function itemCandidates(ctx) {
   for (const i of raw.inventory || []) add(i.name, 'inventory');
   for (const b of raw.blocks || []) {
     if (GROUND.test(b.name)) continue;
-    for (const [item, srcs] of ix.blocks) if (srcs.some((s) => s.block === b.name)) add(item, 'block');
+    for (const [item, srcs] of ix.blocks) if (srcs.some((s) => s.block === b.name && (s.rawChance ?? 1) >= VOCAB_MIN_CHANCE)) add(item, 'block');
   }
   for (const e of raw.entities || []) {
     if (e.kind === 'item') add(e.name, 'dropped');
-    else if (e.kind !== 'player') for (const [item, mobs] of ix.mobs) if (mobs.includes(e.name)) add(item, 'mob');
+    else if (e.kind !== 'player') for (const [item, mobs] of ix.mobs) if (mobs.some((m) => m.mob === e.name && (m.rawChance ?? 1) >= VOCAB_MIN_CHANCE)) add(item, 'mob');
   }
   for (const k of ctx.placeKinds || []) add(k, 'place');
   for (const h of ctx.history || []) if (h.kind === 'item') add(h.target, 'history');
