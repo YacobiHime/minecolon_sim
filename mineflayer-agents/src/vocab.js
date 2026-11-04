@@ -2,10 +2,12 @@
 // ゴールの候補 (2B に見せる語彙)。物・人・場所。bot に依存しない。
 //   物: 持ち物・見えているブロック/生き物から手に入る物・知っていること (facts.json) に出てくる物・覚えている場所の物・
 //       これまでのゴールの物・それらからレシピで1〜2段で作れる物。種類違い (木の種類・色) は1つにまとめる。
-//       道筋 (planner) でたどれない物は入れない。maxItems 個まで。説明は日本語名と、持っている/見える/食べ物 (仕様) だけ。
+//       道筋 (planner) でたどれない物は入れない。maxItems 個まで。
+//       説明は、日本語名・仕様の事実 (食べ物と満腹度・寝られる・明るさ など。USE_SPEC)・持っている数と、
+//       先にたどった道筋 (planner) から言葉にした事実 (入手元が見えるか・まれに落ちるか・作業台/かまど/道具が要るか・手間 小/中/大)。
 //   「この欲求にはこの物」という対応はここでは作らない (2B が選ぶ)。
 //   人: 知っている人・見えている人。場所: 拠点・覚えている場所 (M番号)・8方位の遠く (行ったことがあるか)。
-const { index, Planner, GROUND, VOCAB_MIN_CHANCE } = require('./planner');
+const { index, Planner, GROUND, VOCAB_MIN_CHANCE, effortWord, CROP_BLOCKS } = require('./planner');
 const { jaName, WOOD, COLOR } = require('./names_ja');
 const { matchName } = require('./knowledge');
 
@@ -68,7 +70,7 @@ function itemCandidates(ctx) {
     }
   }
   const woodPref = ((raw.blocks || []).find((b) => /_log$/.test(b.name)) || { name: 'oak_log' }).name.replace(/_log$/, '');
-  const planner = new Planner({
+  const planner = new Planner(ctx.world || {
     inventory: raw.inventory, visibleBlocks: (raw.blocks || []).map((b) => b.name),
     visibleMobs: (raw.entities || []).filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name), knownBlocks: ctx.placeKinds || [],
   }, { index: ix });
@@ -77,10 +79,68 @@ function itemCandidates(ctx) {
   const pri = { inventory: 0, dropped: 1, block: 1, mob: 1, place: 2, history: 2, facts: 3, recipe1: 4, recipe2: 5 };
   out.sort((a, b) => (pri[a.src] - pri[b.src]) || (a.order - b.order));
   const foods = md.foodsByName || {};
-  return out.slice(0, ctx.maxItems ?? 40).map((x) => ({
-    name: x.name,
-    desc: [jaName(x.name), foods[x.name] ? '食べ物' : null, x.have ? `持っている${x.have}` : null, x.seen ? '見える' : null].filter(Boolean).join('・'),
-  }));
+  const annotate = ctx.annotate !== false;
+  return out.slice(0, ctx.maxItems ?? 40).map((x) => {
+    const head = [jaName(x.name), useSpec(x.name, md, foods), x.have ? `持っている${x.have}` : null, !annotate && x.seen ? '見える' : null].filter(Boolean).join('・');
+    if (!annotate || x.have) return { name: x.name, desc: head };
+    const ex = planner.explain(x.name);
+    const ann = ex.ok ? pathFacts(ex, raw, { target: x.name }) : [];
+    const eff = ex.ok ? effortWord(ex.c) : null;
+    return { name: x.name, desc: [head, ...ann, eff ? `手間: ${eff}` : null].filter(Boolean).join('。'), effort: eff };
+  });
+}
+
+// 仕様の事実 (物の働き。どう使うとよいかは書かない): 食べ物と満腹度・寝られる・明るさ・入れられる数・柵の高さ・耕せる
+function useSpec(name, md, foods = md.foodsByName || {}) {
+  if (foods[name]) return `食べ物 (満腹度+${foods[name].foodPoints})`;
+  if (/_bed$/.test(name)) return '寝られる';
+  const b = md.blocksByName[name];
+  if (b && b.emitLight > 0 && !/^(lava|fire|soul_fire|magma_block)$/.test(name)) return `明かり (明るさ${b.emitLight})`;
+  if (/^(chest|barrel|trapped_chest)$/.test(name)) return '物を入れられる (27マス)';
+  if (/_fence$|_fence_gate$|_wall$/.test(name)) return '高さ1.5 (跳び越えられない)';
+  if (/_hoe$/.test(name)) return '土に使ったとき耕地になる';
+  return null;
+}
+
+const DIR8 = ['東', '南東', '南', '南西', '西', '北西', '北', '北東'];
+// 8方位の言葉 (x+ = 東, z+ = 南)。近ければ「すぐそば」
+function dir8(from, to) {
+  if (!from || !to) return null;
+  const dx = to.x - from.x; const dz = to.z - from.z;
+  if (Math.hypot(dx, dz) < 3) return 'すぐそば';
+  const a = Math.atan2(dz, dx); // 0 = 東、π/2 = 南
+  return DIR8[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+}
+
+function rareWord(expect) { return expect < 0.05 ? 'まれに' : expect < 0.5 ? 'ときどき' : ''; }
+
+// 道筋 (planner.explain の結果) から、入手元・要る物を言葉にする (最大 maxFacts 個)。順は
+//   主な入手元 (ゴールの物そのもの・焼く前の物の入手元) → 要る道具 → かまど → まだ見ていない・まれにしか落ちない入手元 → 作業台
+//   (道具・かまど・作業台は、持っていない・見えていない・覚えていないときだけ)
+function pathFacts(ex, raw, { maxFacts = 3, target = null } = {}) {
+  const here = raw && raw.self ? raw.self.pos : null;
+  const posOf = (s) => {
+    if (s.how === 'kill') { const e = (raw.entities || []).find((x) => x.name === s.from && x.kind !== 'player' && x.kind !== 'item'); return e ? e.pos : null; }
+    const b = (raw.blocks || []).find((x) => x.name === s.from); return b ? b.nearest : null;
+  };
+  const vis = (s) => {
+    if (s.where === 'visible') { const d = dir8(here, posOf(s)); return d ? (d === 'すぐそば' ? 'すぐそばに見える' : `${d}に見える`) : '見える'; }
+    return s.where === 'known' ? '前に見た' : 'まだ見ていない';
+  };
+  const say = (s) => {
+    const rare = rareWord(s.expect);
+    if (s.how === 'kill') return `${s.from} ${s.where === 'visible' ? 'が' : 'は'}${vis(s)}${rare ? ` (${rare}落とす)` : ''}`;
+    if (s.from === s.item) return CROP_BLOCKS.test(s.from) ? `育った所が${vis(s)}` : vis(s);
+    return `${s.item === target ? '' : `${s.item} は `}${s.from} から${rare}落ちる (${s.from} は${vis(s)})`;
+  };
+  const out = [];
+  if (ex.main) out.push(say(ex.main));
+  // 道具はいちばん浅い所で要る1つだけ (その道具を作るのに要る道具は書かない)。作業台は最後 (多くの物で要る)
+  if (ex.tools.length) out.push(`${ex.tools[0]} が要る`);
+  if (ex.stations.includes('furnace')) out.push('furnace が要る');
+  for (const l of ex.leaves) if (l !== ex.main && (l.where !== 'visible' || l.expect < 0.5)) out.push(say(l));
+  if (ex.stations.includes('crafting_table')) out.push('crafting_table が要る');
+  return [...new Set(out)].slice(0, maxFacts);
 }
 
 // 人: { name, desc }。people = [{ name, relation, seen }]
@@ -102,4 +162,4 @@ function placeCandidates({ here, base = null, baseLabel = null, places = [], cel
   return out;
 }
 
-module.exports = { itemCandidates, personCandidates, placeCandidates, familyKey, collapse, DIRS8 };
+module.exports = { itemCandidates, personCandidates, placeCandidates, familyKey, collapse, DIRS8, useSpec, pathFacts, dir8, rareWord };

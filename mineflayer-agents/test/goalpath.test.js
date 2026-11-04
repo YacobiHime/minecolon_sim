@@ -176,7 +176,7 @@ test('placeCandidates: 拠点・覚えている場所・8方位の遠く (行っ
 test('parseGoal: target は候補から。kind が合わなければ target の種類に直す。count は 1〜64', () => {
   const cands = { items: [{ name: 'white_bed' }], people: [{ name: 'Ken' }], places: [{ name: '北の方', type: 'dir', vec: [0, -1] }] };
   assert.deepStrictEqual(parseGoal('{"kind":"item","target":"white_bed","count":200,"why":"眠りたいから","need":"眠気"}', cands),
-    { kind: 'item', target: 'white_bed', count: 64, give: null, why: '眠りたいから', need: 'sleep', kindFixed: false, place: null });
+    { kind: 'item', target: 'white_bed', count: 64, give: null, why: '眠りたいから', need: 'sleep', kindFixed: false, place: null, state: null });
   const p = parseGoal('{"kind":"item","target":"Ken","why":"会いたい","need":"人とのつながり"}', cands);
   assert.strictEqual(p.kind, 'person');
   assert.strictEqual(p.kindFixed, true);

@@ -12,7 +12,9 @@
 //   たどれない物 (レシピも入手元も分からない) は、その旨を添えて 2B に選び直させる (maxTries 回まで)。
 // 研究方針: 仕様・事実は見せるが、どう使うかは書かない。評価語を指示に入れない。数値はここで持ち、モデルには言葉だけ。
 const { LLMDecider } = require('./deciders/llm');
-const { Planner, pathText, remaining, GROUND } = require('./planner');
+const { Planner, pathText, stepText, remaining, GROUND } = require('./planner');
+const states = require('./states');
+const { dir8 } = require('./vocab');
 const { itemCandidates, personCandidates, placeCandidates } = require('./vocab');
 const { timeText } = require('./goalplan');
 const { NEED_LABEL, LABEL_TO_NEED } = require('./needs');
@@ -35,9 +37,12 @@ const DEFAULTS = {
   farDist: 48,
   maxShown: 5,
   version: '1.20.1',
+  states: true, // 状態のゴール (kind: state。states.js) を候補に出す
+  stateOpts: {}, // states.js の DEFAULTS を上書き (penSize・counts など)
+  policyMax: 120, // 方針 (reflect.js) を 2B に見せる長さ
 };
-const KINDS = ['item', 'person', 'place'];
-const KIND_JA = { item: '物', person: '人', place: '場所' };
+const KINDS = ['item', 'person', 'place', 'state'];
+const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
 const NEED_LABELS = Object.values(NEED_LABEL);
 
 function parseJson(text) {
@@ -45,7 +50,7 @@ function parseJson(text) {
 }
 
 function goalSchema(cands, { giveItems = [] } = {}) {
-  const names = [...new Set([...cands.items, ...cands.people, ...cands.places].map((c) => c.name))];
+  const names = [...new Set([...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].map((c) => c.name))];
   const props = {
     kind: { type: 'string', enum: KINDS },
     target: { type: 'string', enum: names },
@@ -65,8 +70,9 @@ function parseGoal(text, cands, opts = {}) {
   const inItems = cands.items.find((c) => c.name === t);
   const inPeople = cands.people.find((c) => c.name === t);
   const inPlaces = cands.places.find((c) => c.name === t);
+  const inStates = (cands.states || []).find((c) => c.name === t);
   let kind = KINDS.includes(o.kind) ? o.kind : null;
-  const fits = { item: !!inItems, person: !!inPeople, place: !!inPlaces };
+  const fits = { item: !!inItems, person: !!inPeople, place: !!inPlaces, state: !!inStates };
   let kindFixed = false;
   if (!kind || !fits[kind]) {
     const k = KINDS.find((x) => fits[x]) || (opts.allowUnknownItem && /^[a-z0-9_]+$/.test(t) ? 'item' : null);
@@ -75,17 +81,35 @@ function parseGoal(text, cands, opts = {}) {
   }
   const lab = typeof o.need === 'string' ? o.need.trim() : '';
   const need = LABEL_TO_NEED[lab] || (NEED_LABEL[lab] ? lab : null);
-  const count = kind === 'item' ? Math.max(1, Math.min(64, Math.floor(Number(o.count)) || 1)) : null;
+  const count = kind === 'item' ? Math.max(1, Math.min(64, Math.floor(Number(o.count)) || 1))
+    : kind === 'state' ? (inStates.state.type === 'walled' ? 1 : Math.max(1, Math.min(64, Math.floor(Number(o.count)) || inStates.count || 1))) : null;
   const give = kind === 'person' && typeof o.give === 'string' && o.give.trim() ? o.give.trim() : null;
   const why = typeof o.why === 'string' ? o.why.trim().slice(0, opts.whyMax ?? DEFAULTS.whyMax) : '';
-  return { kind, target: t, count, give, why: why || null, need, kindFixed, place: inPlaces || null };
+  return { kind, target: t, count, give, why: why || null, need, kindFixed, place: inPlaces || null, state: inStates ? inStates.state : null };
 }
 
 function goalText(g) {
   if (!g) return '';
   if (g.kind === 'item') return `${g.target} ${g.count}`;
+  if (g.kind === 'state') return states.stateGoalText(g.state || states.parseStateId(g.target) || {}, g.count);
   if (g.kind === 'person') return g.give ? `${g.target} に ${g.give} を渡す` : `${g.target} の近くにいる`;
   return g.place && g.place.type === 'dir' ? `${g.target}へ行く` : `${g.target}へ行く`;
+}
+
+function candDesc(cands, name) {
+  const c = [...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].find((x) => x.name === name);
+  return c ? c.desc : null;
+}
+
+// 状態の道筋の文: 物の手順 (stepText) と行動の手順 (actText) を maxShown まで + 次
+function statePathText(p, { maxShown = 5 } = {}) {
+  if (!p || !p.ok) return '';
+  if (p.done) return '道筋: 揃っている';
+  const st = p.status && p.status.known ? `今${p.status.have} / ` : '';
+  const shown = p.steps.slice(-maxShown).map((s) => (s.act ? states.actText(s) : stepText(s)));
+  const more = p.steps.length > maxShown ? `ほか${p.steps.length - maxShown}、` : '';
+  const nx = p.next ? (p.next.act ? states.actText(p.next) : stepText(p.next).split(' ← ')[0] + ' を手に入れる') : '';
+  return `${st}道筋: ${more}${shown.join('、')} / 次: ${nx}`;
 }
 
 function invCount(raw, name) { return (raw.inventory || []).filter((i) => i.name === name).reduce((t, i) => t + i.count, 0); }
@@ -101,7 +125,7 @@ class GoalPath {
     this.history = []; // [{ kind, target, count, why, need, result, reason, from, to }]
     this.troubleRun = 0;
     this.retryAt = -1;
-    this.counts = { goals: 0, done: 0, needUnmet: 0, stuck: 0, unplannable: 0, failed: 0 };
+    this.counts = { goals: 0, done: 0, needUnmet: 0, stuck: 0, unplannable: 0, failed: 0, worstJudged: 0, worstMatched: 0 };
     this.loggedPrompt = false;
     this.lastNextKey = null;
   }
@@ -110,10 +134,17 @@ class GoalPath {
   candidates(ctx) {
     const raw = ctx.raw;
     return {
-      items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.cfg.maxItems }),
+      items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.cfg.maxItems, world: raw ? this.world(ctx) : null, annotate: this.cfg.annotate !== false }),
       people: personCandidates(ctx.people || []),
       places: placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist }),
+      states: this.cfg.states && raw ? states.stateCandidates({ world: this.world(ctx), sense: this.senseOf(ctx), raw, cfg: this.cfg.stateOpts, version: this.cfg.version, dir: (pos) => dir8(raw.self.pos, pos) }) : [],
     };
+  }
+
+  // 状態を確かめる材料 (states.senseState)。拠点 = set_base の場所、なければベッド/チェストを置いた所 (ctx.home)
+  senseOf(ctx) {
+    const raw = ctx.raw;
+    return { blockAt: ctx.blockAt || null, here: raw ? raw.self.pos : null, anchor: ctx.base || ctx.home || null, entities: raw ? raw.entities : [], containers: ctx.containers || {}, near: this.cfg.nearBase ?? 16 };
   }
 
   historyText() {
@@ -130,8 +161,8 @@ class GoalPath {
       `あなたは Minecraft の世界にいる「${p.name}」。${p.personality || ''}`,
       ctx.goalText ? `全体の目標: ${ctx.goalText}` : '',
       'あなたが知っているのは、自分で見たこと・やったこと・聞いたことと、「知っていること」だけ。',
-      `自分がこれからめざすゴールを1つ決める。ゴールは、手に入れたい物 (kind: item)・近くに行きたい人 (kind: person)・行きたい場所 (kind: place) のどれか1つ。`,
-      'target は「めざせる物」「人」「場所」の一覧にある名前を、そのまま1つ書く。物なら count に数を書く。'
+      `自分がこれからめざすゴールを1つ決める。ゴールは、手に入れたい物 (kind: item)・近くに行きたい人 (kind: person)・行きたい場所 (kind: place)${cands.states && cands.states.length ? '・こうなっていてほしい状態 (kind: state)' : ''} のどれか1つ。`,
+      `target は「めざせる物」「人」「場所」${cands.states && cands.states.length ? '「めざせる状態」' : ''}の一覧にある名前を、そのまま1つ書く。物${cands.states && cands.states.length ? '・状態' : ''}なら count に数を書く。`
         + (inv.length ? '人に持ち物を渡したいときは give にその物の名前を書く。' : ''),
       `why にはそのゴールが何のためか、need にはそのゴールで満たしたいもの (${NEED_LABELS.join('・')}) を1つ書く。`,
       `JSON {"kind":"...","target":"...","count":1,"why":"...","need":"..."} だけを出力する。`,
@@ -142,11 +173,13 @@ class GoalPath {
       ctx.baseText ? `## 拠点の様子\n${ctx.baseText}` : '',
       ctx.socialText ? `## 体と心\n${ctx.socialText}` : '',
       ctx.worst ? `## いちばんつらいこと\n${ctx.worst.text}` : '',
+      ctx.policy ? `## 自分の方針 (前に自分で決めたこと)\n${String(ctx.policy).slice(0, this.cfg.policyMax)}` : '',
       ctx.peopleText ? `## 周りの人\n${ctx.peopleText}` : '',
       facts.length ? `## 知っていること\n${facts.join('\n')}` : '',
       '## 覚えていること', ctx.memText || 'なし',
       `## これまでのゴール\n${this.historyText()}`,
       `## めざせる物\n${cands.items.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
+      cands.states && cands.states.length ? `## めざせる状態\n${cands.states.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
       cands.people.length ? `## 人\n${cands.people.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
       `## 場所\n${cands.places.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
       feedback.length ? `## さっき選んだゴール\n${feedback.join('\n')}` : '',
@@ -187,6 +220,15 @@ class GoalPath {
     return new Planner(this.world(ctx), { version: this.cfg.version }).plan(target, count);
   }
 
+  // 状態の道筋 (今の様子から作り直す)
+  planStateGoal(ctx, g) {
+    const st = g.state || states.parseStateId(g.target);
+    const status = states.senseState(st, this.senseOf(ctx), { ...states.DEFAULTS, ...this.cfg.stateOpts });
+    if (status.known) g.lastStatus = status; else if (g.lastStatus) Object.assign(status, { have: g.lastStatus.have, penCells: g.lastStatus.penCells, chests: g.lastStatus.chests });
+    const p = states.planState(st, g.count, this.world(ctx), status, { version: this.cfg.version, cfg: this.cfg.stateOpts });
+    return { ...p, status };
+  }
+
   // 人・場所の今の様子 { met, d (距離), text (次の文) }
   targetStatus(ctx) {
     const g = this.goal;
@@ -195,6 +237,13 @@ class GoalPath {
     if (g.kind === 'item') {
       const have = invCount(raw, g.target);
       return { met: have >= g.count, d: remaining(this.path) };
+    }
+    if (g.kind === 'state') {
+      const p = this.path;
+      const st = p ? p.status : { have: 0, known: false };
+      const met = !!(st && st.known && st.have >= (g.count || 1));
+      const d = p && p.ok ? p.steps.length * 100 + (p.left || 0) : 1e6;
+      return { met, d, have: st ? st.have : 0, known: !!(st && st.known) };
     }
     if (g.kind === 'person') {
       const e = raw.entities.find((x) => x.kind === 'player' && x.name === g.target);
@@ -221,8 +270,9 @@ class GoalPath {
     const g = this.goal;
     if (!g) return '';
     const head = `ゴール: ${goalText(g)}${g.why ? ` (${g.why})` : ''}`;
-    if (g.metAt != null) return `${head} / ${g.kind === 'item' ? '手に入れた' : g.kind === 'person' ? (g.give ? '渡した' : '近くにいる') : '着いた'}`;
+    if (g.metAt != null) return `${head} / ${g.kind === 'item' ? '手に入れた' : g.kind === 'state' ? 'そうなった' : g.kind === 'person' ? (g.give ? '渡した' : '近くにいる') : '着いた'}`;
     if (g.kind === 'item') return this.path && this.path.ok ? `${head} / ${pathText(this.path, { maxShown: this.cfg.maxShown })}` : head;
+    if (g.kind === 'state') return this.path && this.path.ok ? `${head} / ${statePathText(this.path, { maxShown: this.cfg.maxShown })}` : head;
     return g.statusText ? `${head} / 次: ${g.statusText}` : head;
   }
 
@@ -238,9 +288,20 @@ class GoalPath {
       const needAt = pg && pg.need && ctx.needNow ? Math.round(ctx.needNow(pg.need) * 1000) / 1000 : null;
       const base = { tick, reason, try: tryN, goalKind: pg ? pg.kind : null, target: pg ? pg.target : null, count: pg ? pg.count : null, give: pg ? pg.give : null,
         why: pg ? pg.why : null, need: pg ? pg.need : null, needAt, kindFixed: pg ? pg.kindFixed : null, worst: ctx.worst ? ctx.worst.need : null, worstText: ctx.worst ? ctx.worst.text : null,
-        candidates: { items: cands.items.length, people: cands.people.length, places: cands.places.length }, ...rec };
+        needMatchesWorst: pg && pg.need && ctx.worst ? pg.need === ctx.worst.need : null, policy: ctx.policy || null, desc: pg ? candDesc(cands, pg.target) : null,
+        candidates: { items: cands.items.length, people: cands.people.length, places: cands.places.length, states: (cands.states || []).length }, ...rec };
       if (!pg) { this.counts.failed += 1; this.log({ kind: 'goal', ok: false, ...base }); this.retryAt = tick + this.cfg.retryAfter; return false; }
       let path = null;
+      if (pg.kind === 'state') {
+        path = this.planStateGoal(ctx, { ...pg });
+        if (!path.ok) {
+          this.counts.unplannable += 1;
+          this.log({ kind: 'unplannable', ok: false, ...base, missing: path.missing || null });
+          this.history.push({ ...pg, result: 'unplannable', resultText: `${path.missing || ''} の手に入れ方が分からなかった`, from: tick, to: tick });
+          feedback.push(`${goalText(pg)}: ${path.missing || ''} の手に入れ方が分からなかった`);
+          continue;
+        }
+      }
       if (pg.kind === 'item') {
         path = this.planItem(ctx, pg.target, pg.count);
         if (!path.ok) {
@@ -252,8 +313,9 @@ class GoalPath {
         }
       }
       this.counts.goals += 1;
+      if (base.worst && pg.need) { this.counts.worstJudged += 1; if (base.worst === pg.need) this.counts.worstMatched += 1; }
       const here = ctx.raw.self.pos;
-      this.goal = { ...pg, needAt, setAt: tick, n: this.counts.goals, startPos: { x: here.x, y: here.y, z: here.z }, pos: pg.place ? pg.place.pos || null : null, metAt: null, best: Infinity, bestAt: tick };
+      this.goal = { ...pg, lastStatus: path && path.status && path.status.known ? path.status : null, needAt, setAt: tick, n: this.counts.goals, startPos: { x: here.x, y: here.y, z: here.z }, pos: pg.place ? pg.place.pos || null : null, metAt: null, best: Infinity, bestAt: tick };
       this.path = path;
       this.troubleRun = 0;
       this.log({ kind: 'goal', ok: true, ...base, path: path ? this.pathRecord(path) : null });
@@ -265,7 +327,10 @@ class GoalPath {
 
   pathRecord(p) {
     if (!p) return null;
-    return { ok: p.ok, steps: (p.steps || []).map((s) => ({ item: s.item, count: s.count, how: s.how, from: s.from || null, where: s.where || null })), next: p.next ? p.next.item : null };
+    const r = { ok: p.ok, steps: (p.steps || []).map((s) => (s.act ? { act: s.how, text: states.actText(s) } : { item: s.item, count: s.count, how: s.how, from: s.from || null, where: s.where || null })), next: p.next ? (p.next.act ? p.next.how : p.next.item) : null };
+    if (p.status) r.status = { have: p.status.have, known: !!p.status.known };
+    if (p.effortWord) r.effort = p.effortWord;
+    return r;
   }
 
   finish(result, tick, why, extra = {}) {
@@ -306,7 +371,7 @@ class GoalPath {
       await this.newGoal(ctx, tick, 'need_unmet'); this.refresh(ctx, tick);
       return 'need_unmet';
     }
-    if (g.kind === 'item' && this.path && !this.path.ok) {
+    if ((g.kind === 'item' || g.kind === 'state') && this.path && !this.path.ok) {
       this.finish('unplannable', tick, this.path.missing || null);
       await this.newGoal(ctx, tick, 'unplannable'); this.refresh(ctx, tick);
       return 'unplannable';
@@ -316,8 +381,8 @@ class GoalPath {
     const stuckLong = tick - g.bestAt >= this.cfg.patience;
     if (!stuckTrouble && !stuckLong) return null;
     const why = stuckTrouble ? `困りごとが${this.troubleRun}判断続いた: ${troubles.map((t) => t.about).join(' / ')}`
-      : g.kind === 'item' ? `${tick - g.bestAt}判断、道筋が縮まなかった` : `${tick - g.bestAt}判断、近づかなかった`;
-    this.finish('stuck', tick, why, { next: this.path && this.path.next ? this.path.next.item : null });
+      : g.kind === 'item' || g.kind === 'state' ? `${tick - g.bestAt}判断、道筋が縮まなかった` : `${tick - g.bestAt}判断、近づかなかった`;
+    this.finish('stuck', tick, why, { next: this.path && this.path.next ? (this.path.next.act ? this.path.next.how : this.path.next.item) : null });
     this.troubleRun = 0;
     await this.newGoal(ctx, tick, 'stuck'); this.refresh(ctx, tick);
     return 'stuck';
@@ -327,12 +392,13 @@ class GoalPath {
   refresh(ctx, tick) {
     const g = this.goal;
     if (!g) return { met: false, d: Infinity };
-    if (g.kind === 'item' && g.metAt == null) {
-      this.path = this.planItem(ctx, g.target, Math.max(0, g.count));
-      const key = this.path.ok ? `${this.path.next ? this.path.next.item : '-'}|${this.path.steps.length}` : 'x';
+    if ((g.kind === 'item' || g.kind === 'state') && g.metAt == null) {
+      this.path = g.kind === 'item' ? this.planItem(ctx, g.target, Math.max(0, g.count)) : this.planStateGoal(ctx, g);
+      const nx = this.path.next ? (this.path.next.act ? this.path.next.how : this.path.next.item) : '-';
+      const key = this.path.ok ? `${nx}|${this.path.steps.length}|${this.path.status ? this.path.status.have : ''}` : 'x';
       if (key !== this.lastNextKey) {
         this.lastNextKey = key;
-        this.log({ kind: 'path', tick, goal: goalText(g), ...this.pathRecord(this.path), text: pathText(this.path, { maxShown: this.cfg.maxShown }) });
+        this.log({ kind: 'path', tick, goal: goalText(g), ...this.pathRecord(this.path), text: g.kind === 'item' ? pathText(this.path, { maxShown: this.cfg.maxShown }) : statePathText(this.path, { maxShown: this.cfg.maxShown }) });
       }
     }
     const st = this.targetStatus(ctx);
@@ -343,4 +409,4 @@ class GoalPath {
   }
 }
 
-module.exports = { GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, KINDS, KIND_JA };
+module.exports = { GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };

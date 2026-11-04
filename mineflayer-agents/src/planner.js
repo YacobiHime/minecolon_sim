@@ -330,6 +330,86 @@ class Planner {
     return { ok: true, target: item, count: n, steps, next: steps[0] || null, done: steps.length === 0 };
   }
 
+  // 道筋の中身を軽くたどる (持ち物の使い分けはしない。候補の説明用。vocab.js)。
+  //   返り値 { ok, how, leaves: [{ item, how, from, where, expect, depth }], stations: [要る作業台・かまど], tools: [要る道具], main: 主な入手元 }
+  //   main: ゴールの物そのものの入手元、焼く物ならその焼く前の物の入手元
+  explain(item) {
+    const top = this.cost(item);
+    if (!Number.isFinite(top.c)) return { ok: false };
+    const costs = this.costs();
+    const leaves = []; const stations = new Set(); const tools = new Map(); // 道具 → いちばん浅い深さ
+    const seen = new Set();
+    const walk = (it, depth) => {
+      if (seen.has(it) || depth > MAX_DEPTH) return;
+      seen.add(it);
+      const o = costs.get(it) || this.bestOption(it, costs);
+      if (!o || o.how === 'have' || !Number.isFinite(o.c)) return;
+      if (o.how === 'collect' || o.how === 'kill') {
+        leaves.push({ item: it, how: o.how, from: o.from, where: o.where, expect: o.expect || 1, depth });
+        if (o.tool) { if (!tools.has(o.tool)) tools.set(o.tool, depth); walk(o.tool, depth + 1); }
+        return;
+      }
+      if (o.how === 'craft') {
+        if (o.recipe.table && !this.stationAvail('crafting_table')) { stations.add('crafting_table'); walk('crafting_table', depth + 1); }
+        for (const ing of Object.keys(o.recipe.ings)) walk(ing, depth + 1);
+        return;
+      }
+      if (o.how === 'smelt') {
+        if (!this.stationAvail('furnace')) { stations.add('furnace'); walk('furnace', depth + 1); }
+        walk(o.from, depth + 1);
+      }
+    };
+    walk(item, 0);
+    let main = leaves.find((l) => l.item === item) || null;
+    if (!main && top.how === 'smelt') main = leaves.find((l) => l.item === top.from) || null;
+    // 道具は浅い順 (ゴールに近い所で要る物から)
+    return { ok: true, how: top.how, c: top.c, leaves, stations: [...stations], tools: [...tools].sort((a, b) => a[1] - b[1]).map(([t]) => t), main };
+  }
+
+  // いくつかの物をまとめて手に入れる道筋 (状態のゴール用。states.js)。list = [{ item, count }]。持ち物・作った余りは前の物と分け合う
+  planMany(list) {
+    const sim = { inv: { ...this.inv0 }, out: [], stations: { ...this.stations0 }, tools: new Set(Object.keys(this.inv0).filter((k) => this.inv0[k] > 0)) };
+    this.sim = sim; this.dirty = true;
+    let ok = true; let missing = null;
+    try {
+      for (const x of list || []) {
+        const item = this.resolve(x.item);
+        const n = Math.max(0, Math.floor(x.count) || 0);
+        if (!n) continue;
+        if (!item) { ok = false; missing = x.item; break; }
+        if (!this.expand(item, n, sim)) { ok = false; missing = sim.fail || item; break; }
+      }
+    } finally { this.sim = null; this.dirty = true; }
+    const steps = mergeSteps(sim.out);
+    return ok ? { ok: true, steps, next: steps[0] || null, done: steps.length === 0 } : { ok: false, reason: 'untraceable', missing, steps };
+  }
+
+  // 手間の目安 (持ち物を引いたあとの、1個あたりの手間 × 数 の和)。言葉にするのは effortWord()
+  effort(list) {
+    let c = 0;
+    const inv = { ...this.inv0 };
+    for (const x of list || []) {
+      const item = this.resolve(x.item);
+      if (!item) return Infinity;
+      const have = Math.min(inv[item] || 0, x.count);
+      inv[item] = (inv[item] || 0) - have;
+      const left = x.count - have;
+      if (left > 0) {
+        // 持ち物を引いた状態では cost() は 0 を返すので、足りない分は持っていないときの手間で数える
+        const per = (this.inv0[item] || 0) > 0 ? this.costWithout(item) : this.cost(item).c;
+        c += per * left;
+      }
+    }
+    return c;
+  }
+
+  // 持ち物に item が無いとしたときの1個の手間
+  costWithout(item) {
+    const save = this.inv0[item];
+    this.inv0[item] = 0; this.dirty = true;
+    try { return this.cost(item).c; } finally { this.inv0[item] = save; this.dirty = true; }
+  }
+
   // 名前の正規化: アイテム名そのもの / "bed" のような種類の名前 (… _bed のうち手間の小さいもの)
   resolve(name) {
     const s = String(name || '').trim().toLowerCase().replace(/\s+/g, '_');
@@ -402,4 +482,12 @@ function isPlaceableBlockItem(name, version = DEFAULT_VERSION) {
 
 function plan(target, count, world, opts) { return new Planner(world, opts).plan(target, count); }
 
-module.exports = { Planner, plan, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };
+// 手間の言葉 (数値はモデルに渡さない): 小 < 5 ≤ 中 < 20 ≤ 大
+const EFFORT_WORDS = [[5, '小'], [20, '中'], [Infinity, '大']];
+function effortWord(c) {
+  if (!Number.isFinite(c)) return null;
+  if (c <= 0) return 'なし';
+  return EFFORT_WORDS.find(([lim]) => c < lim)[1];
+}
+
+module.exports = { Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };

@@ -2,7 +2,7 @@
 'use strict';
 // 2B を実際に呼んで、欲求の言葉を入れたときのゴール (kind/target/why/need) と、planner の道筋を出す (bot・Jev なし)。
 //   LLM_BASE_URL=http://192.168.15.30:18081 node tools/goalpath_demo.js [--json] [--only 名前]
-const { GoalPath } = require('../src/goalpath');
+const { GoalPath, statePathText } = require('../src/goalpath');
 const { summarizeObservation } = require('../src/observe');
 const { pathText } = require('../src/planner');
 const knowledge = require('../src/knowledge');
@@ -56,7 +56,7 @@ async function main() {
     await gp.update(ctx, 1);
     const g = ev.filter((e) => e.kind === 'goal' || e.kind === 'unplannable');
     const r = { who: sc.label || sc.who, worst: sc.worst.need, goals: g.map((e) => ({ kind: e.goalKind, target: e.target, count: e.count, give: e.give, why: e.why, need: e.need, ok: e.ok, raw: e.rawOutput, promptTokens: e.promptTokens, completionTokens: e.completionTokens, ms: e.ms, error: e.error })),
-      plan: gp.planText(), path: gp.path ? pathText(gp.path, { maxShown: 20 }) : null, ms: Date.now() - t0 };
+      plan: gp.planText(), path: gp.path ? (gp.goal && gp.goal.kind === 'state' ? statePathText(gp.path, { maxShown: 20 }) : pathText(gp.path, { maxShown: 20 })) : null, ms: Date.now() - t0 };
     out.push(r);
     if (!json) {
       console.log(`\n## ${r.who} (いちばんつらい: ${r.worst})`);
