@@ -429,6 +429,11 @@
       "T": 6000,
       "power": 2,
       "recover": 0.03
+    },
+    "anticipate": {
+      "_comment": "予期される欲求 (先のつらさ。src/anticipate.js、2026-11-05 ユーザー決定「備える」)。先の不安 night = 夜までの近さ (夜の horizon tick 前から、^power。夜のあいだは1) × 見込み (base + (1−base)(1−exp(−Σ 夜ごとの 死んだ×perDeath + 傷を受けた×perHurt + 敵が近くに来た×perAttack × nightDecay^何夜前))) × (1 − 備え: 武器・防具・盾・松明・囲まれた寝床・ベッド、prepMax まで) × (1 + braveryScale×(0.5−bravery)×2)。先の空腹 food = (1 − 手持ちの食べ物の回数/wantMeals) × (入手元を知っていれば sourceMul) × (lowMul + (1−lowMul)×いまの空腹/hungerRef)。ゴールを選ぶときのつらさの点 = 値/threshold × weight。書いていない係数は anticipate.js の ANTICIPATE_DEFAULTS。人ごとの差は personas[].needs.anticipate で上書きする",
+      "night": { "horizon": 9000, "power": 1.5, "base": 0.3, "perDeath": 0.5, "perHurt": 0.08, "perAttack": 0.05, "nightDecay": 0.6, "braveryScale": 0.6, "threshold": 0.3, "weight": 1.2 },
+      "food": { "wantMeals": 3, "sourceMul": 0.5, "threshold": 0.5, "weight": 0.8 }
     }
   },
   "knowledge": {
@@ -493,7 +498,11 @@
       "lowP": 0.3,
       "onAllLow": "best",
       "maxTokens": 480,
-      "temperature": 0.7
+      "temperature": 0.7,
+      "_comment_later": "先のつらさ (needs.anticipate) も 案 × 先の欲求 (夜・この先の食べ物) の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。laterMinRatio 未満の先のつらさは入れない。どちらの点で決まったかは event の select.decidedBy (now: いまの点だけでも同じ案 / later: 先の点で案が変わった / later_only: いまつらい欲求が無い)",
+      "later": true,
+      "laterNeeds": 2,
+      "laterMinRatio": 0.6
     }
   },
   "reflect": {

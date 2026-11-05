@@ -45,11 +45,19 @@ const DEFAULTS = {
   //   needs: 今つらい欲求の上位いくつを聞くか。minRatio: しきい値に対する割合がこれ未満の欲求は入れない
   //   tieEps: 最大との差がこれ以内の案は同点 → 2B が先に書いた案。lowP: どの案・欲求の P もこれ未満なら「全部低い」(onAllLow: best | first)
   //   つらい欲求が無いとき (no_pressing_need) は Jev を呼ばず、2B が先に書いた案
-  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7 },
+  //   later: 先のつらさ (anticipate.js: 夜・この先の食べ物) も 案 × 先の欲求 の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。
+  //     laterMinRatio: しきい値に対する割合がこれ未満の先のつらさは入れない。laterNeeds: いくつまで
+  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.6 },
 };
 const KINDS = ['item', 'person', 'place', 'state'];
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
 const NEED_LABELS = Object.values(NEED_LABEL);
+// 先のつらさの英語のキー (Jev の state.later) と、案ごとの質問 (事実を問う形。評価語を入れない)
+const LATER_EN = { night: 'night', food: 'food' };
+const LATER_Q = {
+  night: (p) => `If \`you\` achieved \`proposals.${p}\`, would that help \`you\` when the night that \`later.night\` describes comes?`,
+  food: (p) => `If \`you\` achieved \`proposals.${p}\`, would that help \`you\` have food later, given what \`later.food\` describes?`,
+};
 
 function parseJson(text) {
   try { const s = String(text); return JSON.parse(s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1)); } catch (_) { return null; }
@@ -556,13 +564,15 @@ class GoalPath {
     return false;
   }
 
-  // Jev に 案 × 欲求 を noul で聞き、Σ つらさ^power × P の最大の案を選ぶ。返り値 { index, record }
+  // Jev に 案 × 欲求 (いま) と 案 × 先の欲求 を noul で1回に聞き、点 = Σ いまのつらさ^power × P + Σ 先のつらさ^power × P(先に役立つ) の最大の案を選ぶ。
+  //   返り値 { index, record }。record.decidedBy: now (いまの点だけでも同じ案) | later (先の点で選ばれた案が変わった) | later_only (いまのつらさが無い)
   async selectByNeeds(ctx, valid, cands) {
     const sc = this.cfg.select;
     const needs = ctx.pressing ? ctx.pressing({ n: sc.needs, minRatio: sc.minRatio }) : [];
-    const record = { needs: needs.map((x) => ({ need: x.need, distress: x.distress, ratio: x.ratio })), scores: [], chosen: 0, rule: null };
+    const later = sc.later && ctx.later ? ctx.later({ minRatio: sc.laterMinRatio }).slice(0, sc.laterNeeds) : [];
+    const record = { needs: needs.map((x) => ({ need: x.need, distress: x.distress, ratio: x.ratio })), later: later.map((x) => ({ need: x.need, distress: x.distress, ratio: x.ratio, text: x.text })), scores: [], chosen: 0, rule: null };
     if (valid.length === 1) { record.rule = 'only_one'; return { index: 0, record }; }
-    if (!needs.length) { record.rule = 'no_pressing_need'; return { index: 0, record }; }
+    if (!needs.length && !later.length) { record.rule = 'no_pressing_need'; return { index: 0, record }; }
     const p = ctx.persona || {};
     // 案の並べ方も変える (state のキーの順)
     let ids = valid.map((_, i) => i);
@@ -573,7 +583,10 @@ class GoalPath {
       const c = [...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].find((x) => x.name === pg.target);
       proposals[`p${i + 1}`] = `${goalTextEn(pg)}${c && c.descEn ? ` (${c.descEn})` : ''}`;
     }
-    const state = { you: p.name, needs: Object.fromEntries(needs.map((x) => [NEED_EN[x.need] || x.need, x.textEn])), proposals };
+    const state = { you: p.name };
+    if (needs.length) state.needs = Object.fromEntries(needs.map((x) => [NEED_EN[x.need] || x.need, x.textEn]));
+    if (later.length) state.later = Object.fromEntries(later.map((x) => [LATER_EN[x.need], x.textEn]));
+    state.proposals = proposals;
     if (p.personality_en || p.personality) state.personality = p.personality_en || p.personality;
     const questions = {};
     for (const i of ids) {
@@ -581,16 +594,28 @@ class GoalPath {
         const nk = NEED_EN[x.need] || x.need;
         questions[`p${i + 1}_${nk}`] = { type: 'noul', instructions: `If \`you\` achieved \`proposals.p${i + 1}\`, would that ease what \`needs.${nk}\` describes?` };
       }
+      for (const x of later) questions[`p${i + 1}_later_${LATER_EN[x.need]}`] = { type: 'noul', instructions: LATER_Q[x.need](`p${i + 1}`) };
     }
     let r = null;
     try { r = await this.jev.call(state, questions, 'goal'); } catch (e) { r = { r: { ok: false, error: e.message } }; }
     record.jev = { inputTokens: r.inputTokens ?? null, ms: r.r ? r.r.ms : null, questions: Object.keys(questions).length, ok: !!(r.r && r.r.ok) };
     if (!r.r || !r.r.ok) { record.rule = 'jev_error'; record.error = r.r ? r.r.error : null; return { index: 0, record }; }
     const ans = r.r.answers || {};
-    const P = valid.map((_, i) => Object.fromEntries(needs.map((x) => { const a = ans[`p${i + 1}_${NEED_EN[x.need] || x.need}`]; return [x.need, a && Number.isFinite(a.noul) ? a.noul : 0]; })));
-    const out = selectScores(P, needs, sc);
-    record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, P: Object.fromEntries(Object.entries(P[i]).map(([kk, vv]) => [kk, Math.round(vv * 1000) / 1000])), score: out.scores[i] }));
+    const pv = (key) => { const a = ans[key]; return a && Number.isFinite(a.noul) ? a.noul : 0; };
+    // いまの欲求は need のまま、先の欲求は later_<need> のキーで同じ表に入れる
+    const all = [...needs, ...later.map((x) => ({ ...x, need: `later_${x.need}` }))];
+    const P = valid.map((_, i) => Object.fromEntries([
+      ...needs.map((x) => [x.need, pv(`p${i + 1}_${NEED_EN[x.need] || x.need}`)]),
+      ...later.map((x) => [`later_${x.need}`, pv(`p${i + 1}_later_${LATER_EN[x.need]}`)]),
+    ]));
+    const out = selectScores(P, all, sc);
+    const nowOnly = needs.length ? selectScores(P, needs, sc) : null;
+    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }) : null;
+    record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, P: Object.fromEntries(Object.entries(P[i]).map(([kk, vv]) => [kk, Math.round(vv * 1000) / 1000])),
+      now: nowOnly ? nowOnly.scores[i] : 0, later: laterOnly ? laterOnly.scores[i] : 0, score: out.scores[i] }));
     record.chosen = out.index; record.rule = out.rule;
+    record.decidedBy = !nowOnly ? 'later_only' : (laterOnly && nowOnly.index !== out.index ? 'later' : 'now');
+    record.nowChoice = nowOnly ? nowOnly.index : null;
     return { index: out.index, record };
   }
 

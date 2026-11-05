@@ -328,7 +328,8 @@ function goalSelectStats(all, n = 12) {
   const props = ev.filter((r) => r.kind === 'proposals' || (r.kind === 'goal' && r.proposals));
   const goals = ev.filter((r) => r.kind === 'goal' && r.ok && r.select);
   const allProps = props.flatMap((r) => r.proposals || []);
-  const examples = goals.slice(0, n).map((r) => `${r._name} t${r.tick}: ${r.select.needs.map((x) => `${x.need}(${x.distress})`).join(' ')} | ${(r.select.scores || []).map((s, i) => `${i === r.select.chosen ? '*' : ''}${s.target}${s.count ? ` ${s.count}` : ''}=${s.score} ${JSON.stringify(s.P)}`).join(' / ')} [${r.select.rule}]`);
+  // 先のつらさ (later) があれば「先の夜(1.8)」と、案ごとの いま+先 の内訳も
+  const examples = goals.slice(0, n).map((r) => `${r._name} t${r.tick}: ${(r.select.needs || []).map((x) => `${x.need}(${x.distress})`).join(' ')}${(r.select.later || []).map((x) => ` 先の${x.need}(${x.distress})`).join('')} | ${(r.select.scores || []).map((s, i) => `${i === r.select.chosen ? '*' : ''}${s.target}${s.count ? ` ${s.count}` : ''}=${s.score}${s.later ? ` (いま ${s.now}+先 ${s.later})` : ''} ${JSON.stringify(s.P)}`).join(' / ')} [${r.select.rule}${r.select.decidedBy ? `・${r.select.decidedBy}` : ''}]`);
   return {
     rounds: props.length, goalsSelected: goals.length, proposals: allProps.length,
     dropped: countBy(allProps.filter((x) => !x.ok), (x) => x.result || '-'),
@@ -412,6 +413,84 @@ function pairDistanceStats(all, { near = 16, bucketSec = 60 } = {}) {
   }
   const perPair = Object.fromEntries(Object.entries(perPairD).sort().map(([k, ds]) => [k, { median: Math.round(pct(ds, 50)), withinNearShare: Number((ds.filter((d) => d <= near).length / ds.length).toFixed(2)), n: ds.length }]));
   return { near, bucketSec, timeline, perPair };
+}
+
+// 備え・夜の戦い・先の不安 (anticipate.js。2026-11-05)。古い記録 (先の不安の値が無い) でも、備え・戦い・夜の死亡は同じに数える
+//   備え: 武器 (剣・弓・クロスボウ・三叉槍)・斧・防具・盾・松明を、初めて作った (craft が成功) / 初めて持った (持ち物か着けている物に出た) 判断。
+//     夕方より前 (その日の timeOfDay < dusk) に作った/持った人の数を日ごとに
+//   夜に戦った割合: 夜 (13000〜23000) に敵が見えた判断 (obs に「敵<名前>」) のうち attack (敵に) / flee / ほか。昼も比べる
+//   先の不安の推移: social.needs.ant.night (と food) の1分ごとの平均
+const PREP_KINDS = {
+  weapon: /_sword$|^bow$|^crossbow$|^trident$/, axe: /_axe$/, armor: /_(helmet|chestplate|leggings|boots)$/, shield: /^shield$/, torch: /^torch$/,
+};
+const HOSTILE_RE = /敵([a-z_]+)/g;
+const HOSTILE_NAMES = new Set(['zombie', 'zombie_villager', 'husk', 'drowned', 'skeleton', 'stray', 'creeper', 'spider', 'cave_spider', 'enderman', 'witch', 'slime', 'phantom', 'pillager', 'vindicator', 'evoker', 'ravager', 'silverfish', 'zombified_piglin', 'piglin', 'hoglin', 'zoglin', 'blaze', 'ghast', 'magma_cube', 'wither_skeleton', 'guardian', 'elder_guardian', 'vex', 'endermite', 'shulker', 'warden', 'breeze']);
+const isNightT = (t) => t != null && t >= 13000 && t < 23000;
+function prepareStats(all, { dusk = 12000 } = {}) {
+  const steps = all.filter(isStep);
+  const t0 = Math.min(...all.filter((r) => r.ts).map((r) => new Date(r.ts).getTime()));
+  const minOf = (r) => (r.ts ? Math.round(((new Date(r.ts).getTime() - t0) / 60000) * 10) / 10 : null);
+  const names = [...new Set(steps.map((r) => r._name))];
+  const bravery = {};
+  for (const r of all.filter((x) => x.event === 'start' && x.persona)) bravery[r._name] = r.persona.temperament ? r.persona.temperament.bravery ?? null : null;
+  const at = (r) => ({ loop: r.loop, day: r.day, timeOfDay: r.timeOfDay, min: minOf(r), item: r.arg || null });
+  const perAgent = {};
+  for (const nm of names) {
+    const rows = steps.filter((r) => r._name === nm);
+    const o = { bravery: bravery[nm] ?? null, crafted: {}, had: {} };
+    for (const [k, re] of Object.entries(PREP_KINDS)) {
+      const c = rows.find((r) => r.action === 'craft' && r.result.ok && re.test(String(r.arg || '')));
+      o.crafted[k] = c ? at(c) : null;
+      const h = rows.find((r) => (r.inventory || []).some((i) => re.test(i.name)) || ((r.worn || []).some((n) => re.test(n))));
+      o.had[k] = h ? { ...at(h), item: ((h.inventory || []).find((i) => re.test(i.name)) || {}).name || null } : null;
+    }
+    perAgent[nm] = o;
+  }
+  // 日ごとに、夕方より前に作った/持った人の数
+  const days = [...new Set(steps.map((r) => r.day).filter((d) => d != null))].sort((a, b) => a - b);
+  const before = (x, d) => x && x.day != null && (x.day < d || (x.day === d && x.timeOfDay != null && x.timeOfDay < dusk));
+  const beforeDusk = days.map((d) => ({ day: d + 1, ...Object.fromEntries(Object.keys(PREP_KINDS).map((k) => [k, {
+    crafted: names.filter((nm) => before(perAgent[nm].crafted[k], d)).length, had: names.filter((nm) => before(perAgent[nm].had[k], d)).length,
+  }])) }));
+  // 敵が見えた判断で何を選んだか (夜・昼)
+  const fight = (rows) => {
+    const seen = rows.filter((r) => { const m = String(r.obs || '').match(HOSTILE_RE); return m && m.some((x) => HOSTILE_NAMES.has(x.slice(1))); });
+    const atk = seen.filter((r) => r.action === 'attack' && HOSTILE_NAMES.has(String(r.arg || '').split(':')[0])).length;
+    const fl = seen.filter((r) => r.action === 'flee').length;
+    const r2 = (x) => (seen.length ? Math.round((x / seen.length) * 100) / 100 : null);
+    return { seen: seen.length, attack: atk, flee: fl, other: seen.length - atk - fl, attackRate: r2(atk), fleeRate: r2(fl) };
+  };
+  const night = steps.filter((r) => isNightT(r.timeOfDay));
+  const day = steps.filter((r) => r.timeOfDay != null && !isNightT(r.timeOfDay));
+  const fightPer = Object.fromEntries(names.map((nm) => [nm, { bravery: bravery[nm] ?? null, night: fight(night.filter((r) => r._name === nm)), day: fight(day.filter((r) => r._name === nm)) }]));
+  // 夜の死亡
+  const deaths = all.filter((r) => r.event === 'death');
+  const nightDeaths = deaths.filter((d) => isNightT(d.timeOfDay));
+  const killer = (d) => { const m = String(d.message || '').match(/(?:escape|by) ([A-Z][A-Za-z ]*?)$/); return m ? m[1].toLowerCase() : /drown/.test(d.message || '') ? 'water' : d.cause || 'unknown'; };
+  const nightByKiller = countBy(nightDeaths, killer);
+  // 先の不安の推移 (1分ごと、人ごと)
+  const antRows = steps.filter((r) => r.social && r.social.needs && r.social.needs.ant && Number.isFinite(r.social.needs.ant.night));
+  let anticipation = null;
+  if (antRows.length) {
+    anticipation = {};
+    for (const nm of names) {
+      const rows = antRows.filter((r) => r._name === nm);
+      if (!rows.length) continue;
+      const by = new Map();
+      for (const r of rows) { const m = Math.floor(minOf(r)); if (!by.has(m)) by.set(m, []); by.get(m).push(r.social.needs.ant); }
+      const avg = (xs, k) => Math.round((sum(xs.map((x) => x[k] || 0)) / xs.length) * 100) / 100;
+      anticipation[nm] = { max: { night: Math.max(...rows.map((r) => r.social.needs.ant.night)), food: Math.max(...rows.map((r) => r.social.needs.ant.food || 0)) },
+        perMinute: [...by.keys()].sort((a, b) => a - b).map((m) => ({ min: m, night: avg(by.get(m), 'night'), food: avg(by.get(m), 'food'), prep: avg(by.get(m), 'prep') })) };
+    }
+  }
+  // ゴールの選び方で、先の点が選んだ案を変えた回数
+  const sel = all.filter((r) => r.event === 'goal_path' && r.select && r.select.decidedBy);
+  const decidedBy = countBy(sel, (r) => r.select.decidedBy);
+  return {
+    perAgent, beforeDusk, fight: { night: fight(night), day: fight(day), perAgent: fightPer },
+    nightDeaths: { n: nightDeaths.length, of: deaths.length, byKiller: nightByKiller, byDay: countBy(nightDeaths, (d) => (d.day != null ? d.day + 1 : '?')) },
+    anticipation, decidedBy,
+  };
 }
 
 // 欲求とストレス (needs.js): 人ごとに、分ごとの平均・最大と、寝た回数・食べた回数。古い記録 (social.needs に stress が無い) は null
@@ -643,6 +722,7 @@ function main() {
     penActs: penActStats(loops),
     baseSite: all.some((r) => r.event === 'base_site') ? baseSiteStats(all) : null,
     needs: needsStats(all),
+    prepare: prepareStats(all),
     goalWhy: goalWhyList(all),
     others: { appended: loops.filter((r) => r.result && r.result.others && r.result.others.length).length,
       items: sum(loops.map((r) => ((r.result && r.result.others) || []).length)) },
@@ -719,6 +799,15 @@ function main() {
         }
         for (const l of out.goalWhy.slice(0, 8)) console.log(`  ${l}`);
       }
+      const pr = out.prepare;
+      console.log(`備え (夕方より前に 作った/持った 人数): ${pr.beforeDusk.map((d) => `${d.day}日目 ${Object.entries(d).filter(([k]) => k !== 'day').map(([k, v]) => `${k} ${v.crafted}/${v.had}`).join('・')}`).join(' | ')}`);
+      const firsts = Object.entries(pr.perAgent).map(([nm, v]) => [nm, Object.entries(v.crafted).filter(([, x]) => x).map(([k, x]) => `${k}=${x.item}@${x.day + 1}日目${x.timeOfDay}`)]).filter(([, l]) => l.length);
+      console.log(`  初めて作った: ${firsts.map(([nm, l]) => `${nm} ${l.join(',')}`).join(' / ') || 'なし'}`);
+      const fn = pr.fight.night; const fd = pr.fight.day;
+      console.log(`敵が見えた判断: 夜 ${fn.seen} 回 (attack ${fn.attack} = ${fn.attackRate}・flee ${fn.flee} = ${fn.fleeRate})、昼 ${fd.seen} 回 (attack ${fd.attackRate}・flee ${fd.fleeRate})、夜の死亡 ${pr.nightDeaths.n}/${pr.nightDeaths.of} ${JSON.stringify(pr.nightDeaths.byKiller)}`);
+      console.log(`  夜の attack の割合 (人ごと、勇敢さ): ${Object.entries(pr.fight.perAgent).filter(([, v]) => v.night.seen).map(([nm, v]) => `${nm}(${v.bravery}) ${v.night.attack}/${v.night.seen}`).join('・')}`);
+      if (pr.anticipation) for (const [nm, v] of Object.entries(pr.anticipation)) console.log(`  先の不安 ${nm} (最大 夜 ${v.max.night}・食べ物 ${v.max.food}): ${v.perMinute.filter((_, i) => i % 3 === 0).map((x) => `${x.min}分 ${x.night}`).join(' ')}`);
+      if (Object.keys(pr.decidedBy).length) console.log(`  ゴールの選び方で決めた点 ${JSON.stringify(pr.decidedBy)}`);
       console.log(`ほかの人が拾った・壊したことを結果に足した ${out.others.appended} 回`);
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
     }

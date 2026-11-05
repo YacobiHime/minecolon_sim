@@ -375,3 +375,46 @@ test('summarize_run: Jev の確率 p・1位÷2位の分布・選んだ位置・n
   assert.strictEqual(out.goalSelect.dropped.satisfied, 1);
   assert.strictEqual(out.goalSelect.rules.only_one, 1);
 });
+
+test('GoalPath (R1): 先のつらさ (夜・この先の食べ物) も 案 × 先の欲求 の noul を同じ呼び出しで聞き、点 = いま + 先。先の点で案が変わったら decidedBy: later', async () => {
+  const llm = mockLLM([JSON.stringify({ goals: [{ kind: 'place', target: '北の方', why: 'b', need: '好奇心' }, { kind: 'item', target: 'white_bed', count: 1, why: 'c', need: '安心' }] })]);
+  const calls = [];
+  const jev = { call: async (state, questions, stage) => { calls.push({ state, questions, stage });
+    const answers = {};
+    for (const k of Object.keys(questions)) answers[k] = { type: 'noul', noul: /p1_curiosity/.test(k) ? 0.9 : /p2_later_night/.test(k) ? 0.9 : 0.1 };
+    return { r: { ok: true, answers, ms: 100 }, inputTokens: 700 }; } };
+  const ev = [];
+  const gp = new GoalPath({ llm, jev, log: (e) => ev.push(e), cfg: { select: { enabled: true, k: 2 } } });
+  const pressing = () => [{ need: 'curiosity', distress: 0.8, ratio: 1.1, textEn: 'want to see places I have never been' }];
+  const later = () => [{ need: 'night', later: true, distress: 1.8, ratio: 1.5, text: 'あと2分ほどで夜', textEn: 'about 2 minutes until night; I have no weapon; anxious that night is coming' }];
+  await gp.update(gctx(rawWith(), { pressing, later }), 1);
+  assert.strictEqual(gp.goal.target, 'white_bed');
+  assert.strictEqual(calls.length, 1);
+  assert.deepStrictEqual(Object.keys(calls[0].questions).sort(), ['p1_curiosity', 'p1_later_night', 'p2_curiosity', 'p2_later_night']);
+  assert.match(calls[0].questions.p2_later_night.instructions, /when the night that `later.night` describes comes/);
+  for (const q of Object.values(calls[0].questions)) assert.doesNotMatch(q.instructions, en.ADVICE_EN);
+  assert.deepStrictEqual(Object.keys(calls[0].state.later), ['night']);
+  assert.doesNotMatch(JSON.stringify(calls[0].state), JA);
+  const g = ev.find((e) => e.kind === 'goal' && e.ok);
+  assert.strictEqual(g.select.decidedBy, 'later');
+  assert.strictEqual(g.select.nowChoice, 0);
+  assert.deepStrictEqual(g.select.scores.map((x) => [x.target, x.now, x.later, x.score]), [['北の方', 0.72, 0.18, 0.9], ['white_bed', 0.08, 1.62, 1.7]]);
+  assert.deepStrictEqual(g.select.later.map((x) => x.need), ['night']);
+});
+
+test('GoalPath (R1): いまつらい欲求が無くても、先のつらさがあれば Jev を呼ぶ (decidedBy: later_only)。select.later: false なら呼ばない', async () => {
+  const goals = JSON.stringify({ goals: [{ kind: 'place', target: '北の方', why: 'b', need: '好奇心' }, { kind: 'item', target: 'white_bed', count: 1, why: 'c', need: '安心' }] });
+  const later = () => [{ need: 'food', later: true, distress: 1.2, ratio: 1.3, textEn: 'I have no food with me' }];
+  const mk = (cfgLater) => { let called = 0; const ev = [];
+    const gp = new GoalPath({ llm: mockLLM([goals]), log: (e) => ev.push(e), jev: { call: async (state, q) => { called += 1; return { r: { ok: true, answers: Object.fromEntries(Object.keys(q).map((k) => [k, { noul: /p2/.test(k) ? 0.8 : 0.2 }])) } }; } }, cfg: { select: { enabled: true, k: 2, later: cfgLater } } });
+    return { gp, ev, n: () => called }; };
+  const a = mk(true);
+  await a.gp.update(gctx(rawWith(), { pressing: () => [], later }), 1);
+  assert.strictEqual(a.n(), 1);
+  assert.strictEqual(a.gp.goal.target, 'white_bed');
+  assert.strictEqual(a.ev.find((e) => e.kind === 'goal' && e.ok).select.decidedBy, 'later_only');
+  const b = mk(false);
+  await b.gp.update(gctx(rawWith(), { pressing: () => [], later }), 1);
+  assert.strictEqual(b.n(), 0);
+  assert.strictEqual(b.gp.goal.target, '北の方');
+});

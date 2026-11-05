@@ -90,6 +90,12 @@ class Social {
       if (!s.hostiles) s.hostiles = ents.filter((e) => e.kind === 'hostile').map((e) => ({ name: e.name, d: e.d }));
       if (!s.players) s.players = ents.filter((e) => e.kind === 'player').map((e) => ({ name: e.name, d: e.d, affinity: this.relations[e.name] ? this.relations[e.name].affinity : 50 }));
       if (s.invTotal == null && raw.inventory) { s.invTotal = raw.inventory.reduce((t, i) => t + i.count, 0); s.invKinds = raw.inventory.length; }
+      // 先のつらさ (anticipate.js) の材料: 持ち物・着けている物・見えている生き物とブロック・何日目か
+      if (!s.inventory && raw.inventory) s.inventory = raw.inventory;
+      if (!s.worn && raw.self.worn) s.worn = raw.self.worn;
+      if (!s.entities) s.entities = ents;
+      if (!s.blocks && raw.blocks) s.blocks = raw.blocks;
+      if (s.day == null && raw.self.day != null) s.day = raw.self.day;
     }
     s.bestAffinity = Math.max(50, ...Object.values(this.relations).map((r) => r.affinity));
     this.needsModel.update(s);

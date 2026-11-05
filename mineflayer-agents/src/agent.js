@@ -54,11 +54,22 @@ function loadKnowledge(cfg) {
 }
 
 // 知っていることを選ぶ材料: 道筋・ゴールの文の名前 (strong) と今の状況 (夜・敵・空腹・死んだばかり など。facts.json の when)
-function factsOpts(raw, memory, planText = '', extraNames = null) {
+//   ahead: 先のつらさ (anticipate.js) から { harmed (夜に死んだ/襲われた/傷を受けた), anxious (先の不安がしきい値以上), killers (夜に自分を殺したもの) }
+//     夜が近いか夜のあいだは、覚えている killers の名前も names に足す (mob_* の事実が当たる)
+function factsOpts(raw, memory, planText = '', extraNames = null, ahead = null) {
   const strong = knowledge.namesInText(planText);
   for (const n of extraNames || []) strong.add(n);
   const died = [...(memory.events || [])].reverse().find((e) => e.action === 'death');
-  return { strong, situations: knowledge.situations(raw, { tick: memory.tick, diedAt: died ? died.t : null }) };
+  const situations = knowledge.situations(raw, { tick: memory.tick, diedAt: died ? died.t : null, nightHarm: !!(ahead && ahead.harmed), anxiousNight: !!(ahead && ahead.anxious) });
+  const extra = ahead && (situations.has('night') || situations.has('night_soon')) ? (ahead.killers || []) : [];
+  return { strong, situations, extraNames: extra };
+}
+
+// 先のつらさから、知っていることを選ぶ材料 (factsOpts の ahead)
+function aheadOf(needsModel) {
+  const a = needsModel && needsModel.ant;
+  if (!a) return null;
+  return { harmed: a.harmed(), anxious: a.v.night >= a.cfg.night.threshold, killers: a.killers().filter((k) => !['unknown', 'water', 'fall', 'lava', 'hunger'].includes(k)) };
 }
 
 // Jev の英語の state に入れる数 (cfg.decider.jev.state で上書き)
@@ -104,7 +115,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
   let factsShown = [];
   if (kn && kn.facts.length) {
     const hints = new Set(cfg.goal.hints || []);
-    factsShown = knowledge.selectFacts(kn.facts, { ...factsOpts(raw, memory, prog, extra.factsNames), names: knowledge.namesInView({ raw, actions, plan: prog }), max: kn.max, exclude: hints });
+    factsShown = knowledge.selectFacts(kn.facts, { ...factsOpts(raw, memory, prog, extra.factsNames, extra.ahead || null), names: knowledge.namesInView({ raw, actions, plan: prog }), max: kn.max, exclude: hints });
   }
   const goal = help.hints ? { ...cfg.goal, hints: [...(cfg.goal.hints || []), ...factsShown.map((f) => f.text)] } : { ...cfg.goal, hints: [] };
   // Jev 用の英語 (同じ raw・記憶・事実から。jev の stateLang: 'en' のときに使う)。件数は cfg.decider.jev.state で絞る
@@ -586,7 +597,9 @@ class Agent {
         const m = this.lastDeathMsg && Date.now() - this.lastDeathMsg.t < 5000 ? this.lastDeathMsg : null;
         const d = { ...at, cause: m ? m.key : 'unknown', message: m ? m.text : null };
         this.deaths.push(d);
-        this.recorder.write({ event: 'death', ...d });
+        // 先のつらさ: 夜に死んだら、何に殺されたかと一緒に覚える (anticipate.js)
+        const counted = this.social.needsModel.ant.noteDeath({ timeOfDay: d.timeOfDay, day: d.day, cause: d.cause, message: d.message });
+        this.recorder.write({ event: 'death', ...d, night: counted });
         if (this.reflect) this.reflect.noteEvent({ kind: 'death', tick: d.loop, day: d.day, timeOfDay: d.timeOfDay, cause: d.cause });
         this.lastDeathMsg = null;
       }, 1500);
@@ -807,6 +820,9 @@ class Agent {
     if (bot && Number.isFinite(bot.food)) s.food = bot.food;
     if (bot && Number.isFinite(bot.foodSaturation)) s.saturation = bot.foodSaturation;
     s.atHome = homes.some((q) => dist3(pos, q) <= hr) || (this.base ? dist3(pos, this.base) <= hr : false);
+    // 先のつらさ (anticipate.js) の備え: 囲まれた寝床/拠点を知っている (拠点を最後に見たとき囲まれていた) ・ベッドを知っている
+    s.shelterKnown = !!(this.baseSeen && this.baseSeen.site && this.baseSeen.site.enclosed);
+    s.bedKnown = this.memory.places.some((q) => /_bed$/.test(q.kind));
     // 知らない場所: 初めて入ったマスか、入ったのが1回だけで来たばかり
     s.unfamiliar = !cell || (cell.n <= 1 && this.memory.tick - cell.first < 10);
     return s;
@@ -892,11 +908,12 @@ class Agent {
     }
     const socialText = this.social.words();
     const worst = this.social.worstNeed();
+    const ahead = aheadOf(this.social.needsModel);
     const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)));
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
     const socialEn = this.social.words({ lang: 'en' });
     const bview = this.prepareBoard(raw);
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText,
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
       boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
@@ -922,7 +939,7 @@ class Agent {
     if (this.goalPlan && !this.goalPath) {
       const kn = this.help.hints ? this.knowledge : null;
       const facts = (text) => (kn && kn.facts.length
-        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text), names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
+        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text, null, ahead), names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
       planUpdate = await this.goalPlan.update({
         persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, actions: ctx.actions, memText: ctx.memText, socialText, troubles,
         worst, peopleText: this.peopleText(raw), needNow: (k) => this.social.needsModel.effective()[k],
@@ -945,7 +962,7 @@ class Agent {
     if (this.goalPath) {
       const kn = this.help.hints ? this.knowledge : null;
       const facts = (text) => (kn && kn.facts.length
-        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text), names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
+        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text, null, ahead), names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
       const cellSize = this.memory.limits.exploreCell;
       planUpdate = await this.goalPath.update({
         persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, allFacts: kn ? kn.facts : [], memText: ctx.memText, socialText, troubles,
@@ -958,6 +975,7 @@ class Agent {
         containers: (this.memory.extra && this.memory.extra.containers) || {}, home: this.homeSpot,
         policy: this.reflect ? this.reflect.policyText() : null,
         pressing: (o) => this.social.needsModel.pressing(o),
+        later: (o) => this.social.needsModel.later(o), // 先のつらさ (anticipate.js)
         board: bview ? bview.goal : null,
       }, tick, { troubles });
       this.lastGave = [];

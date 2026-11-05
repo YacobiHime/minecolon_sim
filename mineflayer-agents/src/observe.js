@@ -154,6 +154,7 @@ function collectRaw(bot, opts = {}) {
       held: bot.heldItem ? bot.heldItem.name : null,
       vehicle: bot.vehicle ? (bot.vehicle.name || 'vehicle') : null,
       level: bot.experience && Number.isFinite(bot.experience.level) ? bot.experience.level : null,
+      worn: wornItems(bot), // 着けている防具ともう片方の手の物 (inventory.items() には入らない)
     },
     inventory: summarizeInventory(items),
     blocks,
@@ -162,6 +163,12 @@ function collectRaw(bot, opts = {}) {
     craft: opts.craft || { now: [], withTable: [] },
     tableNearby: table ? table.nearest : null,
   };
+}
+
+// 防具の枠 (5〜8) ともう片方の手 (45) の物の名前
+function wornItems(bot) {
+  const slots = (bot && bot.inventory && bot.inventory.slots) || [];
+  return [5, 6, 7, 8, 45].map((i) => slots[i]).filter((it) => it && it.name).map((it) => it.name);
 }
 
 function summarizeInventory(items) {

@@ -10,6 +10,8 @@
 // ストレス 0〜1: しきい値を超えた欲求があるとたまり、長く満たされないほど急に大きくなる (非線形)。満たされれば少しずつ抜ける。
 // 数値はここで持ち、2B と Jev には words() の言葉だけを渡す。係数はすべて cfg.needs (全員) と persona.needs (人ごと) で変えられる。
 
+const { Anticipation, ANTICIPATE_DEFAULTS } = require('./anticipate');
+
 const BASIC = ['hunger', 'sleep', 'safety'];
 const HIGHER = ['connection', 'recognition', 'curiosity', 'greed', 'care'];
 const NEEDS = [...BASIC, ...HIGHER];
@@ -66,6 +68,8 @@ const NEEDS_DEFAULTS = {
     from: 0.15, gain: 1.2,
   },
   maxDt: 6000, defaultDt: 200,
+  // 予期される欲求 (先のつらさ: 先の不安・先の空腹)。式と係数は anticipate.js
+  anticipate: ANTICIPATE_DEFAULTS,
 };
 
 function clamp(v, lo = 0, hi = 1) { return Math.max(lo, Math.min(hi, v)); }
@@ -151,6 +155,7 @@ class Needs {
     this.reasons = []; // 直近の不安の理由 [{ key, w, text }]
     this.comfort = []; // 直近の安心の理由
     this.counts = { ate: 0, slept: 0, rested: 0, deaths: 0, hurt: 0 };
+    this.ant = new Anticipation({ cfg: this.cfg.anticipate, temperament: this.temperament });
   }
 
   static fromJSON(d, opts = {}) {
@@ -158,13 +163,14 @@ class Needs {
     if (d && isObj(d) && isObj(d.v)) {
       for (const k of ['v', 'unmet', 'shock', 'counts']) if (isObj(d[k])) Object.assign(n[k], d[k]);
       for (const k of ['stress', 'lastTime', 'lastAte', 'missedNights', 'sleptThisNight', 'wasNight', 'food', 'saturation']) if (d[k] !== undefined) n[k] = d[k];
+      if (isObj(d.ant)) n.ant = Anticipation.fromJSON(d.ant, { cfg: n.cfg.anticipate, temperament: n.temperament });
     }
     return n;
   }
 
   toJSON() {
     return { v: this.v, stress: this.stress, unmet: this.unmet, shock: this.shock, counts: this.counts, lastTime: this.lastTime, lastAte: this.lastAte,
-      missedNights: this.missedNights, sleptThisNight: this.sleptThisNight, wasNight: this.wasNight, food: this.food, saturation: this.saturation };
+      missedNights: this.missedNights, sleptThisNight: this.sleptThisNight, wasNight: this.wasNight, food: this.food, saturation: this.saturation, ant: this.ant.toJSON() };
   }
 
   threshold(k) { return this.cfg[k].threshold; }
@@ -216,8 +222,9 @@ class Needs {
     } else v.hunger = clamp(v.hunger + rateOf(c.hunger) * dt);
     v.sleep = clamp(v.sleep + rateOf(c.sleep) * (night ? c.sleep.nightMult : 1) * dt);
     // ダメージ
+    let hurtNow = 0;
     if (Number.isFinite(s.health)) {
-      if (this.lastHealth != null && s.health < this.lastHealth) { this.shock.hurt = clamp(this.shock.hurt + (this.lastHealth - s.health) * c.safety.hurtPerHp); this.counts.hurt += 1; }
+      if (this.lastHealth != null && s.health < this.lastHealth) { hurtNow = this.lastHealth - s.health; this.shock.hurt = clamp(this.shock.hurt + (this.lastHealth - s.health) * c.safety.hurtPerHp); this.counts.hurt += 1; }
       this.lastHealth = s.health;
     }
     this.shock.death = halve(this.shock.death, dt, c.safety.deathHalfLife);
@@ -295,6 +302,8 @@ class Needs {
     this.stress = clamp(anyUnmet ? this.stress + dS : this.stress - st.recover * (dt / 1000));
     for (const k of NEEDS) v[k] = r3(v[k]);
     this.stress = r3(this.stress);
+    // 先のつらさ (anticipate.js)
+    this.ant.update({ ...s, timeOfDay: tod }, { hurt: hurtNow, hunger: v.hunger });
     return { dt, dS };
   }
 
@@ -319,7 +328,7 @@ class Needs {
     //  (満腹度で決めているときは足さない。マイクラでは寝て飛ばした夜に満腹度は減らない)
     if (nightSkipped && !this.foodBased()) this.v.hunger = r3(clamp(this.v.hunger + c.bedHunger));
     this.sleptThisNight = true;
-    if (nightSkipped) { this.missedNights = 0; this.wasNight = false; }
+    if (nightSkipped) { this.missedNights = 0; this.wasNight = false; this.ant.closeNight(); }
     this.counts.slept += 1;
   }
 
@@ -392,6 +401,7 @@ class Needs {
     const sl = v.sleep;
     out.push(sl < 0.3 ? L('眠くない', 'not sleepy') : sl < 0.55 ? L('少し眠い', 'a little sleepy') : sl < 0.8 ? L('眠い', 'sleepy') : L('眠くてたまらない', 'desperately sleepy'));
     out.push(this.safetyWords({ lang }));
+    out.push(...this.ant.words({ lang })); // 先のつらさ (夜・この先の食べ物)
     const e = this.effective();
     const hi = [
       ['connection', ['誰かと一緒に何かしたい', 'ひとりぼっちで寂しい'], ['want to do something together with someone', 'lonely, all by myself']],
@@ -470,8 +480,11 @@ class Needs {
     return t[k];
   }
 
-  // 数値 (記録用)
-  values() { const e = this.effective(); return { ...this.v, eff: Object.fromEntries(NEEDS.map((k) => [k, r3(e[k])])), stress: this.stress, missedNights: this.missedNights }; }
+  // 先のつらさの上位 (ゴールの選び方)。[{ need: 'night'|'food', later: true, distress, ratio, text, textEn }]
+  later(o = {}) { return this.ant.later(o); }
+
+  // 数値 (記録用)。ant: 先のつらさ (night・food と、夜までの tick・見込み・備え・経験・食べ物の回数)
+  values() { const e = this.effective(); return { ...this.v, eff: Object.fromEntries(NEEDS.map((k) => [k, r3(e[k])])), stress: this.stress, missedNights: this.missedNights, ant: this.ant.values() }; }
 }
 
 // 人ごとの設定: cfg.needs (全員) に persona.needs (人ごと) を重ねる
