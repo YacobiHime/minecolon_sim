@@ -1133,6 +1133,7 @@ class Agent {
       talk: dec.talk || null,
       board: bview ? { shown: this.boardView.shown.map((m) => `${m.from}:${m.why}`), open: Object.values(this.boardView.openMap), votes: votes.map((v) => `${v.id}:${v.yes ? 'yes' : 'no'}`) } : null,
       inventory: inv,
+      worn: raw.self.worn && raw.self.worn.length ? raw.self.worn : null, // 着けている防具・もう片方の手 (行動の前。summarize_run の備え)
       foodCount: raw.foodCount,
       hutSeen: raw.hut,
       hutTrue: this.trueHut || null,
