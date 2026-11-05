@@ -146,7 +146,9 @@ function invMap(inventory) {
 }
 
 // world = { inventory: [{name,count}], visibleBlocks: [名前], visibleMobs: [名前], knownBlocks: [覚えている場所の種類],
-//           stations: { crafting_table: bool, furnace: bool } (見えている・覚えている), excludeBlocks: RegExp }
+//           stations: { crafting_table: bool, furnace: bool } (見えている・覚えている), excludeBlocks: RegExp,
+//           sharedChests: [{ id, items: [{name,count}] }] (共有のチェスト。board.js。中身は全員に見えている) }
+// 共有のチェストにある物は、作る・掘るより先にそこから出す (手順 how: 'chest'、from: チェストの id)。足りない分だけほかの入手元から
 class Planner {
   constructor(world = {}, opts = {}) {
     this.ix = opts.index || index(opts.version || DEFAULT_VERSION);
@@ -156,6 +158,7 @@ class Planner {
     this.known = new Set(world.knownBlocks || []);
     this.stations0 = { crafting_table: false, furnace: false, ...(world.stations || {}) };
     this.exclude = world.excludeBlocks || GROUND;
+    this.chests0 = (world.sharedChests || []).map((c) => ({ id: c.id, items: Object.fromEntries((c.items || []).filter((i) => i.count > 0).map((i) => [i.name, i.count])) }));
     this.reach = null; this.costCache = null; this.dirty = true;
   }
 
@@ -167,6 +170,15 @@ class Planner {
   hasTool(t) { return this.sim ? this.sim.tools.has(t) : (this.inv0[t] || 0) > 0; }
 
   curStations() { return this.sim ? this.sim.stations : this.stations0; }
+
+  curChests() { return this.sim ? this.sim.chests : this.chests0; }
+
+  // 共有のチェストにある item の数 (いちばん多いチェスト)
+  chestFor(item) {
+    let best = null;
+    for (const c of this.curChests()) { const n = c.items[item] || 0; if (n > 0 && (!best || n > best.n)) best = { c, n }; }
+    return best;
+  }
 
   // 自然にある (レシピの無い) ブロックなら、まだ見ていなくても探せばあるとみなす
   natural(block) { return !this.ix.recipes.has(block) || CROP_BLOCKS.test(block); }
@@ -191,6 +203,7 @@ class Planner {
   // 1つの物の、今の手間の表 (costs) から見たいちばん小さいやり方
   bestOption(item, costs) {
     if ((this.curInv()[item] || 0) > 0) return { c: 0, how: 'have' };
+    if (this.chestFor(item)) return { c: COST.known, how: 'chest' };
     const cOf = (n) => (costs.has(n) ? costs.get(n).c : Infinity);
     let best = { c: Infinity };
     const consider = (o) => { if (o.c < best.c) best = o; };
@@ -274,6 +287,13 @@ class Planner {
     const have = Math.min(sim.inv[item] || 0, n);
     if (have) { sim.inv[item] -= have; n -= have; this.dirty = true; }
     if (n <= 0) return true;
+    // 共有のチェストにあれば、まずそこから出す (足りない分は下でほかの入手元から)
+    for (let ch = this.chestFor(item); ch && n > 0; ch = this.chestFor(item)) {
+      const k = Math.min(n, ch.n);
+      ch.c.items[item] -= k; n -= k; this.dirty = true;
+      sim.out.push({ item, count: k, how: 'chest', from: ch.c.id, where: 'shared' });
+    }
+    if (n <= 0) return true;
     if (stack.includes(item) || stack.length > MAX_DEPTH * 2) return false;
     const st = [...stack, item];
     const best = this.cost(item);
@@ -317,10 +337,15 @@ class Planner {
     return false;
   }
 
+  newSim() {
+    return { inv: { ...this.inv0 }, out: [], stations: { ...this.stations0 }, tools: new Set(Object.keys(this.inv0).filter((k) => this.inv0[k] > 0)),
+      chests: this.chests0.map((c) => ({ id: c.id, items: { ...c.items } })) };
+  }
+
   plan(target, count = 1) {
     const item = this.resolve(target);
     if (!item) return { ok: false, target, reason: 'unknown', text: `${target} という物は知らない` };
-    const sim = { inv: { ...this.inv0 }, out: [], stations: { ...this.stations0 }, tools: new Set(Object.keys(this.inv0).filter((k) => this.inv0[k] > 0)) };
+    const sim = this.newSim();
     const n = Math.max(1, Math.floor(count) || 1);
     this.sim = sim; this.dirty = true;
     let ok;
@@ -343,7 +368,7 @@ class Planner {
       if (seen.has(it) || depth > MAX_DEPTH) return;
       seen.add(it);
       const o = costs.get(it) || this.bestOption(it, costs);
-      if (!o || o.how === 'have' || !Number.isFinite(o.c)) return;
+      if (!o || o.how === 'have' || o.how === 'chest' || !Number.isFinite(o.c)) return;
       if (o.how === 'collect' || o.how === 'kill') {
         leaves.push({ item: it, how: o.how, from: o.from, where: o.where, expect: o.expect || 1, depth });
         if (o.tool) { if (!tools.has(o.tool)) tools.set(o.tool, depth); walk(o.tool, depth + 1); }
@@ -368,7 +393,7 @@ class Planner {
 
   // いくつかの物をまとめて手に入れる道筋 (状態のゴール用。states.js)。list = [{ item, count }]。持ち物・作った余りは前の物と分け合う
   planMany(list) {
-    const sim = { inv: { ...this.inv0 }, out: [], stations: { ...this.stations0 }, tools: new Set(Object.keys(this.inv0).filter((k) => this.inv0[k] > 0)) };
+    const sim = this.newSim();
     this.sim = sim; this.dirty = true;
     let ok = true; let missing = null;
     try {
@@ -442,6 +467,7 @@ const WHERE_JA = { visible: '見える', known: '前に見た', unseen: 'まだ�
 // 1つの手順の短い文: "oak_log 2 ← 掘る(見える)"、"oak_planks 4 ← oak_log 1"、"white_bed 1 ← white_wool 3 + oak_planks 3 (crafting_table)"
 function stepText(s) {
   const n = `${s.item} ${s.count}`;
+  if (s.how === 'chest') return `${n} ← 共有のチェスト ${s.from}`;
   if (s.how === 'collect') return `${n} ← ${s.from === s.item ? (CROP_BLOCKS.test(s.from) ? '取る' : '掘る') : s.from}(${WHERE_JA[s.where] || ''}${s.tool ? `・${s.tool}` : ''})`;
   if (s.how === 'kill') return `${n} ← ${s.from}(${WHERE_JA[s.where] || ''})`;
   if (s.how === 'craft') return `${n} ← ${Object.entries(s.ings).map(([k, v]) => `${k} ${v}`).join(' + ')}${s.station ? ` (${s.station})` : ''}`;
@@ -452,16 +478,19 @@ function stepText(s) {
 function nextText(s) {
   if (!s) return '';
   if (s.how === 'craft') return `${s.item} を作る`;
+  if (s.how === 'chest') return `共有のチェスト ${s.from} から ${s.item} を出す`;
   if (s.how === 'smelt') return `${s.from} を焼いて ${s.item} にする`;
   if ((s.how === 'kill' || s.how === 'collect') && s.from && s.from !== s.item) return `${s.from} から ${s.item} を手に入れる`;
   return `${s.item} を手に入れる`;
 }
 
 // 英語 (Jev 用。同じ手順から)
+function chestEn(id) { const m = String(id).match(/^(.+)-(\d+)$/); return m ? `${m[1]}'s chest ${m[2]} (shared)` : `${id} (shared chest)`; }
 const WHERE_EN = { visible: 'visible', known: 'seen before', unseen: 'not seen yet' };
 function stepTextEn(s) {
   const n = `${s.item} x${s.count}`;
   const w = [WHERE_EN[s.where], s.tool ? `with ${s.tool}` : ''].filter(Boolean).join(', ');
+  if (s.how === 'chest') return `${n} <- take from ${chestEn(s.from)}`;
   if (s.how === 'collect') return `${n} <- ${s.from === s.item ? (CROP_BLOCKS.test(s.from) ? 'harvest' : 'dig') : `from ${s.from}`}${w ? ` (${w})` : ''}`;
   if (s.how === 'kill') return `${n} <- kill ${s.from}${w ? ` (${w})` : ''}`;
   if (s.how === 'craft') return `${n} <- ${Object.entries(s.ings).map(([k, v]) => `${k} x${v}`).join(' + ')}${s.station ? ` (at ${s.station})` : ''}`;
@@ -471,6 +500,7 @@ function stepTextEn(s) {
 function nextTextEn(s) {
   if (!s) return '';
   if (s.how === 'craft') return `make ${s.item}`;
+  if (s.how === 'chest') return `take ${s.item} out of ${chestEn(s.from)}`;
   if (s.how === 'smelt') return `smelt ${s.from} into ${s.item}`;
   if (s.how === 'kill' && s.from) return `get ${s.item} by killing ${s.from}`;
   if (s.how === 'collect' && s.from && s.from !== s.item) return `get ${s.item} from ${s.from}`;

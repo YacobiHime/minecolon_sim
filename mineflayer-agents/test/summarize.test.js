@@ -130,3 +130,36 @@ test('event 付きの行 (answer_use など、loop と action を持つ) と res
   assert.match(txt, /go_to\(人\) 1 回/);
   assert.match(txt, /16m 以内の組の数/);
 });
+
+test('全体チャット・提案・取り決めと、近くの声/全体の回数・会話になったか', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-board-'));
+  const t = (s) => `2026-11-05T01:00:${String(s).padStart(2, '0')}.000Z`;
+  const step = (loop, s, pos, extra = {}) => ({ ts: t(s), loop, action: 'look_around', arg: '', result: { ok: true, msg: 'ok' }, decideMs: 300, parseOk: true, valid: true, inventory: [], foodCount: 0, pos, ...extra });
+  fs.writeFileSync(path.join(dir, 'Hanako-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Hanako' }, decider: 'jev', day: 0 }),
+    L(step(1, 1, { x: 0, y: 64, z: 0 })),
+    L({ ts: t(2), event: 'talk', say: 'こんにちは' }),
+    L({ ts: t(3), event: 'board', kind: 'broadcast', say: '北に羊がいるよ' }),
+    L({ ts: t(4), event: 'board', kind: 'propose', ok: true, id: 'Hanako#3', n: 2, need: 1, spec: { type: 'text' }, text: '夜は集まろう' }),
+    L({ ts: t(9), event: 'board', kind: 'agreed', id: 'Hanako#3', by: 'Hanako', text: '夜は集まろう', spec: { type: 'text' }, yes: ['Hanako', 'Taro'], need: 1 }),
+  ].join('\n'));
+  fs.writeFileSync(path.join(dir, 'Taro-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Taro' }, decider: 'jev', day: 0 }),
+    L(step(1, 1, { x: 5, y: 64, z: 0 })),
+    L({ ts: t(5), event: 'talk', say: 'やあ' }),
+    L({ ts: t(6), event: 'board', kind: 'seen', from: 'Hanako', to: 'Taro', text: '北に羊がいるよ', why: 'relation' }),
+    L({ ts: t(7), event: 'board', kind: 'vote', id: 'Hanako#3', by: 'Hanako', yes: true, p: 0.8, relation: '知り合い' }),
+    L({ ts: t(9), event: 'board', kind: 'agreed', id: 'Hanako#3', by: 'Hanako', text: '夜は集まろう', spec: { type: 'text' }, yes: ['Hanako', 'Taro'], need: 1 }),
+  ].join('\n'));
+  const out = execFileSync('node', [TOOL, dir, '--text'], { encoding: 'utf8' });
+  const j = JSON.parse(out.slice(0, out.indexOf('\n--- 週次報告用 ---')));
+  assert.strictEqual(j.voices.near, 2);
+  assert.strictEqual(j.voices.global, 2);
+  assert.strictEqual(j.voices.globalShare, 0.5);
+  assert.strictEqual(j.voices.nearReplied, 1, 'Hanako の「こんにちは」に近くの Taro が返した');
+  assert.deepStrictEqual(j.voices.perAgent.Hanako, { near: 1, global: 2, nearWithListener: 1, nearReplied: 1, globalShare: 0.67 });
+  assert.strictEqual(j.board.agreements.length, 1, '全員が記録した成立は1つにまとめる');
+  assert.deepStrictEqual(j.board.seen.pairs, [['Hanako→Taro', 1]]);
+  assert.match(out, /近くの声 2 回・全体チャット 2 回/);
+  assert.match(out, /提案 Hanako#3「夜は集まろう」/);
+});

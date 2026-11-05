@@ -133,6 +133,10 @@ function buildStateEn(ctx, opts = {}) {
   st.last_result = e.lastResult || 'none';
   st.heard_now = ctx.raw && ctx.raw.heard && ctx.raw.heard.length ? ctx.raw.heard.map((h) => `${h.from}「${h.text}」`).join(' ') : 'none';
   if (ctx.troubles && ctx.troubles.length) st.troubled = troubledTextEn(ctx.troubles);
+  // 全体チャット・取り決め・共同の目標・共有のチェスト・賛成するかを聞く提案 (board.js。agent が ctx.en.board に入れる)
+  const b = e.board;
+  if (b && b.state) for (const k of ['board', 'agreements', 'projects', 'shared_chests', 'broken_agreements']) if (b.state[k] && b.state[k].length) st[k] = b.state[k];
+  if (b && b.open && Object.keys(b.open).length) st.open_proposals = b.open;
   return st;
 }
 
@@ -225,6 +229,7 @@ function buildQuestionsEn(ctx, opts) {
         + (ctx.policy ? '`policy` is what `you` decided to keep doing when looking back on your days. ' : '')
         : ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
         : ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : ctx.progress ? '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ' : '')
+      + (boardKeysText(ctx))
       + 'Check `inventory`, `visible`, `nearby` and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'
       + (ctx.askHint === false ? '' : ' If `troubled` is present and an ask option exists, asking a nearby player is a good choice.'),
     criteria: opts.criteria,
@@ -250,7 +255,29 @@ function buildQuestionsEn(ctx, opts) {
   speakers.forEach((name, i) => {
     q[`rel_${i}`] = { type: 'score', instructions: `How did what ${name} said in \`heard_now\` change how \`you\` feel about ${name}?`, criteria: REL_LEVELS };
   });
-  return { questions: q, speakers };
+  // 提案に賛成するか (board.js)。open_proposals.q1 … ごとに1つ
+  const b = ctx.en && ctx.en.board;
+  const agreeKeys = b && b.open ? Object.keys(b.open) : [];
+  for (const k of agreeKeys) q[`agree_${k}`] = { type: 'noul', instructions: `Does \`you\` agree with \`open_proposals.${k}\`?` };
+  // 自分の提案した取り決めを破った人 (broken_agreements) への気持ち。既存の印象の質問と同じ段階
+  const breakers = (b && b.breakers ? b.breakers : []).filter((n) => !speakers.includes(n)).slice(0, 2);
+  breakers.forEach((name, i) => {
+    q[`relb_${i}`] = { type: 'score', instructions: `How did what ${name} did in \`broken_agreements\` change how \`you\` feel about ${name}?`, criteria: REL_LEVELS };
+  });
+  return { questions: q, speakers, agreeKeys, breakers };
+}
+
+// state にある board の欄の説明 (何が入っているかだけ)
+function boardKeysText(ctx) {
+  const b = ctx.en && ctx.en.board;
+  if (!b) return '';
+  const st = b.state || {};
+  const parts = [];
+  if (st.board) parts.push('`board` is what people said to everyone (it reaches every person, near or far)');
+  if (st.agreements || st.projects) parts.push('`agreements` and `projects` are proposals that enough people agreed to');
+  if (st.shared_chests) parts.push('`shared_chests` are chests whose contents everyone can see');
+  if (b.open && Object.keys(b.open).length) parts.push('`open_proposals` are proposals made to everyone that `you` have not answered yet');
+  return parts.length ? `${parts.join('; ')}. ` : '';
 }
 
 function buildQuestions(ctx, opts) {
@@ -330,6 +357,7 @@ function pathMatch(s, action, arg) {
     if (s.how === 'collect' && action === 'use_on' && fam(a.split('>')[1], src)) return 'step';
     if (s.how === 'kill' && (action === 'attack' || action === 'hunt') && fam(a, src)) return 'step';
     if (s.how === 'craft' && action === 'craft' && fam(a, s.item)) return 'step';
+    if (s.how === 'chest' && action === 'chest_take' && fam(a, s.item)) return 'step'; // 共有のチェストから出す (board.js)
     if (s.how === 'smelt' && ((action === 'smelt' && fam(a, s.from)) || action === 'furnace_take')) return 'step';
     if ((action === 'go_to' || action === 'pillar') && (fam(a, src) || (s.station && a === s.station))) return 'approach';
     return 'other';
@@ -383,7 +411,7 @@ class JevDecider {
     const lang = this.lang;
     const { criteria, map, table, groups, order } = actionOptions(ctx.actions, { twoStage: this.twoStage.enabled ? this.twoStage : false, lang, order: ctx.order || null });
     const state = buildState(ctx, { table, lang });
-    const { questions, speakers } = buildQuestions(ctx, { criteria, maxRelations: this.maxRelations, hasTable: true, lang });
+    const { questions, speakers, agreeKeys = [], breakers = [] } = buildQuestions(ctx, { criteria, maxRelations: this.maxRelations, hasTable: true, lang });
     const c1 = await this.call(state, questions, 1);
     const r = c1.r;
     const jev = {
@@ -424,6 +452,8 @@ class JevDecider {
     jev.stepDoneP = a.step_done ? a.step_done.noul : null;
     jev.remember = a.remember ? a.remember.score : null;
     jev.relations = Object.fromEntries(speakers.map((n, i) => [n, a[`rel_${i}`] ? a[`rel_${i}`].score : null]));
+    breakers.forEach((n, i) => { if (a[`relb_${i}`]) jev.relations[n] = a[`relb_${i}`].score; });
+    if (agreeKeys.length) jev.agree = Object.fromEntries(agreeKeys.map((k) => [k, a[`agree_${k}`] && Number.isFinite(a[`agree_${k}`].noul) ? a[`agree_${k}`].noul : null]));
     base.rawOutput = JSON.stringify(a.next_action ? { choice: a.next_action.choice, confidence: a.next_action.confidence } : null);
     let pick = chosen && map[chosen];
     if (pick && pick.group) {

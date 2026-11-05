@@ -106,7 +106,11 @@ test('memory.toStateEn: 件数を絞り、やったことは英語 (e.en か msg
   assert.strictEqual(s.recent.length, 3);
   assert.strictEqual(s.recent[2], 'eat bread: succeeded. ate bread');
   assert.strictEqual(s.recent[0], 'collect oak_log: succeeded. dug 3 oak_log, picked up 3');
-  assert.strictEqual(s.heard, 'Ken「北に羊がいたよ」');
+  assert.strictEqual(s.heard, 'Ken said「北に羊がいたよ」 (just now)');
+  // 全体チャットで聞いたもの・時刻の言葉つき (Taro は〜と言っていた (いつ))
+  m.noteHeard('Taro', '耕地を作っている', 0.3, { global: true, at: '朝' });
+  m.tick += 3;
+  assert.match(m.toStateEn({ x: 0, y: 64, z: 0 }).heard, /Taro said to everyone「耕地を作っている」 \(a few turns ago, morning\)/);
 });
 
 // ---- Jev の英語の state ----

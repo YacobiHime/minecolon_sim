@@ -514,6 +514,22 @@
     ],
     "maxItems": 4
   },
+  "board": {
+    "_comment": "全体チャット・提案・取り決め・共有のチェスト・共同の目標 (src/board.js)。サーバーの全体チャットに【…】の印を付けた行で全員に届く (近くの声とは別)。broadcast / propose / share_chest は Jev の行動の候補 (act.enable)。全体チャットは Jev の state.board に maxBoard 件まで (優先: 自分の名前 > 自分のゴール・道筋の物の名前 > 関係の強い人。keepTicks 判断のあいだ)。提案は賛成 (提案者を含む) が agreeRatio × 提案の時点の生きている人数 を超えたら成立。賛成は Jev の noul ≥ voteThreshold。受付は proposalTtlMs。共有のチェストは maxShared 個まで、中身は maxChestItems 種類まで見せる。ruleAdd: 取り決めのゴール候補で入れる数。proposeGap: 提案してから次に提案できるまでの判断の数",
+    "enabled": true,
+    "maxBoard": 4,
+    "keepTicks": 8,
+    "agreeRatio": 0.3334,
+    "voteThreshold": 0.5,
+    "proposalTtlMs": 600000,
+    "maxOpen": 2,
+    "maxShared": 4,
+    "maxChestItems": 6,
+    "maxAgreements": 4,
+    "maxProjects": 3,
+    "ruleAdd": 4,
+    "proposeGap": 5
+  },
   "selfGoal": {
     "_comment_off": "help.selfGoal は false (goalPlan に置き換えた)。every: 0 で一定ループごとの書き直しをしない",
     "_comment": "最初・済んだ (Jev の goal_done ≥ doneThreshold)・困りごとが新しく出た・every ループごとに 2B で目標と段取りを書き直す",
@@ -621,7 +637,10 @@
       "give",
       "call",
       "lure",
-      "enclose"
+      "enclose",
+      "broadcast",
+      "propose",
+      "share_chest"
     ],
     "disabled": [
       "hunt",

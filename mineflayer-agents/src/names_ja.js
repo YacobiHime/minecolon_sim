@@ -38,4 +38,4 @@ function jaName(name) {
   return null;
 }
 
-module.exports = { jaName, WOOD, COLOR };
+module.exports = { jaName, WOOD, COLOR, SUFFIX };

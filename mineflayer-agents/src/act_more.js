@@ -408,8 +408,10 @@ function moreHandlers(lib) {
         w.close();
         const put = n - lib.invCount(bot, ch.item);
         if (ctx.memory) ctx.memory.notePlace(b.name, b.position, { imp: 0.8 });
-        if (!put) return { ok: false, msg: `${ch.item}を入れられなかった${err ? ': ' + err : ''}` };
-        return { ok: true, msg: `${b.name}に${ch.item}を${put}個入れた${err ? ` (${err})` : ''} (中身: ${items.map((i) => `${i.name}x${i.count}`).join(', ')})` };
+        const at = { x: b.position.x, y: b.position.y, z: b.position.z };
+        if (!put) return { ok: false, msg: `${ch.item}を入れられなかった${err ? ': ' + err : ''}`, chest: { pos: at, items } };
+        // chest: 入れ物の場所と中身 (agent が共有のチェストの中身を全員に知らせる・取り決めを数えるのに使う。board.js)
+        return { ok: true, msg: `${b.name}に${ch.item}を${put}個入れた${err ? ` (${err})` : ''} (中身: ${items.map((i) => `${i.name}x${i.count}`).join(', ')})`, chest: { pos: at, items, item: ch.item, n: put } };
       } catch (e) {
         try { if (w) w.close(); } catch (_) { /* ignore */ }
         return { ok: false, msg: `${b.name}を開けなかった: ${errText(e)}` };
@@ -444,9 +446,10 @@ function moreHandlers(lib) {
         }
         if (ctx.memory) ctx.memory.notePlace(b.name, b.position, { imp: 0.8 });
         const content = items.length ? items.map((i) => `${i.name}x${i.count}`).join(', ') : '空';
-        if (ch.look) return { ok: true, msg: `${b.name}を開けて見た (中身: ${content})` };
-        if (!took) return { ok: false, msg: `${ch.item}を取り出せなかった${err ? ': ' + err : ''} (中身: ${content})` };
-        return { ok: true, msg: `${b.name}から${ch.item}を${took}個取り出した${err ? ` (${err})` : ''} (残り: ${content})` };
+        const at = { x: b.position.x, y: b.position.y, z: b.position.z };
+        if (ch.look) return { ok: true, msg: `${b.name}を開けて見た (中身: ${content})`, chest: { pos: at, items } };
+        if (!took) return { ok: false, msg: `${ch.item}を取り出せなかった${err ? ': ' + err : ''} (中身: ${content})`, chest: { pos: at, items } };
+        return { ok: true, msg: `${b.name}から${ch.item}を${took}個取り出した${err ? ` (${err})` : ''} (残り: ${content})`, chest: { pos: at, items, item: ch.item, n: -took } };
       } catch (e) {
         try { if (w) w.close(); } catch (_) { /* ignore */ }
         return { ok: false, msg: `${b.name}を開けなかった: ${errText(e)}` };

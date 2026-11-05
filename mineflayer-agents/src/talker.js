@@ -46,12 +46,47 @@ class Talker {
     ];
   }
 
-  async run(kind, messages) {
+  // 全員に届く声 (broadcast)。ctx は talk と同じ + boardText (全体に届いた話・取り決め・共同の目標・共有のチェスト)
+  broadcastMessages(ctx) {
+    return [
+      { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
+        '全員に届く声で話す (近くにいない人にも届く)。短い日本語(40字以内)で、自分の気持ちと関係に合った言い方にする。JSON {"say":"..."} だけを出力する。'].join('\n') },
+      { role: 'user', content: [...this.contextLines(ctx), '全員に言うことを JSON で。'].filter(Boolean).join('\n') },
+    ];
+  }
+
+  // 提案 (propose)。ctx.items: 物の名前の候補、ctx.chests: 共有のチェストの id、ctx.hereChest: 近くに共有でないチェストがあるか
+  proposeMessages(ctx) {
+    const chestLine = [...(ctx.chests || []).map((c) => `${c.id}${c.text ? ` (${c.text})` : ''}`), ...(ctx.hereChest ? ['here (近くのチェスト。まだ共有ではない。提案すると共有になる)'] : [])];
+    return [
+      { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
+        '全員に向けて提案を1つ書く。提案は全員に届き、聞いた人はそれぞれ賛成するかを決める。賛成が集まると、kind: rule は全員の「取り決め」に、kind: project は全員の「共同の目標」になる。',
+        'rule が物を共有のチェストに入れる取り決めなら item にその物、chest にそのチェストを書く。project が物を何個そろえる目標なら item と count を書く。当てはまらない欄は空の文字列にする。どちらでもなければ kind: other。',
+        'say に提案の文を短い日本語(40字以内)で書く。JSON {"kind":"...","item":"...","chest":"...","count":1,"say":"..."} だけを出力する。'].join('\n') },
+      { role: 'user', content: [...this.contextLines(ctx),
+        `## 物の名前\n${(ctx.items || []).join(', ') || 'なし'}`,
+        `## チェスト\n${chestLine.join('\n') || 'なし'}`,
+        '提案を JSON で。'].filter(Boolean).join('\n') },
+    ];
+  }
+
+  contextLines(ctx) {
+    return [
+      `## 体と心・人間関係\n${ctx.socialText || 'なし'}`,
+      ctx.plan ? `## 今していること\n${ctx.plan}` : '',
+      `## 近くの人\n${ctx.nearText || 'なし'}`,
+      `## 今聞こえた話\n${ctx.heardText || 'なし'}`,
+      ctx.boardText || '',
+      `## 覚えていること\n${ctx.memText || 'なし'}`,
+    ];
+  }
+
+  async run(kind, messages, schema = SAY_SCHEMA) {
     const promptChars = messages.reduce((s, m) => s + m.content.length, 0);
     const t0 = Date.now();
     let r = null;
     let error = null;
-    try { r = await this.llm.complete(messages, SAY_SCHEMA); } catch (e) { error = e.message; }
+    try { r = await this.llm.complete(messages, schema, kind === 'propose' ? { maxTokens: 160 } : undefined); } catch (e) { error = e.message; }
     const ms = Date.now() - t0;
     let say = '';
     if (r) { const m = r.text.match(/"say"\s*:\s*"([^"]*)/); say = m ? m[1].trim() : ''; }
@@ -61,7 +96,41 @@ class Talker {
   }
 
   talk(ctx) { return this.run('talk', this.talkMessages(ctx)); }
+  broadcast(ctx) { return this.run('broadcast', this.broadcastMessages(ctx)); }
+  async propose(ctx) {
+    const rec = await this.run('propose', this.proposeMessages(ctx), proposeSchema(ctx));
+    rec.proposal = rec.rawOutput ? parseProposal(rec.rawOutput, ctx) : null;
+    if (rec.proposal) rec.say = rec.proposal.text;
+    return rec;
+  }
   answer(ctx) { return this.run('answer', this.answerMessages(ctx)); }
 }
 
-module.exports = { Talker, SAY_SCHEMA };
+function proposeSchema(ctx) {
+  const chests = ['', ...(ctx.chests || []).map((c) => c.id), ...(ctx.hereChest ? ['here'] : [])];
+  return { type: 'object', properties: {
+    kind: { type: 'string', enum: ['rule', 'project', 'other'] },
+    item: { type: 'string', enum: ['', ...new Set(ctx.items || [])] },
+    chest: { type: 'string', enum: [...new Set(chests)] },
+    count: { type: 'integer', minimum: 1, maximum: 64 },
+    say: { type: 'string', maxLength: 60 },
+  }, required: ['kind', 'item', 'chest', 'count', 'say'], additionalProperties: false };
+}
+
+// 2B の出力 → { spec: { type: rule|project|text, item, chest, count }, text } | null。
+//   rule は物とチェストが両方あるときだけ構造にする (chest: here は agent が共有にしてから id に置き換える)。project は物があるとき。ほかは文だけ
+function parseProposal(text, ctx = {}) {
+  let o = null;
+  try { const s = String(text); o = JSON.parse(s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1)); } catch (_) { return null; }
+  const say = typeof o.say === 'string' ? o.say.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+  if (!say) return null;
+  const items = new Set(ctx.items || []);
+  const chests = new Set([...(ctx.chests || []).map((c) => c.id), ...(ctx.hereChest ? ['here'] : [])]);
+  const item = typeof o.item === 'string' && items.has(o.item) ? o.item : '';
+  const chest = typeof o.chest === 'string' && chests.has(o.chest) ? o.chest : '';
+  if (o.kind === 'rule' && item && chest) return { spec: { type: 'rule', item, chest }, text: say };
+  if (o.kind === 'project' && item) return { spec: { type: 'project', item, count: Math.max(1, Math.min(64, Math.floor(Number(o.count)) || 1)) }, text: say };
+  return { spec: { type: 'text' }, text: say, kindAsked: o.kind || null };
+}
+
+module.exports = { Talker, SAY_SCHEMA, proposeSchema, parseProposal };

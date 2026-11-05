@@ -185,6 +185,7 @@ class GoalPath {
   candidates(ctx) {
     const raw = ctx.raw;
     const c = this.rawCandidates(ctx);
+    this.lastItemNames = c.items.map((x) => x.name); // 提案 (propose) の物の候補にも使う
     // R2: もう満たされている候補。場所: もう着いている所は外す。人: もう近くにいる人は「もう近くにいる」を付ける (渡すゴールはありうる)
     //   物・状態: 「もう持っている n」「もう n ある」を事実として付ける (vocab / states)。2B が選んだ数で満たされていれば goalpath が外す
     if (raw) {
@@ -200,18 +201,20 @@ class GoalPath {
 
   rawCandidates(ctx) {
     const raw = ctx.raw;
+    const bd = ctx.board || null; // 共有のチェスト・取り決め・共同の目標 (board.js。agent が渡す)
     return {
       items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.cfg.maxItems, world: raw ? this.world(ctx) : null, annotate: this.cfg.annotate !== false }),
       people: personCandidates(ctx.people || []),
       places: placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist }),
-      states: this.cfg.states && raw ? states.stateCandidates({ world: this.world(ctx), sense: this.senseOf(ctx), raw, cfg: this.cfg.stateOpts, version: this.cfg.version, dir: (pos) => dir8(raw.self.pos, pos) }) : [],
+      states: this.cfg.states && raw ? states.stateCandidates({ world: this.world(ctx), sense: this.senseOf(ctx), raw, cfg: this.cfg.stateOpts, version: this.cfg.version, dir: (pos) => dir8(raw.self.pos, pos), shared: bd ? bd.shared || [] : [] }) : [],
     };
   }
 
   // 状態を確かめる材料 (states.senseState)。拠点 = set_base の場所、なければベッド/チェストを置いた所 (ctx.home)
   senseOf(ctx) {
     const raw = ctx.raw;
-    return { blockAt: ctx.blockAt || null, here: raw ? raw.self.pos : null, anchor: ctx.base || ctx.home || null, entities: raw ? raw.entities : [], containers: ctx.containers || {}, near: this.cfg.nearBase ?? 16 };
+    return { blockAt: ctx.blockAt || null, here: raw ? raw.self.pos : null, anchor: ctx.base || ctx.home || null, entities: raw ? raw.entities : [], containers: ctx.containers || {}, near: this.cfg.nearBase ?? 16,
+      shared: ctx.board ? ctx.board.chests || [] : [] };
   }
 
   historyText() {
@@ -258,6 +261,7 @@ class GoalPath {
       ctx.worst ? `## いちばんつらいこと\n${ctx.worst.text}` : '',
       ctx.policy ? `## 自分の方針 (前に自分で決めたこと)\n${String(ctx.policy).slice(0, this.cfg.policyMax)}` : '',
       ctx.peopleText ? `## 周りの人\n${ctx.peopleText}` : '',
+      ctx.board && ctx.board.text ? ctx.board.text : '', // 全体に届いた話・取り決め・共同の目標・共有のチェスト (board.js)
       facts.length ? `## 知っていること\n${facts.join('\n')}` : '',
       '## 覚えていること', ctx.memText || 'なし',
       `## これまでのゴール\n${this.historyText()}`,
@@ -296,6 +300,7 @@ class GoalPath {
       knownBlocks: [...kinds],
       stations: { crafting_table: !!raw.tableNearby || kinds.has('crafting_table'), furnace: raw.blocks.some((b) => b.name === 'furnace') || kinds.has('furnace') },
       excludeBlocks: GROUND,
+      sharedChests: ctx.board ? ctx.board.chests || [] : [],
     };
   }
 

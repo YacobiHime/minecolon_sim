@@ -26,7 +26,8 @@ const DEFAULT_LIMITS = {
   forgetBelow: 0.08, // 強さがこれを下回ったら忘れる
 };
 
-const CELL = 8; // 場所をまとめる格子の大きさ (ブロック)
+const CELL = 8;
+function agoEn(d) { return d <= 0 ? 'just now' : d === 1 ? 'one turn ago' : d <= 4 ? 'a few turns ago' : d <= 15 ? 'a while ago' : 'long ago'; } // 場所をまとめる格子の大きさ (ブロック)
 
 function clip(s, n) {
   s = String(s ?? '');
@@ -122,8 +123,11 @@ class Memory {
     return e;
   }
 
-  noteHeard(from, text, imp = null) {
+  // opts.global: 全体チャット (board.js) で聞いた。opts.at: ゲーム内の時刻の言葉 (朝・夜など)
+  noteHeard(from, text, imp = null, opts = {}) {
     const h = { t: this.tick, from, text: clip(text, this.limits.textLen), imp: imp ?? (from === '自分' ? 0.1 : 0.3) };
+    if (opts.global) h.global = true;
+    if (opts.at) h.at = opts.at;
     this.heard.push(h);
     this.enforceLimits();
     return h;
@@ -248,11 +252,12 @@ class Memory {
     const { maxPlaces = 4, maxEvents = 5, maxHeard = 3, maxTaught = 2 } = opts;
     const places = (opts.places || this.placesForPrompt(here)).slice(0, maxPlaces);
     const out = {};
-    out.places = places.length ? places.map((p) => `${p.id}=${p.kind === '拠点' ? 'base' : p.kind} (${en.whereEn(here, p.pos)})`).join('; ') : 'none';
+    out.places = places.length ? places.map((p) => `${p.id}=${en.placeKindEn(p.kind)} (${en.whereEn(here, p.pos)})`).join('; ') : 'none';
     const evs = this.events.slice(-maxEvents);
     out.recent = evs.length ? evs.map((e) => e.en || en.resultEn({ action: e.action, arg: e.arg, ok: e.ok, msg: e.msg })) : 'nothing yet';
     const hd = this.heard.filter((h) => h.from !== '自分').slice(-maxHeard);
-    if (hd.length) out.heard = hd.map((h) => `${h.from}「${h.text}」`).join(' ');
+    // 「Taro は〜と言っていた (いつ)」の形。いつ = 何判断前 (言葉) と、聞いたときのゲーム内の時刻
+    if (hd.length) out.heard = hd.map((h) => `${h.from} said${h.global ? ' to everyone' : ''}「${h.text}」 (${agoEn(this.tick - h.t)}${h.at ? `, ${en.phaseEn(h.at)}` : ''})`).join(' ');
     const kn = this.knowledge.slice(-maxTaught);
     if (kn.length) out.taught = kn.map((k) => `from ${k.from}: 「${k.text}」`).join(' ');
     return out;
@@ -271,7 +276,7 @@ class Memory {
       const ev = chosen.filter((c) => c.kind === 'event').map((c) => c.x);
       lines.push('やったこと: ' + (ev.length ? ev.map((e) => `${e.action}${e.arg ? '(' + e.arg + ')' : ''}→${e.ok ? '成功' : '失敗'}:${e.msg}`).join(' / ') : 'まだ何もしていない'));
       const hd = chosen.filter((c) => c.kind === 'heard').map((c) => c.x);
-      if (hd.length) lines.push('聞いた話: ' + hd.map((h) => `${h.from}「${h.text}」`).join(' '));
+      if (hd.length) lines.push('聞いた話: ' + hd.map((h) => `${h.from}は${h.global ? '全員に' : ''}「${h.text}」と言っていた (${ago(h.t)}${h.at ? '・' + h.at : ''})`).join(' '));
       const kn = chosen.filter((c) => c.kind === 'knowledge').map((c) => c.x);
       if (kn.length) lines.push('教わったこと: ' + kn.map((k) => `${k.from}から(${ago(k.t)}${k.at ? '・' + k.at : ''})「${k.text}」`).join(' '));
       return lines.join('\n');

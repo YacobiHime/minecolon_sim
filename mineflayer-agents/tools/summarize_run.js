@@ -472,6 +472,85 @@ function goToPersonStats(all, names) {
   return { n: rows.length, ok: rows.filter((r) => r.result.ok).length, byPair: by };
 }
 
+// 全体チャット・提案・取り決め・共有のチェスト・共同の目標 (src/board.js の event: 'board')
+//   同じ取り決めの成立・中身の変化は全員が記録するので、id ごとに1つにまとめる
+function boardStats(all, n = 8) {
+  const ev = all.filter((r) => r.event === 'board').sort((a, b) => (a.ts < b.ts ? -1 : 1));
+  if (!ev.length) return null;
+  const k = (kind) => ev.filter((r) => r.kind === kind);
+  const bc = k('broadcast');
+  const said = bc.filter((r) => r.say);
+  const props = k('propose').filter((r) => r.ok);
+  const votes = k('vote');
+  const agreed = new Map(); for (const r of k('agreed')) if (!agreed.has(r.id)) agreed.set(r.id, r);
+  const expired = new Set(k('expired').map((r) => r.id));
+  const seen = k('seen');
+  const pairs = {};
+  for (const r of seen) { const key = `${r.from}→${r.to}`; pairs[key] = (pairs[key] || 0) + 1; }
+  const why = {};
+  for (const r of seen) why[r.why] = (why[r.why] || 0) + 1;
+  const reach = {}; // 発言ごとに何人の state に出たか
+  for (const r of seen) { const key = `${r.from}|${r.text}`; reach[key] = (reach[key] || 0) + 1; }
+  const comply = k('comply');
+  const byAgreement = {};
+  for (const r of comply) { const x = byAgreement[r.agreement] || (byAgreement[r.agreement] = { kept: 0, broken: 0, keptBy: {}, brokenBy: {} }); const f = r.kept ? 'kept' : 'broken'; x[f] += r.n || 1; x[`${f}By`][r._name] = (x[`${f}By`][r._name] || 0) + (r.n || 1); }
+  const projDone = new Map(); for (const r of k('project_done')) if (!projDone.has(r.id)) projDone.set(r.id, r);
+  const shares = k('share_chest');
+  const voteBy = {};
+  for (const r of votes) { const x = voteBy[r.id] || (voteBy[r.id] = { yes: 0, no: 0, by: r.by, examples: [] }); x[r.yes ? 'yes' : 'no'] += 1; if (x.examples.length < 3) x.examples.push(`${r._name} ${r.yes ? '賛成' : '反対'} p=${r.p} (${r.by}とは${r.relation})`); }
+  return {
+    broadcasts: { asked: bc.length, said: said.length, byFrom: countBy(said, (r) => r._name), examples: said.slice(0, n).map((r) => `${r._name}: ${r.say}`) },
+    seen: { n: seen.length, byWhy: why, pairs: Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 15), reachP50: pct(Object.values(reach), 50), reachMax: maxOf(Object.values(reach)) },
+    proposals: props.map((r) => ({ id: r.id, by: r._name, text: r.text, spec: r.spec, n: r.n, need: r.need, votes: voteBy[r.id] || { yes: 0, no: 0 }, agreed: agreed.has(r.id), expired: expired.has(r.id) })),
+    proposeFailed: k('propose').filter((r) => !r.ok).length,
+    votes: { n: votes.length, yes: votes.filter((r) => r.yes).length, no: votes.filter((r) => !r.yes).length, examples: Object.values(voteBy).flatMap((x) => x.examples).slice(0, n) },
+    agreements: [...agreed.values()].map((r) => ({ id: r.id, by: r.by, text: r.text, spec: r.spec, yes: (r.yes || []).length, need: r.need, compliance: byAgreement[r.id] || null })),
+    projectsDone: [...projDone.values()].map((r) => `${r.id} ${r.item} x${r.count}`),
+    sharedChests: shares.map((r) => `${r._name}: ${r.chest}`),
+    breachKnown: k('breach_known').map((r) => `${r._name} が知った: ${r.who} が ${r.chest} から ${r.item} x${r.n} を出した (${r.agreement})`),
+    placed: k('placed').length,
+  };
+}
+
+// 近くの声と全体チャットの回数・比率、近くの声が会話になったか (記録だけ。使い方は制限しない)
+//   近くの声: talk の発言・say の行動・聞く (ask)・答える (answer)。全体: broadcast (言えた)・propose (書けた)。賛成/反対の印は別に数える
+//   会話になった: 近くの声の時点で hearRadius 以内に居たほかの人 (その人の直前の判断の位置) が、replySec 秒以内に近くの声で何か言った
+function voiceStats(all, { hearRadius = 24, replySec = 60 } = {}) {
+  const t = (r) => Date.parse(r.ts);
+  const near = [];
+  for (const r of all) {
+    if (r.event === 'talk' && r.say) near.push({ who: r._name, ts: t(r), kind: 'talk' });
+    else if (r.event === 'ask') near.push({ who: r._name, ts: t(r), kind: 'ask', to: r.to });
+    else if (r.event === 'answer') near.push({ who: r._name, ts: t(r), kind: 'answer', to: r.to });
+    else if (isStep(r) && r.action === 'say' && r.say) near.push({ who: r._name, ts: t(r), kind: 'say' });
+  }
+  const glob = all.filter((r) => r.event === 'board' && ((r.kind === 'broadcast' && r.say) || (r.kind === 'propose' && r.ok))).map((r) => ({ who: r._name, ts: t(r), kind: r.kind }));
+  const votes = all.filter((r) => r.event === 'board' && r.kind === 'vote').length;
+  // 人ごとの位置の時系列 (判断の記録の pos)
+  const posBy = {};
+  for (const r of all) if (isStep(r) && r.pos) (posBy[r._name] = posBy[r._name] || []).push({ ts: t(r), pos: r.pos });
+  for (const l of Object.values(posBy)) l.sort((a, b) => a.ts - b.ts);
+  const posAt = (name, ts) => { const l = posBy[name] || []; let p = null; for (const x of l) { if (x.ts > ts) break; p = x.pos; } return p; };
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const nearSorted = near.slice().sort((a, b) => a.ts - b.ts);
+  let withListener = 0; let replied = 0;
+  const per = {};
+  const P = (n) => (per[n] = per[n] || { near: 0, global: 0, nearWithListener: 0, nearReplied: 0 });
+  for (const u of nearSorted) {
+    P(u.who).near += 1;
+    const me = posAt(u.who, u.ts);
+    const listeners = me ? Object.keys(posBy).filter((n) => n !== u.who && (() => { const p = posAt(n, u.ts); return p && d(p, me) <= hearRadius; })()) : [];
+    if (!listeners.length && !u.to) continue;
+    withListener += 1; P(u.who).nearWithListener += 1;
+    const ls = new Set(u.to ? [...listeners, u.to] : listeners);
+    if (nearSorted.some((v) => v !== u && ls.has(v.who) && v.ts > u.ts && v.ts - u.ts <= replySec * 1000)) { replied += 1; P(u.who).nearReplied += 1; }
+  }
+  for (const g of glob) P(g.who).global += 1;
+  const ratio = (a, b) => (a + b ? Math.round((b / (a + b)) * 100) / 100 : null);
+  for (const v of Object.values(per)) v.globalShare = ratio(v.near, v.global);
+  return { near: near.length, global: glob.length, globalShare: ratio(near.length, glob.length), votes, nearWithListener: withListener, nearReplied: replied, replySec, hearRadius, perAgent: per };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const target = args.find((a) => !a.startsWith('--'));
@@ -548,6 +627,8 @@ function main() {
     others: { appended: loops.filter((r) => r.result && r.result.others && r.result.others.length).length,
       items: sum(loops.map((r) => ((r.result && r.result.others) || []).length)) },
     cooperation: cooperationStats(all),
+    board: boardStats(all),
+    voices: voiceStats(all),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
@@ -643,6 +724,20 @@ function main() {
       for (const [k, v] of Object.entries(out.load.monitor || {})) console.log(`負荷 ${k}: CPU p50 ${v.cpuPct.p50}%・最大 ${v.cpuPct.max}%、RSS 最大 ${v.rssMb.max}MB、イベントループの遅れ p99 の中央値 ${v.loopLagP99.p50}ms・最大 ${v.loopLagP99.max}ms、ボット ${v.bots.minAlive}/${v.bots.total} (切断 ${v.bots.disconnects})、2B の待ち p95 の中央値 ${v.twoBWaitP95.p50}ms・最大 ${v.twoBWaitP95.max}ms、Jev の 429 ${v.jevRateLimited} 回`);
       const tl = out.load.twoBLatency;
       if (tl) console.log(`2B の応答 (全体): ${tl.calls} 回、全体 p50 ${tl.ms.p50}ms・p95 ${tl.ms.p95}ms、待ち p50 ${tl.waitMs.p50}ms・p95 ${tl.waitMs.p95}ms・最大 ${tl.waitMs.max}ms、切断 ${out.load.disconnects ?? '-'}`);
+    }
+    const vs = out.voices;
+    console.log(`近くの声 ${vs.near} 回・全体チャット ${vs.global} 回 (全体の割合 ${vs.globalShare ?? '-'}、賛成/反対の印 ${vs.votes})、近くの声のうち近くに人がいた ${vs.nearWithListener}・会話になった (${vs.replySec}秒以内に近くの人が返した) ${vs.nearReplied}`);
+    console.log(`  人ごと (近く/全体/会話になった): ${Object.entries(vs.perAgent).map(([k, v]) => `${k} ${v.near}/${v.global}/${v.nearReplied}`).join('・')}`);
+    const bd = out.board;
+    if (bd) {
+      console.log(`全体チャット ${bd.broadcasts.said} 回 (選んだ ${bd.broadcasts.asked}、人ごと ${JSON.stringify(bd.broadcasts.byFrom)})、state に出た ${bd.seen.n} 回 (理由 ${JSON.stringify(bd.seen.byWhy)}、1発言が届いた人数 p50 ${bd.seen.reachP50}・最大 ${bd.seen.reachMax})`);
+      if (bd.seen.pairs.length) console.log(`  誰から誰へ (上位): ${bd.seen.pairs.map(([p, c]) => `${p} ${c}`).join('・')}`);
+      for (const l of bd.broadcasts.examples) console.log(`  全体: ${l}`);
+      console.log(`提案 ${bd.proposals.length} 個 (書けなかった ${bd.proposeFailed})、賛成 ${bd.votes.yes}・反対 ${bd.votes.no}、成立 ${bd.agreements.length}、共有にしたチェスト ${bd.sharedChests.length} (${bd.sharedChests.join(', ')})、共同の目標の達成 ${bd.projectsDone.length}`);
+      for (const p of bd.proposals.slice(0, 8)) console.log(`  提案 ${p.id}「${p.text}」 ${JSON.stringify(p.spec)} 賛成 ${p.votes.yes + 1}/${p.need} (n=${p.n})${p.agreed ? ' 成立' : p.expired ? ' 期限切れ' : ''}`);
+      for (const l of bd.votes.examples) console.log(`  票: ${l}`);
+      for (const a of bd.agreements) if (a.compliance) console.log(`  取り決め ${a.id}: 守った ${a.compliance.kept} ${JSON.stringify(a.compliance.keptBy)}・破った ${a.compliance.broken} ${JSON.stringify(a.compliance.brokenBy)}`);
+      for (const l of bd.breachKnown.slice(0, 5)) console.log(`  ${l}`);
     }
     console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
     const jc = out.jevChoice;

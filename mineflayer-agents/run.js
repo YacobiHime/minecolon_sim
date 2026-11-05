@@ -165,9 +165,12 @@ async function main() {
     : new Talker({ llmOpts: { ...base.decider.llm, ...(base.talk && base.talk.llm ? base.talk.llm : {}) }, meter });
 
   const agents = [];
+  // 実行の名簿 (全プロセスの全員)。全体チャットの提案で「生きている人数」を数えるのに使う (board.js)
+  const roster = Array.from({ length: n }, (_, i) => (n === 1 && args.name ? args.name : personaFor(base, i).name));
   for (let i = from; i < to; i++) {
     const persona = personaFor(base, i);
     const cfg = deepMerge(base, { persona: n === 1 && args.name ? { ...persona, name: args.name } : persona });
+    cfg.roster = roster;
     const name = cfg.persona.name;
     cfg.memory = { ...cfg.memory, file: base.memory.perRun ? path.join(path.dirname(base.memory.file), stamp, `${name}.json`) : path.join(path.dirname(base.memory.file), `${name}.json`) };
     const decider = createDecider(cfg.decider, {}, { meter, jevClient });

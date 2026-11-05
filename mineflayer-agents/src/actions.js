@@ -4,7 +4,7 @@
 const { relDir } = require('./util');
 const { whereEn } = require('./en');
 // 英語の文 (Jev 用): 行動ごとに descEn、選択肢ごとに labelEn を、日本語と同じ所で同じ値から作る
-const kindEn = (k) => (k === '拠点' ? 'base' : k);
+const kindEn = (k) => (k === '拠点' ? 'base' : /^共有のチェスト /.test(k) ? `shared chest ${k.slice(8)}` : k);
 const { BUILD_MATERIAL } = require('./hut');
 const { exploreChoices } = require('./explore');
 const { moreActions } = require('./actions_more');
@@ -246,6 +246,18 @@ function listActions(raw, ctx = {}) {
   const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar', 'flee', 'attack', 'smelt', 'sleep', 'equip', 'set_base'];
   const rank = (n) => (first.includes(n) ? first.indexOf(n) : first.length);
   out.sort((a, b) => rank(a.name) - rank(b.name));
+
+  // 全体チャット・提案・共有のチェスト (board.js)。cfg.board.enabled で、act.enable に入れたものだけ。説明は「全員に届く」などの事実だけ
+  const bd = ctx.board || null;
+  if (bd) {
+    if (on('broadcast')) out.push({ name: 'broadcast', desc: '全員に届く声で何か言う (近くにいない人にも届く。言うことはこのあと考える)', descEn: 'say something that reaches everyone, near or far (what to say is worked out next)', argType: 'none' });
+    if (on('propose') && !bd.proposedRecently) out.push({ name: 'propose', desc: '全員に提案する (全員に届き、それぞれが賛成するかを決める。賛成が集まると取り決めか共同の目標になる。中身はこのあと考える)', descEn: 'propose something to everyone (it reaches every person; each decides whether to agree; with enough agreement it becomes an agreement or a shared project; what to propose is worked out next)', argType: 'none' });
+    const cont = raw.blocks.filter((b) => /^(chest|trapped_chest|barrel)$/.test(b.name) && b.nearest.d <= (ctx.visionRadius ?? 16)).sort((a, b) => a.nearest.d - b.nearest.d)[0];
+    if (on('share_chest') && cont && bd.canShare && !(bd.isShared && bd.isShared(cont.nearest)) && !blocked.has(`share_chest:${cont.name}`)) {
+      out.push({ name: 'share_chest', desc: 'このチェストを共有にする (全員に知らされ、中身が全員に見えるようになる)', descEn: 'make this chest shared (everyone is told, and everyone can see what is inside)', argType: 'choice',
+        choices: [{ id: cont.name, label: `${cont.name} ${relDir(here, cont.nearest)}`, labelEn: `${cont.name} (${whereEn(here, cont.nearest)})`, pos: { x: cont.nearest.x, y: cont.nearest.y, z: cont.nearest.z } }] });
+    }
+  }
 
   for (let i = out.length - 1; i >= 0; i--) if (out[i].argType === 'choice' && !out[i].choices.length) out.splice(i, 1);
 

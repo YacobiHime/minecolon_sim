@@ -59,6 +59,8 @@ const foodWord = (f) => barWord(f, { zero: 'empty' });
 
 const PHASE_EN = { 朝: 'morning', 昼: 'daytime', 夕方: 'dusk', 夜: 'night', 明け方: 'dawn' };
 function phaseEn(p) { return PHASE_EN[p] || p || 'unknown'; }
+// 覚えている場所の種類 (拠点・共有のチェスト) の英語
+function placeKindEn(k) { return k === '拠点' ? 'base' : /^共有のチェスト /.test(String(k)) ? `shared chest ${String(k).slice(8)}` : k; }
 
 const ORD = ['zeroth', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
 function dayEn(day) { return day == null ? null : `day ${ORD[day + 1] ? ORD[day + 1] : day + 1}`.replace(/^day (\w+)$/, (m, w) => (ORD.includes(w) ? `the ${w} day` : `day ${w}`)); }
@@ -230,4 +232,4 @@ function resultEn({ action, arg = '', ok, msg = '', delta = '' }) {
 // 評価語・使い方の誘導 (英語)。test で、Jev に渡す文・指示・事実に入っていないことを確かめる
 const ADVICE_EN = /\b(should|must|better|best|recommend\w*|prefer\w*|priorit\w*|important|first of all|ought|wise|ideal|good idea|optimal|you need to|make sure)\b/i;
 
-module.exports = { dir8En, distWord, whereEn, countWord, healthWord, foodWord, phaseEn, dayEn, invDelta, invText, msgEn, resultEn, sentenceEn, DIR_JA_EN, DIR8_EN, ADVICE_EN, placeName };
+module.exports = { placeKindEn, dir8En, distWord, whereEn, countWord, healthWord, foodWord, phaseEn, dayEn, invDelta, invText, msgEn, resultEn, sentenceEn, DIR_JA_EN, DIR8_EN, ADVICE_EN, placeName };

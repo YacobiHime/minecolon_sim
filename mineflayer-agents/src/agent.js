@@ -27,6 +27,8 @@ const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
 const { isPlaceableBlockItem } = require('./planner');
 const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
+const { Board, DEFAULTS: BOARD_DEFAULTS, parseLine, line: boardLine, chestLabelJa } = require('./board');
+const { jaName, SUFFIX: JA_SUFFIX } = require('./names_ja');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
@@ -90,6 +92,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     useOnSkip: cfg.act.useOnPlaceable === false ? (n) => isPlaceableBlockItem(n, (cfg.server && cfg.server.version) || undefined) : null,
     visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
+    board: extra.boardActs || null,
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
@@ -113,6 +116,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     base: extra.baseEn || '',
     hints: help.hints ? [...(cfg.goal.hints_en || cfg.goal.hints || []), ...factsShown.map((f) => knowledge.factText(f, 'en'))] : [],
     plan: extra.planEn || null,
+    board: extra.boardEn || null, // 全体チャット・取り決め・共同の目標・共有のチェスト・賛成を聞く提案 (board.js)
   };
   // 正味の変化で見た繰り返し (agent が extra.net で渡す) の回数を、1回ごとの penalties に合わせる
   const pens = nc ? nochange.mergePenalties(nochange.penalties(memory.events, nc.weightWindow), extra.net ? extra.net.counts : null) : null;
@@ -131,6 +135,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes, showDay: cfg.perception.showDay }) + (extra.baseText ? `\n${extra.baseText}` : ''),
     memText: memory.toPromptText(here, { places: memPlaces }),
     socialText: extra.socialText || '',
+    boardText: extra.boardText || '',
     lastResult: extra.lastResult || '',
     noChange: nc ? { penalties: pens, weight: nc.weight } : null,
     knowledge: kn,
@@ -227,6 +232,246 @@ class Agent {
     this.baseSeen = null; // 最後に見た拠点の様子 { site, tick }
     this.lastBaseText = null;
     this.lastGave = [];
+    // 全体チャット・提案・取り決め・共有のチェスト・共同の目標 (cfg.board。board.js)。サーバーの全体チャットで全員に届く
+    this.boardCfg = { ...BOARD_DEFAULTS, ...(cfg.board || {}) };
+    this.board = this.boardCfg.enabled ? new Board({ cfg: this.boardCfg, me: cfg.persona.name }) : null;
+    this.boardAsked = new Set(); // 賛成するかを聞いた提案
+    this.boardSeen = new Set(); // state に出した全体チャット (記憶に入れたもの)
+    this.boardView = null;
+    this.lastProposeTick = -1e9;
+  }
+
+  // ---- 全体チャット (board.js) ----
+  // 生きている (つながっている) 人の数: 実行の名簿 (run.js が cfg.roster に入れる) のうち、サーバーにいる人。名簿が無ければサーバーの人数
+  aliveCount() {
+    const players = this.bot && this.bot.players ? Object.keys(this.bot.players) : [];
+    const roster = this.cfg.roster || [];
+    const n = roster.length ? roster.filter((x) => players.includes(x)).length : players.length;
+    return Math.max(1, n);
+  }
+
+  // 印のある行を全体チャットに送り、自分の板にも積む (サーバーは自分の発言も返すが、onChat は自分の行を捨てる)
+  sendBoard(text) {
+    const t = String(text).replace(/\s+/g, ' ').trim().slice(0, 240);
+    if (!t || !this.bot) return null;
+    try { this.bot.chat(t); } catch (e) { this.log(`[${this.cfg.persona.name}] board chat error: ${e.message}`); return null; }
+    const m = parseLine(t);
+    if (m) this.onBoardLine(this.cfg.persona.name, m);
+    return m;
+  }
+
+  // 受け取った印のある行 (自分の行も)。起きたことを記録・記憶に入れる
+  onBoardLine(from, m) {
+    if (!this.board) return;
+    const me = this.cfg.persona.name;
+    const tick = this.memory.tick;
+    const evs = this.board.receive(from, m, { t: Date.now(), tick });
+    for (const ev of evs) {
+      if (ev.type === 'agreed') {
+        const p = ev.p;
+        this.recorder.write({ event: 'board', kind: 'agreed', id: p.id, by: p.by, text: p.text, spec: p.spec, yes: [...p.yes], no: [...p.no], n: p.n, need: this.board.need(p), loop: tick });
+        // 全員の記憶に残す (時間とともに薄れる)。state の agreements / projects には成立している間ずっと出る
+        this.memory.noteHeard(p.by, `(${p.spec.type === 'project' ? '共同の目標' : '取り決め'}になった) ${p.text}`, 0.9, { global: true, at: this.phaseSafe() });
+      } else if (ev.type === 'share') {
+        this.memory.notePlace(chestLabelJa(ev.c.id), ev.c.pos, { imp: 1 });
+        this.recorder.write({ event: 'board', kind: 'share', chest: ev.c.id, by: ev.c.by, pos: ev.c.pos, loop: tick });
+      } else if (ev.type === 'chest') {
+        // 共有のチェストの中身は全員に見えている事実: chest_take の候補 (入れ物の記憶) も同じ中身にする
+        const ex = this.memory.extra || (this.memory.extra = {});
+        ex.containers = ex.containers || {};
+        ex.containers[`${ev.c.pos.x},${ev.c.pos.y},${ev.c.pos.z}`] = { name: 'chest', items: ev.c.items, tick, shared: ev.c.id };
+        if (from !== me && ev.delta) this.recorder.write({ event: 'board', kind: 'chest_seen', chest: ev.c.id, who: ev.who, delta: ev.delta, loop: tick });
+      } else if (ev.type === 'breach') {
+        this.recorder.write({ event: 'board', kind: 'breach_known', agreement: ev.p.id, who: ev.b.who, chest: ev.b.chest, item: ev.b.item, n: ev.b.n, loop: tick });
+      } else if (ev.type === 'project_done') {
+        this.recorder.write({ event: 'board', kind: 'project_done', id: ev.p.id, item: ev.p.spec.item, count: ev.p.spec.count, loop: tick });
+      } else if (ev.type === 'vote' && from !== me && ev.p.by === me) {
+        this.recorder.write({ event: 'board', kind: 'vote_seen', id: ev.p.id, from, yes: ev.yes, loop: tick });
+      }
+    }
+  }
+
+  phaseSafe() { try { return this.phaseNow(); } catch (_) { return ''; } }
+
+  // 全体チャットの優先に使う名前: 自分のゴールと道筋に出てくる物 (英語の名前・日本語の名前・種類の言葉)
+  boardNames() {
+    const names = new Set();
+    const g = this.goalPath && this.goalPath.goal;
+    const add = (n) => {
+      if (!n || typeof n !== 'string') return;
+      names.add(n);
+      const ja = jaName(n);
+      if (ja) names.add(ja);
+      for (const [suf, w] of JA_SUFFIX || []) if (n.endsWith(suf)) names.add(w);
+    };
+    if (g) { add(g.target); if (g.give) add(g.give); if (g.state && g.state.item) add(g.state.item); if (g.state && g.state.animal) add(g.state.animal); }
+    const p = this.goalPath && this.goalPath.path;
+    for (const st of (p && p.steps) || []) { add(st.item); add(st.from); add(st.animal); }
+    return [...names];
+  }
+
+  // 関係の強さ 0〜1 (好感の 50 からの離れ具合と話した回数)
+  relStrength(name) {
+    const r = this.social.relations[name];
+    if (!r) return 0;
+    return Math.min(0.99, Math.abs((r.affinity ?? 50) - 50) / 50 + Math.min(0.3, (r.talks || 0) * 0.03));
+  }
+
+  // 判断の前: 期限切れの提案を閉じ、state に出す全体チャット・取り決め・共有のチェスト・賛成を聞く提案を作る
+  prepareBoard(raw) {
+    if (!this.board) return null;
+    const me = this.cfg.persona.name;
+    const tick = this.memory.tick;
+    for (const p of this.board.expire(Date.now())) this.recorder.write({ event: 'board', kind: 'expired', id: p.id, by: p.by, yes: p.yes.size, no: p.no.size, need: this.board.need(p), loop: tick });
+    const here = raw.self.pos;
+    // 近くの共有のチェストは場所の記憶を新しくする
+    for (const c of this.board.chests.values()) if (dist3(here, c.pos) <= (this.cfg.perception.visionRadius ?? 16)) this.memory.notePlace(chestLabelJa(c.id), c.pos, { imp: 1 });
+    const shown = this.board.select({ me, tick, names: this.boardNames(), strength: (n) => this.relStrength(n) });
+    for (const m of shown) {
+      if (this.boardSeen.has(m.seq)) continue;
+      this.boardSeen.add(m.seq);
+      // 聞いた内容は記憶に「Taro は〜と言っていた (いつ)」の形で残り、時間とともに薄れる (memory.js)
+      this.memory.noteHeard(m.from, m.text, 0.3, { global: true, at: this.phaseSafe() });
+      this.recorder.write({ event: 'board', kind: 'seen', from: m.from, to: me, msgKind: m.kind, pid: m.pid || null, text: m.text, why: m.why, hit: m.hit, loop: tick });
+    }
+    const open = this.board.openFor(me, this.boardAsked);
+    const en0 = this.board.stateEn({ me, tick, here, shown, open, relationEn: (n) => this.social.relationWord(n, { lang: 'en' }) });
+    const text = this.board.textJa({ tick, here, shown, relDir });
+    // ゴール候補: 取り決め (物 → 共有のチェスト) と共同の目標 (その物と材料 → いちばん近い共有のチェスト) への貢献
+    const chests = [...this.board.chests.values()].map((c) => ({ id: c.id, items: c.items, known: c.known, pos: c.pos }));
+    const shared = [];
+    for (const p of this.board.agreedRules()) shared.push({ chest: p.spec.chest, item: p.spec.item, add: this.boardCfg.ruleAdd ?? 4, note: `取り決め「${p.text}」`, noteEn: `agreement「${p.text}」` });
+    const nearest = chests.slice().sort((a, b) => dist3(here, a.pos) - dist3(here, b.pos))[0];
+    if (nearest) {
+      for (const p of this.board.agreedProjects().filter((x) => x.status === 'agreed')) {
+        const left = Math.max(1, p.spec.count - this.board.progress(p));
+        shared.push({ chest: nearest.id, item: p.spec.item, add: left, note: `共同の目標 ${p.spec.item} ${p.spec.count} (${p.by}の提案)`, noteEn: `for the project ${p.spec.item} x${p.spec.count}` });
+        for (const [ing, k] of this.projectIngredients(p.spec.item)) shared.push({ chest: nearest.id, item: ing, add: k * left, note: `共同の目標 ${p.spec.item} ${p.spec.count} の材料`, noteEn: `an ingredient of the project ${p.spec.item} x${p.spec.count}` });
+      }
+    }
+    this.boardView = { shown, open, openMap: en0.openMap, text, chests, shared };
+    const sharedKeys = new Set(chests.map((c) => `${c.pos.x},${c.pos.y},${c.pos.z}`));
+    return {
+      en: { state: en0.state, open: en0.open, breakers: en0.breakers },
+      text,
+      goal: { chests, shared, text },
+      acts: { canShare: this.board.chests.size < this.boardCfg.maxShared, isShared: (pos) => !!this.board.chestAt(pos) || sharedKeys.has(`${pos.x},${pos.y},${pos.z}`),
+        proposedRecently: this.memory.tick - this.lastProposeTick < (this.boardCfg.proposeGap ?? 5) },
+    };
+  }
+
+  // 共同の目標の物の材料 (レシピの最初の形。多い順に2つまで)
+  projectIngredients(item) {
+    try {
+      const { index } = require('./planner');
+      const r = (index(this.cfg.server && this.cfg.server.version ? this.cfg.server.version : undefined).recipes.get(item) || [])[0];
+      return r ? Object.entries(r.ings).sort((a, b) => b[1] - a[1]).slice(0, 2) : [];
+    } catch (_) { return []; }
+  }
+
+  // talker に渡す材料 (近くの声の talk と同じ + 全体の話)
+  talkCtx(ctx, plannedText = '') {
+    const players = ctx.raw.entities.filter((e) => e.kind === 'player');
+    return {
+      persona: this.cfg.persona, goal: ctx.goal, plan: ctx.progress || '', socialText: ctx.socialText,
+      nearText: players.map((e) => `${e.name} ${relDir(ctx.raw.self.pos, e.pos)}`).join(', '),
+      heardText: ctx.raw.heard.map((h) => `${h.from}「${h.text}」`).join(' '),
+      memText: ctx.memText, plannedAction: plannedText, boardText: ctx.boardText || '',
+    };
+  }
+
+  async doBroadcast(ctx) {
+    if (!this.talker || !this.board) return { ok: false, msg: '全体に言う仕組みがない' };
+    const r = await this.talker.broadcast(this.talkCtx(ctx));
+    const say = r.say ? r.say.replace(/\s+/g, ' ').trim().slice(0, this.boardCfg.textMax) : '';
+    this.recorder.write({ event: 'board', kind: 'broadcast', loop: this.memory.tick, say: say || null, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
+    if (!say) return { ok: false, msg: '全体に言うことが出てこなかった' };
+    this.sendBoard(boardLine.say(say));
+    this.memory.noteHeard('自分', say, 0.1, { global: true });
+    this.social.onSpoke(this.memory.tick);
+    this.log(`[${this.cfg.persona.name}] 全体に「${say}」`);
+    return { ok: true, msg: `全員に「${say}」と言った`, said: say };
+  }
+
+  async doPropose(ctx) {
+    if (!this.talker || !this.board) return { ok: false, msg: '提案する仕組みがない' };
+    const raw = ctx.raw;
+    const me = this.cfg.persona.name;
+    this.lastProposeTick = this.memory.tick;
+    const near = raw.blocks.filter((b) => /^(chest|trapped_chest|barrel)$/.test(b.name) && b.nearest.d <= (this.cfg.perception.visionRadius ?? 16)).sort((a, b) => a.nearest.d - b.nearest.d)[0];
+    const hereChest = near && !this.board.chestAt(near.nearest) && this.board.chests.size < this.boardCfg.maxShared ? near : null;
+    const items = [...new Set([...raw.inventory.map((i) => i.name), ...((this.goalPath && this.goalPath.lastItemNames) || []), ...this.boardNames().filter((n) => /^[a-z0-9_]+$/.test(n)),
+      ...[...this.board.chests.values()].flatMap((c) => c.items.map((i) => i.name))])].slice(0, 60);
+    const chests = [...this.board.chests.values()].map((c) => ({ id: c.id, text: `${relDir(raw.self.pos, c.pos)}・${this.board.chestItemsText(c, 'ja')}` }));
+    const r = await this.talker.propose({ ...this.talkCtx(ctx), items, chests, hereChest: !!hereChest });
+    const pr = r.proposal;
+    const rec = { event: 'board', kind: 'propose', loop: this.memory.tick, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error };
+    if (!pr) { this.recorder.write({ ...rec, ok: false }); return { ok: false, msg: '提案することが出てこなかった' }; }
+    // chest: here → 先に共有にして、その id にする
+    if (pr.spec.type === 'rule' && pr.spec.chest === 'here') {
+      const sh = hereChest ? this.doShareChest({ pos: hereChest.nearest }) : null;
+      if (sh && sh.ok) pr.spec.chest = sh.chest; else pr.spec = { type: 'text' };
+    }
+    const id = `${me}#${this.memory.tick}`;
+    const n = this.aliveCount();
+    this.sendBoard(boardLine.propose({ id, n, spec: pr.spec, text: pr.text }));
+    this.boardAsked.add(id);
+    this.recorder.write({ ...rec, ok: true, id, n, need: this.board.proposals.get(id) ? this.board.need(this.board.proposals.get(id)) : null, spec: pr.spec, text: pr.text });
+    this.log(`[${me}] 提案 ${id}「${pr.text}」 ${JSON.stringify(pr.spec)}`);
+    return { ok: true, msg: `全員に「${pr.text}」と提案した`, proposal: { id, spec: pr.spec, text: pr.text } };
+  }
+
+  // ここのチェストを共有にする (全員に知らせる。中身を知っていれば中身も)
+  doShareChest(ch) {
+    if (!this.board || !ch || !ch.pos) return { ok: false, msg: 'チェストが分からない' };
+    if (this.board.chestAt(ch.pos)) return { ok: false, msg: 'そのチェストはもう共有になっている' };
+    if (this.board.chests.size >= this.boardCfg.maxShared) return { ok: false, msg: '共有のチェストはもう増やせない' };
+    const me = this.cfg.persona.name;
+    const id = this.board.nextChestId(me);
+    const pos = { x: Math.floor(ch.pos.x), y: Math.floor(ch.pos.y), z: Math.floor(ch.pos.z) };
+    this.sendBoard(boardLine.share(id, pos));
+    const known = ((this.memory.extra && this.memory.extra.containers) || {})[`${pos.x},${pos.y},${pos.z}`];
+    if (known) this.sendBoard(boardLine.chest(id, me, null, known.items || []));
+    this.recorder.write({ event: 'board', kind: 'share_chest', loop: this.memory.tick, chest: id, pos, known: !!known });
+    return { ok: true, msg: `このチェストを共有にした (${chestLabelJa(id)})`, chest: id };
+  }
+
+  // 行動のあと: 共有のチェストの中身を全員に知らせる・取り決めを守ったか数える・共同の目標の物を置いたら知らせる
+  afterBoardAction(resolved, result) {
+    if (!this.board) return;
+    const me = this.cfg.persona.name;
+    const tick = this.memory.tick;
+    if ((resolved.action === 'chest_put' || resolved.action === 'chest_take') && result.chest) {
+      const c = this.board.chestAt(result.chest.pos);
+      const d = result.ok && result.chest.item ? { item: result.chest.item, n: result.chest.n } : null;
+      // 取り決めとの照らし合わせは、送る前 (自分の行で板の数が変わる前) に
+      const checks = d ? this.board.checkOwn(resolved.action, d.item, c ? c.id : null) : [];
+      if (c) this.sendBoard(boardLine.chest(c.id, me, d, result.chest.items || []));
+      for (const x of checks) this.recorder.write({ event: 'board', kind: 'comply', agreement: x.p.id, by: x.p.by, item: d.item, n: Math.abs(d.n), kept: x.kept, how: x.how, chest: c ? c.id : null, loop: tick });
+    }
+    if (resolved.action === 'place' && result.ok && this.board.activeProjectItems().has(resolved.arg)) {
+      this.sendBoard(boardLine.placed(resolved.arg, 1));
+      this.recorder.write({ event: 'board', kind: 'placed', item: resolved.arg, loop: tick });
+    }
+  }
+
+  // Jev の agree_q* (noul) から賛成/反対を決めて全体チャットで返す
+  voteFromJev(dec) {
+    if (!this.board || !dec.jev || !dec.jev.agree || !this.boardView) return [];
+    const out = [];
+    for (const [q, p] of Object.entries(dec.jev.agree)) {
+      const id = this.boardView.openMap[q];
+      if (!id || p == null) continue;
+      const pr = this.board.proposals.get(id);
+      this.boardAsked.add(id);
+      if (!pr || pr.status !== 'open') continue;
+      const yes = p >= this.boardCfg.voteThreshold;
+      this.sendBoard(boardLine.vote(id, yes));
+      const v = { event: 'board', kind: 'vote', id, by: pr.by, yes, p: Math.round(p * 1000) / 1000, relation: this.social.relationWord(pr.by), affinity: this.social.relations[pr.by] ? Math.round(this.social.relations[pr.by].affinity) : 50, loop: this.memory.tick, yesNow: pr.yes.size, need: this.board.need(pr), status: pr.status };
+      this.recorder.write(v);
+      out.push(v);
+    }
+    return out;
   }
 
   // 拠点の様子 (観察に出す文)。拠点 = set_base の場所、なければ最後にベッド/チェストを置いた所。
@@ -384,6 +629,8 @@ class Agent {
   onChat(username, message) {
     const bot = this.bot;
     if (!bot || username === bot.username) return;
+    // 全体チャットの印のある行は、距離に関係なく全員が受け取る (近くの声には入れない)
+    if (this.board) { const m = parseLine(message); if (m) { this.onBoardLine(username, m); return; } }
     const e = bot.players[username] && bot.players[username].entity;
     if (!e || !bot.entity) return;
     const d = dist3(e.position, bot.entity.position);
@@ -587,13 +834,7 @@ class Agent {
     const thr = (tcfg.threshold ?? 0.6) + (0.5 - (this.social.temperament.sociability ?? 0.5)) * 0.2;
     if (talkP < thr) return null;
     this.talking = true;
-    const players = ctx.raw.entities.filter((e) => e.kind === 'player');
-    const tctx = {
-      persona: this.cfg.persona, goal: ctx.goal, plan: ctx.progress || '', socialText: ctx.socialText,
-      nearText: players.map((e) => `${e.name} ${relDir(ctx.raw.self.pos, e.pos)}`).join(', '),
-      heardText: ctx.raw.heard.map((h) => `${h.from}「${h.text}」`).join(' '),
-      memText: ctx.memText, plannedAction: plannedText,
-    };
+    const tctx = this.talkCtx(ctx, plannedText);
     const loop = this.memory.tick;
     this.talker.talk(tctx).then((r) => {
       const said = r.say && this.chat(r.say) ? r.say : null;
@@ -640,8 +881,10 @@ class Agent {
     const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)));
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
     const socialEn = this.social.words({ lang: 'en' });
+    const bview = this.prepareBoard(raw);
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
+      boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
@@ -701,6 +944,7 @@ class Agent {
         containers: (this.memory.extra && this.memory.extra.containers) || {}, home: this.homeSpot,
         policy: this.reflect ? this.reflect.policyText() : null,
         pressing: (o) => this.social.needsModel.pressing(o),
+        board: bview ? bview.goal : null,
       }, tick, { troubles });
       this.lastGave = [];
       ctx.progress = this.goalPath.planText();
@@ -728,6 +972,7 @@ class Agent {
       if (Number.isFinite(dec.jev.remember)) this.memory.setRecentImportance(dec.jev.remember / 4, tick - 1);
       for (const [name, sc] of Object.entries(dec.jev.relations || {})) this.social.onRelationScore(name, sc);
     }
+    const votes = this.voteFromJev(dec);
     const plannedText = `${resolved.action}${resolved.arg ? '(' + resolved.arg + ')' : ''}`;
     const talkThr = this.maybeTalk(ctx, dec, plannedText);
 
@@ -740,7 +985,9 @@ class Agent {
       ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t, o) => this.chat(t, o),
       base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
       setBase: () => this.setBase(),
+      broadcast: () => this.doBroadcast(ctx), propose: () => this.doPropose(ctx), shareChest: (ch) => this.doShareChest(ch),
     });
+    this.afterBoardAction(resolved, result);
     const actMs = Date.now() - tAct;
     // 行動中に近くでほかの人が拾った物・壊したブロックを、結果の文にそのまま足す (記憶にも入る)
     if (this.others && (this.othersCfg.actions || []).includes(resolved.action)) {
@@ -847,6 +1094,7 @@ class Agent {
       decideMs: dec.latencyMs,
       actMs,
       talk: dec.talk || null,
+      board: bview ? { shown: this.boardView.shown.map((m) => `${m.from}:${m.why}`), open: Object.values(this.boardView.openMap), votes: votes.map((v) => `${v.id}:${v.yes ? 'yes' : 'no'}`) } : null,
       inventory: inv,
       foodCount: raw.foodCount,
       hutSeen: raw.hut,
@@ -895,7 +1143,7 @@ class Agent {
     }
     // 発言・答えの途中なら少し待つ (記録を閉じる前に)
     for (let i = 0; i < 60 && (this.talking || this.answering); i++) await sleep(250);
-    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, reflect: this.reflect ? { count: this.reflect.count, history: this.reflect.history } : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON() });
+    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, reflect: this.reflect ? { count: this.reflect.count, history: this.reflect.history } : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON(), board: this.board ? this.board.snapshot() : null });
     this.memory.extra.social = this.social.toJSON();
     this.memory.save();
     await this.recorder.close();

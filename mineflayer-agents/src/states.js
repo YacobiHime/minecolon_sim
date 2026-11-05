@@ -11,6 +11,7 @@
 //   研究方針: 仕様・事実は見せるが、どう使うとよいかは書かない。数値はここで持ち、モデルには言葉だけ (手間は 小/中/大)。
 const { Planner, effortWord, EFFORT_EN } = require('./planner');
 const { dist3 } = require('./util');
+const { chestLabelEn } = require('./board');
 
 const { BREED_FOOD } = require('./animals');
 const PEN_ANIMALS = ['cow', 'sheep', 'pig', 'chicken'];
@@ -104,6 +105,8 @@ function parseStateId(id) {
   if (s === 'walled_base') return { type: 'walled' };
   m = s.match(/^chest_([a-z0-9_]+)$/);
   if (m) return { type: 'chest', item: m[1] };
+  m = s.match(/^shared_([A-Za-z0-9_]+-\d+)__([a-z0-9_]+)$/);
+  if (m) return { type: 'shared', chest: m[1], item: m[2] };
   return null;
 }
 
@@ -115,6 +118,7 @@ function stateGoalText(st, count) {
   if (st.type === 'lit') return `拠点の近くに明かりが${n}個ある`;
   if (st.type === 'walled') return '拠点の真ん中が囲われている';
   if (st.type === 'chest') return `拠点の近くのチェストに ${st.item} が${n}個ある`;
+  if (st.type === 'shared') return `共有のチェスト ${st.chest} に ${st.item} が${n}個ある`;
   return '';
 }
 
@@ -126,6 +130,7 @@ function stateGoalTextEn(st, count) {
   if (st.type === 'lit') return `${n} lights near the base`;
   if (st.type === 'walled') return 'the center of the base is enclosed';
   if (st.type === 'chest') return `${n} ${st.item} in a chest near the base`;
+  if (st.type === 'shared') return `${n} ${st.item} in ${chestLabelEn(st.chest)}`;
   return '';
 }
 
@@ -140,6 +145,12 @@ function senseState(st, sense, cfg = DEFAULTS) {
     if (!blockAt || !here) return { have: 0, known: false };
     const f = hydratedFarmland(blockAt, here, { radius: c.farmRadius, hydrate: c.hydrate });
     return { have: f.wet, all: f.all, known: true };
+  }
+  // 共有のチェスト: 中身は全員に見えている (board.js。sense.shared = [{ id, items, known }])
+  if (st.type === 'shared') {
+    const ch = (sense.shared || []).find((x) => x.id === st.chest);
+    if (!ch) return { have: 0, known: false, noChest: true };
+    return { have: (ch.items || []).filter((i) => i.name === st.item).reduce((t, i) => t + i.count, 0), known: ch.known !== false, chests: 1 };
   }
   if (!anchor) return { have: 0, known: false, noBase: true };
   if (st.type === 'chest') {
@@ -184,7 +195,9 @@ function senseState(st, sense, cfg = DEFAULTS) {
 // 返り値 { ok, items: planMany の結果, acts: [{ how, ... }], steps (物の手順 + 行動の手順), next, effort, missing }
 function planState(st, count, world, status = { have: 0 }, opts = {}) {
   const c = { ...DEFAULTS, ...(opts.cfg || {}) };
-  const planner = opts.planner || new Planner(world, { version: opts.version });
+  // 共有のチェストに入れるゴールは、そのチェストから出す道筋を作らない
+  if (st.type === 'shared' && (world.sharedChests || []).some((x) => x.id === st.chest)) world = { ...world, sharedChests: world.sharedChests.filter((x) => x.id !== st.chest) };
+  const planner = (st.type === 'shared' ? null : opts.planner) || new Planner(world, { version: opts.version });
   const n = Math.max(1, Math.floor(count) || DEFAULTS.counts[st.type] || 1);
   const left = Math.max(0, n - (status.have || 0));
   const need = []; const acts = [];
@@ -231,6 +244,9 @@ function planState(st, count, world, status = { have: 0 }, opts = {}) {
     if (!status.chests) { need.push({ item: 'chest', count: 1 }); acts.push({ how: 'place', item: 'chest', count: 1, where: '拠点' }); }
     need.push({ item: st.item, count: left });
     acts.push({ how: 'chest_put', item: st.item, count: left });
+  } else if (st.type === 'shared' && left > 0) {
+    need.push({ item: st.item, count: left });
+    acts.push({ how: 'chest_put', item: st.item, count: left, chest: st.chest });
   }
   const items = planner.planMany(need);
   if (!items.ok) return { ok: false, missing: items.missing, acts, steps: items.steps || [] };
@@ -256,7 +272,7 @@ function actText(a) {
   if (a.how === 'till') return `耕す ${a.count} (${a.tool} を水の近くの土に)`;
   if (a.how === 'find') return `${a.block} を探す`;
   if (a.how === 'place') return `${a.item} ${a.count} を置く (${a.where})`;
-  if (a.how === 'chest_put') return `chest に ${a.item} ${a.count} を入れる`;
+  if (a.how === 'chest_put') return a.chest ? `共有のチェスト ${a.chest} に ${a.item} ${a.count} を入れる` : `chest に ${a.item} ${a.count} を入れる`;
   return a.how;
 }
 
@@ -267,15 +283,16 @@ function actTextEn(a) {
   if (a.how === 'till') return `till ${a.count} (${a.tool} on dirt near water)`;
   if (a.how === 'find') return `find ${a.block}`;
   if (a.how === 'place') return `place ${a.count} ${a.item} (${a.where === '拠点' ? 'at the base' : a.where})`;
-  if (a.how === 'chest_put') return `put ${a.count} ${a.item} into a chest`;
+  if (a.how === 'chest_put') return a.chest ? `put ${a.count} ${a.item} into ${chestLabelEn(a.chest)}` : `put ${a.count} ${a.item} into a chest`;
   return a.how;
 }
 
-const UNIT = { pen: '頭', farmland: 'マス', lit: '個', walled: '', chest: '個' };
+const UNIT = { pen: '頭', farmland: 'マス', lit: '個', walled: '', chest: '個', shared: '個' };
 const GEAR = /_(sword|axe|pickaxe|shovel|hoe|helmet|chestplate|leggings|boots)$|^(shield|bow|crossbow|fishing_rod|shears)$/;
 
 // 2B に見せる状態の候補 [{ name, desc, state, count }]。
-// ctx = { world (planner の world), sense (senseState の材料), raw, cfg, dir (pos → 方角の言葉) }
+// ctx = { world (planner の world), sense (senseState の材料), raw, cfg, dir (pos → 方角の言葉),
+//         shared: [{ chest, item, add, note, noteEn }] (取り決め・共同の目標から: 共有のチェストに item を add 個入れる。board.js) }
 function stateCandidates(ctx) {
   const c = { ...DEFAULTS, ...(ctx.cfg || {}) };
   const raw = ctx.raw || { inventory: [], entities: [] };
@@ -285,15 +302,24 @@ function stateCandidates(ctx) {
   const inv = new Map();
   for (const i of raw.inventory || []) if (!GEAR.test(i.name)) inv.set(i.name, (inv.get(i.name) || 0) + i.count);
   for (const [n] of [...inv].sort((a, b) => b[1] - a[1]).slice(0, c.chestItems)) ids.push(`chest_${n}`);
+  const extra = new Map();
+  for (const x of ctx.shared || []) {
+    const id = `shared_${x.chest}__${x.item}`;
+    if (extra.has(id) || !parseStateId(id)) continue;
+    extra.set(id, x); ids.push(id);
+  }
   const out = [];
   for (const id of ids) {
     const st = parseStateId(id);
     if (!st) continue;
-    const n = c.counts[st.type];
+    const ex = extra.get(id) || null;
     const status = senseState(st, sense, c);
+    // 共有のチェスト: 今ある数 + 入れる数 (add)
+    const n = ex ? (status.have || 0) + Math.max(1, ex.add || 1) : c.counts[st.type];
     const p = planState(st, n, ctx.world || {}, status, { planner, cfg: c });
     const facts = [];
     const fe = []; // 英語 (Jev 用。同じ値から)
+    if (ex && ex.note) { facts.push(ex.note); fe.push(ex.noteEn || ex.note); }
     if (status.noBase) { facts.push('拠点はまだない'); fe.push('no base yet'); }
     else if (st.type === 'farmland' || status.known) {
       facts.push(st.type === 'walled' ? (status.have ? '今は囲われている' : '今は囲われていない') : `今${status.have}${UNIT[st.type]}`);
