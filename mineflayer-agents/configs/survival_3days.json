@@ -502,7 +502,7 @@
       "_comment_later": "先のつらさ (needs.anticipate) も 案 × 先の欲求 (夜・この先の食べ物) の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。laterMinRatio 未満の先のつらさは入れない。どちらの点で決まったかは event の select.decidedBy (now: いまの点だけでも同じ案 / later: 先の点で案が変わった / later_only: いまつらい欲求が無い)",
       "later": true,
       "laterNeeds": 2,
-      "laterMinRatio": 0.6
+      "laterMinRatio": 0.5
     }
   },
   "reflect": {

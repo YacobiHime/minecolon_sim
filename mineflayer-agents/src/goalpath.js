@@ -47,7 +47,7 @@ const DEFAULTS = {
   //   つらい欲求が無いとき (no_pressing_need) は Jev を呼ばず、2B が先に書いた案
   //   later: 先のつらさ (anticipate.js: 夜・この先の食べ物) も 案 × 先の欲求 の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。
   //     laterMinRatio: しきい値に対する割合がこれ未満の先のつらさは入れない。laterNeeds: いくつまで
-  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.6 },
+  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.5 },
 };
 const KINDS = ['item', 'person', 'place', 'state'];
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
