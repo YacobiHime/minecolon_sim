@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { Needs, needsConfig, senseShelter, effectiveLight, foodPoints } = require('../src/needs');
+const { Needs, needsConfig, senseShelter, effectiveLight, foodPoints, hungerFromFood } = require('../src/needs');
 const { Social } = require('../src/social');
 const { GoalPlan, parseGoal, GOAL_SCHEMA } = require('../src/goalplan');
 const { loadConfig } = require('../src/config');
@@ -20,7 +20,7 @@ function run(n, from, to, step = 200, sense = {}) {
   for (let t = from; t <= to; t += step) n.update({ time: t, timeOfDay: t % 24000, light: 15, shelter: { enclosed: true }, players: [], ...sense });
 }
 
-test('空腹: ゲームの満腹度と関係なく時間で必ず増え、食べると食べ物の量に応じて減る', () => {
+test('空腹 (満腹度が分からないとき): 時間で増え、食べると食べ物の量に応じて減る', () => {
   const n = new Needs({});
   run(n, 0, 3500);
   assert.ok(n.v.hunger > 0.6 && n.v.hunger < 0.8, String(n.v.hunger)); // 0.2 + 3500/7000
@@ -32,6 +32,46 @@ test('空腹: ゲームの満腹度と関係なく時間で必ず増え、食べ
   assert.strictEqual(n.v.hunger, 0.5);
   assert.strictEqual(foodPoints('bread'), 5);
   assert.strictEqual(n.counts.ate, 2);
+});
+
+test('空腹 (満腹度が基準): 1 − food/20、隠し満腹度が0なら少し強く。食べた分は満腹度の回復で減る。寝て夜を飛ばしても増えない', () => {
+  const n = new Needs({});
+  n.update({ time: 0, timeOfDay: 1000, food: 20, saturation: 5 });
+  assert.strictEqual(n.v.hunger, 0);
+  n.update({ time: 200, timeOfDay: 1200, food: 14, saturation: 2 });
+  assert.strictEqual(n.v.hunger, 0.3);
+  n.update({ time: 400, timeOfDay: 1400, food: 14, saturation: 0 });
+  assert.strictEqual(n.v.hunger, 0.4);
+  // 時間がたっても満腹度が同じなら変わらない
+  n.update({ time: 6000, timeOfDay: 7000, food: 14, saturation: 0 });
+  assert.strictEqual(n.v.hunger, 0.4);
+  n.update({ time: 6200, timeOfDay: 7200, food: 8, saturation: 0 });
+  assert.strictEqual(n.v.hunger, 0.7);
+  n.onEat('cooked_beef'); // 満腹度 +8、隠し +12.8 → food 16
+  assert.strictEqual(n.v.hunger, 0.2);
+  assert.strictEqual(n.food, 16);
+  n.update({ time: 6400, timeOfDay: 7400, food: 16, saturation: 12.8 });
+  assert.strictEqual(n.v.hunger, 0.2);
+  n.onSleep({ nightSkipped: true });
+  assert.strictEqual(n.v.hunger, 0.2, '満腹度で決めているときは bedHunger を足さない');
+  assert.strictEqual(hungerFromFood(0, 0), 1);
+  // 保存して戻せる
+  const back = Needs.fromJSON(JSON.parse(JSON.stringify(n.toJSON())));
+  assert.strictEqual(back.food, 16);
+});
+
+test('空腹の人ごとの差: sensitivity (感じやすさ) と threshold。survival_3days の Taro は感じやすく、Shota は感じにくく、Emi は早めに気にする', () => {
+  const cfg = loadConfig(CFG);
+  const mk = (name) => new Needs({ cfg: needsConfig(cfg, cfg.personas.find((p) => p.name === name)) });
+  const [taro, emi, ken] = ['Taro', 'Emi', 'Ken'].map(mk);
+  const slow = cfg.personas.find((p) => p.needs && p.needs.hunger && p.needs.hunger.sensitivity < 1);
+  assert.ok(slow, '感じにくい人がいる');
+  const y = mk(slow.name);
+  for (const n of [taro, emi, ken, y]) n.update({ time: 0, timeOfDay: 1000, food: 12, saturation: 1 });
+  assert.ok(taro.v.hunger > ken.v.hunger && ken.v.hunger > y.v.hunger, `${taro.v.hunger} ${ken.v.hunger} ${y.v.hunger}`);
+  assert.strictEqual(slow.name, 'Shota');
+  assert.strictEqual(emi.v.hunger, ken.v.hunger);
+  assert.ok(emi.threshold('hunger') < ken.threshold('hunger'), 'Emi は早めに気にする (しきい値)');
 });
 
 test('眠気: 起きている間ずっと増え、夜に速い。ベッドで消える。床で休むと少し。寝ずに夜を越すと翌日まで残り「昨夜は寝られなかった」', () => {
@@ -203,6 +243,10 @@ test('1日のシミュレーション: 食べない・寝ない・夜に外 で�
   assert.ok(at('nightOut', 18).safety > 0.6);
   assert.ok(at('all', 20).stress > at('noFood', 20).stress);
   assert.ok(at('alone', 24).stress > at('normal', 24).stress);
+  // 空腹は満腹度から: 食べないと満腹度が0近くまで減り空腹は1、ふつうの日は食べて満腹度が戻る
+  assert.ok(at('noFood', 12).food <= 2 && at('noFood', 12).hunger === 1, JSON.stringify(at('noFood', 12)));
+  const normal = simulate(SCENARIOS.normal, { days: 1 });
+  assert.ok(normal.every((r) => r.food >= 12 && r.hunger < 0.5), JSON.stringify(normal.map((r) => [r.food, r.hunger])));
 });
 
 // ---- 欲求からのゴール ----

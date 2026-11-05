@@ -10,6 +10,7 @@ const { hutSlots, hutStatus } = require('./hut');
 const { exploreTarget } = require('./explore');
 const { moreHandlers, MORE_TIMEOUTS, noteContainer, furnaceItems, invDiff } = require('./act_more');
 const { penHandlers, PEN_TIMEOUTS } = require('./act_pen');
+const unstuck = require('./unstuck');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
@@ -55,6 +56,7 @@ function invCount(bot, name) { return bot.inventory.items().filter((i) => i.name
 
 function pathErr(e) {
   const n = (e && (e.name || '')) + ' ' + (e && e.message || '');
+  if (/NoProgress/.test(n)) return '動けなかった (近づけなかった)';
   if (/NoPath|No path/i.test(n)) return '道が見つからない';
   if (/Timeout|timeout/i.test(n)) return '時間切れ';
   if (/GoalChanged|interrupted|stopped/i.test(n)) return '中断された';
@@ -66,10 +68,13 @@ function pathErr(e) {
 function haltPath(bot) {
   try { bot.pathfinder.setGoal(null); } catch (_) { /* ignore */ }
   try { bot.clearControlStates(); } catch (_) { /* ignore */ }
+  unstuck.clearReturning(bot);
 }
 
+// goto は進み具合で打ち切る (unstuck.gotoProgress: 既定 10秒で 1m も目標に近づかなければ NoProgress)。
+// 行動ごとの時間切れ (DEFAULT_TIMEOUTS) は上限として残る
 async function gotoGoal(bot, goal) {
-  await bot.pathfinder.goto(goal);
+  await unstuck.gotoProgress(bot, goal);
 }
 
 // 掘る速さが一番よい道具を持つ (なければ素手)。持った道具の名前を返す (素手なら null)。

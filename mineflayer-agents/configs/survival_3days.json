@@ -16,7 +16,8 @@
       "needs": {
         "_comment": "よく食べる (お腹が空きやすい)",
         "hunger": {
-          "fullAfter": 6000
+          "fullAfter": 6000,
+          "sensitivity": 1.2
         }
       }
     },
@@ -266,7 +267,8 @@
           "k": 0.007
         },
         "hunger": {
-          "fullAfter": 9000
+          "fullAfter": 9000,
+          "sensitivity": 0.8
         }
       }
     },
@@ -388,7 +390,8 @@
           "k": 0.018
         },
         "hunger": {
-          "fullAfter": 6000
+          "fullAfter": 6000,
+          "sensitivity": 1.2
         }
       }
     },

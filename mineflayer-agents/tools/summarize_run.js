@@ -551,6 +551,26 @@ function voiceStats(all, { hearRadius = 24, replySec = 60 } = {}) {
   return { near: near.length, global: glob.length, globalShare: ratio(near.length, glob.length), votes, nearWithListener: withListener, nearReplied: replied, replySec, hearRadius, perAgent: per };
 }
 
+// 動けない (unstuck.js): 回復の回数と結果・移動の打ち切り・押し戻し・path_reset の理由・returningPos
+function stuckStats(all, loops) {
+  const ev = all.filter((r) => r.event === 'unstuck');
+  const mv = loops.filter((r) => r.result && r.result.move).map((r) => ({ name: r._name, action: r.action, ...r.result.move }));
+  const resets = {};
+  for (const m of mv) for (const [k, v] of Object.entries(m.resets || {})) resets[k] = (resets[k] || 0) + v;
+  const reconnects = ev.filter((r) => r.reconnect);
+  return {
+    stuck: ev.length, recovered: ev.filter((r) => r.ok).length, notRecovered: ev.filter((r) => !r.ok).length,
+    perAgent: countBy(ev, (r) => r._name), byHow: countBy(ev, (r) => r.how || '?'),
+    reconnects: reconnects.length, reconnectOk: reconnects.filter((r) => r.reconnect.ok).length,
+    withReturningPos: ev.filter((r) => r.returning).length,
+    moveActions: mv.length, gotos: sum(mv.map((m) => m.gotos || 0)), noProgress: sum(mv.map((m) => m.noProgress || 0)),
+    noProgressByAction: countBy(mv.filter((m) => m.noProgress), (m) => m.action),
+    forcedMoves: sum(mv.map((m) => m.forced || 0)), forcedByAgent: mv.filter((m) => m.forced).reduce((o, m) => { o[m.name] = (o[m.name] || 0) + m.forced; return o; }, {}),
+    resets, returningSeen: mv.filter((m) => m.returning > 0).length, returningCleared: sum(mv.map((m) => m.returningCleared || 0)),
+    list: ev.slice(0, 20).map((r) => `${r._name} #${r.loop} ${r.action}${r.arg ? `(${r.arg})` : ''} → ${r.ok ? '回復' : '回復できず'}: ${r.how}${r.reconnect ? ` [入り直し ${r.reconnect.ok ? 'OK' : 'NG'}]` : ''}`),
+  };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const target = args.find((a) => !a.startsWith('--'));
@@ -628,6 +648,7 @@ function main() {
       items: sum(loops.map((r) => ((r.result && r.result.others) || []).length)) },
     cooperation: cooperationStats(all),
     board: boardStats(all),
+    stuck: stuckStats(all, loops),
     voices: voiceStats(all),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
@@ -739,6 +760,10 @@ function main() {
       for (const a of bd.agreements) if (a.compliance) console.log(`  取り決め ${a.id}: 守った ${a.compliance.kept} ${JSON.stringify(a.compliance.keptBy)}・破った ${a.compliance.broken} ${JSON.stringify(a.compliance.brokenBy)}`);
       for (const l of bd.breachKnown.slice(0, 5)) console.log(`  ${l}`);
     }
+    const su = out.stuck;
+    console.log(`動けない ${su.stuck} 回 (回復 ${su.recovered}・回復できず ${su.notRecovered}、入り直し ${su.reconnectOk}/${su.reconnects}、returningPos があった ${su.withReturningPos}) ${JSON.stringify(su.perAgent)}、回復のしかた ${JSON.stringify(su.byHow)}`);
+    console.log(`  移動の打ち切り (10秒近づかない) ${su.noProgress} 回 / goto ${su.gotos} 回 ${JSON.stringify(su.noProgressByAction)}、押し戻し ${su.forcedMoves} 回 ${JSON.stringify(su.forcedByAgent)}、path_reset ${JSON.stringify(su.resets)}、行動の終わりに消した returningPos ${su.returningCleared}`);
+    for (const l of su.list) console.log(`  ${l}`);
     console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
     const jc = out.jevChoice;
     if (jc && jc.p.n) {

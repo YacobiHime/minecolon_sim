@@ -18,6 +18,7 @@ const { Social } = require('./social');
 const { senseShelter, effectiveLight, needsConfig } = require('./needs');
 const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
+const unstuck = require('./unstuck');
 const nochange = require('./nochange');
 const { SelfGoal } = require('./selfgoal');
 const { GoalPlan } = require('./goalplan');
@@ -79,7 +80,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
   // ④ 失敗の除外 (段階1)。first_setting では外し、代わりに「聞く」を使う
   const blocked = help.excludeFailures ? memory.recentFailures(cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2) : new Set();
   const nc = help.noChange ? noChangeCfg(cfg) : null;
-  const troubles = help.askOthers ? (extra.troubles || ask.troubles(memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, nc)) : [];
+  const troubles = extra.troubles || (help.askOthers ? ask.troubles(memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, nc) : []);
   const actions = listActions(raw, {
     memPlaces, foods: extra.foods, placeable: extra.placeable, blocked, maxReachUp: cfg.act.maxReachUp,
     goalItems: new Set(Object.keys((cfg.goal.success && cfg.goal.success.inventory) || {})),
@@ -206,6 +207,10 @@ class Agent {
       : null;
     this.lastGoalDoneP = null;
     this.deaths = [];
+    // 動けない状態の見張りと回復 (cfg.unstuck。unstuck.js)
+    this.unstuckCfg = { ...unstuck.UNSTUCK_DEFAULTS, ...(cfg.unstuck || {}) };
+    this.stuck = new unstuck.StuckWatch(this.unstuckCfg);
+    this.reconnects = 0;
     this.lastDeathMsg = null;
     this.knowledge = loadKnowledge(cfg);
     this.loopHist = []; // 行動の後の状態の履歴 (nochange.netNoChange 用。netWindow + 1 件)
@@ -556,7 +561,8 @@ class Agent {
     });
   }
 
-  connect() {
+  // again: 入り直し (unstuck)。拠点・記憶・欲求・ゴール・Board はこの Agent が持ったまま、bot だけ作り直す
+  connect({ again = false } = {}) {
     const s = this.cfg.server;
     this.bot = mineflayer.createBot({ host: s.host, port: s.port, username: this.cfg.persona.name, version: s.version, auth: 'offline' });
     const bot = this.bot;
@@ -596,8 +602,10 @@ class Agent {
         mv.allowParkour = true;
         bot.pathfinder.setMovements(mv);
         bot.pathfinder.thinkTimeout = 5000;
+        // returningPos で止まらないように (LOSWhenPlacingBlocks = false)・竹は乗らずに壊す・押し戻しと path_reset を数える
+        unstuck.setupPathfinder(bot, mv, this.unstuckCfg);
         try { await Promise.race([bot.waitForChunksToLoad(), sleep(10000)]); } catch (_) { /* ignore */ }
-        this.setupBase();
+        if (!again) this.setupBase();
         this.watchOthers();
         resolve();
       });
@@ -795,6 +803,9 @@ class Agent {
     // 自分の寝床: 自分の拠点か、寝たことのあるベッド (記憶の場所) の近く
     const homes = this.memory.places.filter((q) => q.kind === BASE_KIND || /_bed$/.test(q.kind));
     const hr = (this.social.needsModel.cfg.safety.homeRadius) || 8;
+    // 空腹はマイクラの満腹度 (0〜20) と隠し満腹度 (saturation) から (needs.js)
+    if (bot && Number.isFinite(bot.food)) s.food = bot.food;
+    if (bot && Number.isFinite(bot.foodSaturation)) s.saturation = bot.foodSaturation;
     s.atHome = homes.some((q) => dist3(pos, q) <= hr) || (this.base ? dist3(pos, this.base) <= hr : false);
     // 知らない場所: 初めて入ったマスか、入ったのが1回だけで来たばかり
     s.unfamiliar = !cell || (cell.n <= 1 && this.memory.tick - cell.first < 10);
@@ -870,6 +881,9 @@ class Agent {
     const net = nc && nc.net !== false ? nochange.netNoChange(this.loopHist, nc) : null;
     const ncT = nc && net && net.keys.size ? { ...nc, netKeys: net.keys } : nc;
     const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, ncT).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
+    // その場から動けない (unstuck.js): 回復のあと troubleLoops ループ出す (Jev の state・2B のゴール選び)
+    const stuckT = this.stuck.trouble(tick);
+    if (stuckT) troubles.unshift(stuckT);
     // 自分で決めた拠点: 近くに居れば記憶を新しくする。記憶から消えたら (忘れたら) 拠点も無くなる
     if (cfg.world && cfg.world.base === 'self' && this.base) {
       const bp = this.memory.places.find((q) => q.kind === BASE_KIND);
@@ -981,6 +995,7 @@ class Agent {
     const before = nochange.snapshot({ inventory: raw.inventory, pos: raw.self.pos, hutFilled: this.trueHut ? this.trueHut.filled : null });
     const tAct = Date.now();
     const othersMark = this.others ? this.others.mark() : 0;
+    unstuck.beginAction(bot);
     const result = await executeAction(bot, resolved, {
       ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t, o) => this.chat(t, o),
       base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
@@ -989,6 +1004,10 @@ class Agent {
     });
     this.afterBoardAction(resolved, result);
     const actMs = Date.now() - tAct;
+    // 移動の記録 (goto の回数・打ち切り・押し戻し・path_reset の理由・掘る/置く/動くの割合・returningPos)。行動の終わりに returningPos を消す
+    const move = unstuck.endAction(bot);
+    if (move) result.move = move;
+    const stuckNow = this.stuck.note({ action: resolved.action, ok: result.ok, move });
     // 行動中に近くでほかの人が拾った物・壊したブロックを、結果の文にそのまま足す (記憶にも入る)
     if (this.others && (this.othersCfg.actions || []).includes(resolved.action)) {
       const seen = this.others.since(othersMark);
@@ -1103,7 +1122,60 @@ class Agent {
     });
     this.memory.save();
     this.log(`[${bot.username}] #${loopNo} ${valid ? '' : '(fallback) '}${resolved.action}(${resolved.arg}) -> ${result.ok ? 'OK' : 'NG'} ${result.msg}${said ? ` / say「${said}」` : ''} [decide ${dec.latencyMs}ms, act ${actMs}ms]`);
+    if (stuckNow) await this.recoverStuck(loopNo, tick, resolved, move);
     return { met };
+  }
+
+  // 動けない: 回復手順 (unstuck.recover)。駄目なら同じ名前で入り直す。記録は event 'unstuck'
+  async recoverStuck(loopNo, tick, resolved, move) {
+    const c = this.unstuckCfg;
+    const bot = this.bot;
+    const pos = bot.entity ? { x: Math.round(bot.entity.position.x * 10) / 10, y: Math.round(bot.entity.position.y * 10) / 10, z: Math.round(bot.entity.position.z * 10) / 10 } : null;
+    let rec;
+    try { rec = await unstuck.recover(bot, c); } catch (e) { rec = { ok: false, how: `回復の途中で失敗: ${String(e.message).slice(0, 40)}`, steps: [] }; }
+    let reconnect = null;
+    if (!rec.ok && c.reconnect) {
+      reconnect = await this.reconnect('unstuck');
+      if (reconnect.ok) rec = { ...rec, ok: true, how: '入り直したら動けるようになった' };
+    }
+    this.stuck.noteRecovery(tick, rec);
+    const ev = { event: 'unstuck', loop: loopNo, tick, pos, action: resolved.action, arg: resolved.arg, move, ok: !!rec.ok, how: rec.how, moved: rec.moved ?? null,
+      steps: rec.steps, dug: rec.dug || null, returning: !!rec.returning, reconnect };
+    this.recorder.write(ev);
+    this.log(`[${this.cfg.persona.name}] 動けない → ${rec.ok ? '回復' : '回復できず'}: ${rec.how}${reconnect ? ` (入り直し ${reconnect.ok ? 'OK' : 'NG'})` : ''}`);
+    return ev;
+  }
+
+  // 同じ名前で入り直す。記憶・欲求・ゴール・Board・拠点はこの Agent が持ったまま (bot だけ作り直す)
+  async reconnect(reason = 'reconnect') {
+    const c = this.unstuckCfg;
+    const old = this.bot;
+    const t0 = Date.now();
+    const base = this.base;
+    const wasStopped = this.stopped;
+    this.reconnects += 1;
+    if (old) {
+      // 古い bot の end/kicked は数えない (stopped を立てない・run.js の切断にも数えない)
+      old.removeAllListeners('end'); old.removeAllListeners('kicked'); old.on('error', () => {});
+      try { old.quit(reason); } catch (_) { /* ignore */ }
+    }
+    await sleep(c.reconnectWaitMs);
+    let ok = false; let err = null;
+    for (let i = 0; i < 2 && !ok; i++) {
+      let timer;
+      try {
+        await Promise.race([this.connect({ again: true }), new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('接続のタイムアウト')), c.reconnectTimeoutMs); })]).finally(() => clearTimeout(timer));
+        ok = true;
+      } catch (e) {
+        err = String(e.message).slice(0, 80);
+        const b = this.bot;
+        if (b && b !== old) { b.removeAllListeners('end'); b.removeAllListeners('kicked'); b.on('error', () => {}); try { b.end('retry'); } catch (_) { /* ignore */ } }
+        await sleep(c.reconnectWaitMs);
+      }
+    }
+    if (base) this.base = base;
+    this.stopped = ok ? wasStopped : true;
+    return { ok, reason, ms: Date.now() - t0, error: err, n: this.reconnects };
   }
 
   startRecord(extra = {}) {

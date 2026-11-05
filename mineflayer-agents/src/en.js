@@ -94,6 +94,8 @@ const SENT = [
   [new RegExp(`^${W}を${W}に向けて使った(?:: (.*))?$`), (m) => `used ${m[1]} toward ${m[2]}${m[3] ? `: ${useDetail(m[3])}` : ''}`],
   [/^(.+?)が時間切れ$/, (m) => `${m[1]} timed out`],
   [/^時間切れ$/, () => 'timed out'],
+  [/^動けなかった \(近づけなかった\)$/, () => 'could not move (got no closer for a while)'],
+  [/^(.+?)が動けなかった \(近づけなかった\)$/, (m) => `${m[1]}: could not move (got no closer for a while)`],
   [new RegExp(`^手の届く高さに${W}が見えない$`), (m) => `no ${m[1]} visible within reach`],
   [new RegExp(`^${W}を拾えなかった(?:: (.*))?$`), (m) => `could not pick up ${m[1]}${m[2] ? `: ${reason(m[2])}` : ''}`],
   [new RegExp(`^${W}の下へ行けなかった: (.*)$`), (m) => `could not get under ${m[1]}: ${reason(m[2])}`],
@@ -172,6 +174,7 @@ function tail(s) {
   const t = String(s || '');
   const out = [];
   if (/時間切れ/.test(t)) out.push('timed out');
+  if (/動けなかった/.test(t)) out.push('could not move');
   const plus = t.match(/\(([a-z_]+\+\d+(?:, ?[a-z_]+\+\d+)*)\)/);
   if (plus) out.push(`also ${plus[1]}`);
   return out.length ? ` (${out.join('; ')})` : '';
@@ -180,6 +183,7 @@ function reason(s) {
   const t = String(s || '').trim();
   if (/時間切れ|timeout/i.test(t)) return 'timed out';
   if (/道が見つからない|No path|noPath/i.test(t)) return 'no path';
+  if (/動けなかった \(近づけなかった\)/.test(t)) return 'could not move (got no closer for a while)';
   if (/動けなかった/.test(t)) return 'could not move';
   return t;
 }

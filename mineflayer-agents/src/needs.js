@@ -1,5 +1,5 @@
 'use strict';
-// 人としての欲求とストレス (ゲームの満腹度・仕組みとは切り離す)。
+// 人としての欲求とストレス。空腹だけはマイクラの満腹度 (food 0〜20・saturation) を基準にする (2026-11-05 ユーザー決定)。
 //   人は食べる・寝る・安心できることが必要で、できないと相当ストレスになる。マイクラで寝なくても困らない・
 //   安全が仕組みの上で要らないのとは関係なく、人としての欲求を持たせ、マイクラはそれを満たす手段にする。
 //
@@ -26,8 +26,11 @@ const KANJI = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'
 // 既定値 (全員同じ)。fullAfter は 0 から 1 (いちばんつらい) まで増えるのにかかる tick (増える速さ = 1/fullAfter。rate で直接も書ける)
 const NEEDS_DEFAULTS = {
   start: { hunger: 0.2, sleep: 0.1, safety: 0.1, connection: 0.2, recognition: 0.2, curiosity: 0.3, greed: 0.2, care: 0.2 },
-  // 空腹: 約7時間 (7000 tick ≈ 等倍で6分) でいちばんつらくなる。食べると、食べ物の満腹度 (foodPoints) × perFoodPoint だけ減る
-  hunger: { fullAfter: 7000, threshold: 0.5, perFoodPoint: 0.1, minEat: 0.1 },
+  // 空腹 (source 'food'): 空腹 = (1 − food/20 + 隠し満腹度 (saturation) が 0 なら satZero) × sensitivity。
+  //   food はマイクラの満腹度 (bot.food)。食べた分は満腹度の回復でそのまま減る (食べた直後は foodPoints と saturation から見積もる)。
+  //   人ごとの差: sensitivity (空腹の感じやすさ。大きいほど早くつらい) と threshold。
+  //   満腹度が分からないとき (bot なしのテストなど) だけ、前の方式: 約7時間 (fullAfter) でいちばんつらくなり、食べると foodPoints × perFoodPoint 減る
+  hunger: { source: 'food', satZero: 0.1, sensitivity: 1, fullAfter: 7000, threshold: 0.5, perFoodPoint: 0.1, minEat: 0.1 },
   // 眠気: 起きている間ずっと増え、夜は nightMult 倍。ベッドで夜を越すと bedTo まで、途中で起きたら bedPartial だけ減る。
   //       床で休む (rest の行動) と rest だけ減る。寝ないで夜を越すと翌日まで残る (自然には減らない)
   sleep: { fullAfter: 30000, nightMult: 2.5, threshold: 0.55, bedTo: 0, bedPartial: 0.35, bedHunger: 0.15, rest: 0.03, restActions: ['wait', 'look_around'] },
@@ -86,6 +89,17 @@ function foodPoints(name) {
   const f = foodsCache[name];
   return f && Number.isFinite(f.foodPoints) ? f.foodPoints : 4;
 }
+// 食べ物の隠し満腹度 (minecraft-data の saturation)。無ければ foodPoints × 1.2
+function foodSaturation(name) {
+  foodPoints(name);
+  const f = foodsCache[name];
+  return f && Number.isFinite(f.saturation) ? f.saturation : foodPoints(name) * 1.2;
+}
+// 満腹度から空腹 (0〜1)。c = cfg.hunger
+function hungerFromFood(food, saturation, c = NEEDS_DEFAULTS.hunger) {
+  const base = 1 - clamp(food / 20) + (Number.isFinite(saturation) && saturation <= 0 ? (c.satZero ?? 0.1) : 0);
+  return clamp(base * (c.sensitivity ?? 1));
+}
 
 // 周りがブロックで囲まれているか (頭の上に屋根・4方向の壁)。blockAt(x,y,z) → { boundingBox } | null
 function senseShelter(blockAt, pos, { roofUp = 5, wallDist = 3 } = {}) {
@@ -128,6 +142,8 @@ class Needs {
     this.lastHealth = null;
     this.lastInvTotal = null;
     this.lastAte = null; // 最後に食べた通しの時間
+    this.food = null; // 最後に見たマイクラの満腹度 (0〜20。分からなければ null)
+    this.saturation = null;
     this.sleptThisNight = false;
     this.wasNight = null;
     this.missedNights = 0; // 続けて寝られなかった夜の数
@@ -141,14 +157,14 @@ class Needs {
     const n = new Needs(opts);
     if (d && isObj(d) && isObj(d.v)) {
       for (const k of ['v', 'unmet', 'shock', 'counts']) if (isObj(d[k])) Object.assign(n[k], d[k]);
-      for (const k of ['stress', 'lastTime', 'lastAte', 'missedNights', 'sleptThisNight', 'wasNight']) if (d[k] !== undefined) n[k] = d[k];
+      for (const k of ['stress', 'lastTime', 'lastAte', 'missedNights', 'sleptThisNight', 'wasNight', 'food', 'saturation']) if (d[k] !== undefined) n[k] = d[k];
     }
     return n;
   }
 
   toJSON() {
     return { v: this.v, stress: this.stress, unmet: this.unmet, shock: this.shock, counts: this.counts, lastTime: this.lastTime, lastAte: this.lastAte,
-      missedNights: this.missedNights, sleptThisNight: this.sleptThisNight, wasNight: this.wasNight };
+      missedNights: this.missedNights, sleptThisNight: this.sleptThisNight, wasNight: this.wasNight, food: this.food, saturation: this.saturation };
   }
 
   threshold(k) { return this.cfg[k].threshold; }
@@ -171,7 +187,10 @@ class Needs {
     return e;
   }
 
-  // 1判断に1回。s = { time (通しの tick), timeOfDay, light, shelter: { enclosed, roof }, hostiles: [{ name, d }],
+  // 満腹度で空腹を決めているか
+  foodBased() { return this.cfg.hunger.source === 'food' && Number.isFinite(this.food); }
+
+  // 1判断に1回。s = { time (通しの tick), timeOfDay, food (0〜20), saturation, light, shelter: { enclosed, roof }, hostiles: [{ name, d }],
   //   players: [{ name, d, affinity }], atHome, unfamiliar, health, invTotal, invKinds, newCell }
   update(s = {}) {
     const c = this.cfg;
@@ -189,8 +208,12 @@ class Needs {
     }
     this.wasNight = night;
     const v = this.v;
-    // 空腹・眠気
-    v.hunger = clamp(v.hunger + rateOf(c.hunger) * dt);
+    // 空腹 (満腹度が分かれば満腹度から。分からなければ時間で増える)・眠気
+    if (c.hunger.source === 'food' && Number.isFinite(s.food)) {
+      this.food = s.food;
+      this.saturation = Number.isFinite(s.saturation) ? s.saturation : null;
+      v.hunger = hungerFromFood(this.food, this.saturation, c.hunger);
+    } else v.hunger = clamp(v.hunger + rateOf(c.hunger) * dt);
     v.sleep = clamp(v.sleep + rateOf(c.sleep) * (night ? c.sleep.nightMult : 1) * dt);
     // ダメージ
     if (Number.isFinite(s.health)) {
@@ -278,7 +301,12 @@ class Needs {
   // ---- 出来事 ----
   onEat(item) {
     const c = this.cfg.hunger;
-    this.v.hunger = r3(clamp(this.v.hunger - Math.max(c.minEat, foodPoints(item) * c.perFoodPoint)));
+    if (this.foodBased()) {
+      // 次の観測で満腹度から決め直す。それまでは食べ物の量から見積もる (マイクラと同じく food と saturation が増える)
+      this.food = Math.min(20, this.food + foodPoints(item));
+      this.saturation = Math.min(this.food, (this.saturation || 0) + foodSaturation(item));
+      this.v.hunger = r3(hungerFromFood(this.food, this.saturation, c));
+    } else this.v.hunger = r3(clamp(this.v.hunger - Math.max(c.minEat, foodPoints(item) * c.perFoodPoint)));
     this.lastAte = this.lastTime;
     this.counts.ate += 1;
   }
@@ -288,7 +316,8 @@ class Needs {
     const c = this.cfg.sleep;
     this.v.sleep = r3(nightSkipped ? Math.min(this.v.sleep, c.bedTo) : clamp(this.v.sleep - c.bedPartial));
     // 寝て夜を飛ばしても、そのあいだにお腹は空く (ゲームの通しの時間は進まないので、ここで足す)
-    if (nightSkipped) this.v.hunger = r3(clamp(this.v.hunger + c.bedHunger));
+    //  (満腹度で決めているときは足さない。マイクラでは寝て飛ばした夜に満腹度は減らない)
+    if (nightSkipped && !this.foodBased()) this.v.hunger = r3(clamp(this.v.hunger + c.bedHunger));
     this.sleptThisNight = true;
     if (nightSkipped) { this.missedNights = 0; this.wasNight = false; }
     this.counts.slept += 1;
@@ -448,4 +477,4 @@ class Needs {
 // 人ごとの設定: cfg.needs (全員) に persona.needs (人ごと) を重ねる
 function needsConfig(cfg = {}, persona = {}) { return merge(merge({}, cfg.needs || {}), persona.needs || {}); }
 
-module.exports = { NEED_EN, Needs, NEEDS, BASIC, HIGHER, NEED_LABEL, LABEL_TO_NEED, NEEDS_DEFAULTS, senseShelter, effectiveLight, foodPoints, needsConfig, merge };
+module.exports = { hungerFromFood, foodSaturation, NEED_EN, Needs, NEEDS, BASIC, HIGHER, NEED_LABEL, LABEL_TO_NEED, NEEDS_DEFAULTS, senseShelter, effectiveLight, foodPoints, needsConfig, merge };

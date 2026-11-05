@@ -23,6 +23,7 @@ const ABOUT = {
   eat: (a) => `${a}の食べ方`,
   pillar: (a) => `高い所の${a}への登り方`,
   pick_up: (a) => `落ちている${a}の拾い方`,
+  stuck: () => 'その場から動く方法',
 };
 
 function aboutText(key) {
@@ -52,6 +53,7 @@ function troubles(memory, window = 4, repeat = 2, noChange = null) {
 }
 
 function questionText(to, trouble) {
+  if (trouble.kind === 'stuck') return `${to}さん、教えて: その場から動く方法が分からない(何度歩いても1mも進めなかった)`;
   const why = trouble.kind === 'noChange' ? '(何度やっても何も変わらなかった)'
     : trouble.lastMsg ? `(「${trouble.lastMsg.slice(0, 30)}」で失敗した)` : '';
   return `${to}さん、教えて: ${trouble.about}が分からない${why}`;

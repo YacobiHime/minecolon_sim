@@ -163,3 +163,32 @@ test('全体チャット・提案・取り決めと、近くの声/全体の回�
   assert.match(out, /近くの声 2 回・全体チャット 2 回/);
   assert.match(out, /提案 Hanako#3「夜は集まろう」/);
 });
+
+test('動けない: 回復の回数と結果・入り直し・移動の打ち切り・押し戻し・path_reset を数える', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-'));
+  const t = (s) => `2026-11-05T01:00:${String(s).padStart(2, '0')}.000Z`;
+  const step = (loop, s, move, ok = false) => ({ ts: t(s), loop, action: 'explore', arg: 'north', result: { ok, msg: 'northへ進めなかった: 動けなかった (近づけなかった)', move }, decideMs: 300, parseOk: true, valid: true, inventory: [] });
+  fs.writeFileSync(path.join(dir, 'Taro-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Taro' }, decider: 'jev', day: 0 }),
+    L(step(1, 1, { gotos: 1, moved: 0.2, noProgress: 1, forced: 3, resets: { stuck: 1 }, returning: 0.5 })),
+    L(step(2, 2, { gotos: 1, moved: 0.1, noProgress: 1, forced: 2, resets: { stuck: 2, block_updated: 1 } })),
+    L({ ts: t(3), event: 'unstuck', loop: 2, action: 'explore', arg: 'north', ok: false, how: '入り直したら動けるようになった', returning: true, reconnect: { ok: true }, steps: [] }),
+    L(step(3, 4, { gotos: 1, moved: 14 }, true)),
+  ].join('\n'));
+  fs.writeFileSync(path.join(dir, 'Mio-x.jsonl'), [
+    L({ ts: t(0), event: 'start', persona: { name: 'Mio' }, decider: 'jev', day: 0 }),
+    L({ ts: t(3), event: 'unstuck', loop: 5, action: 'go_to', arg: 'p1', ok: true, how: 'すぐ横のbambooを掘ったら動けた', returning: false, steps: [] }),
+  ].join('\n'));
+  const out = JSON.parse(execFileSync('node', [TOOL, dir], { encoding: 'utf8' }));
+  const s = out.stuck;
+  assert.strictEqual(s.stuck, 2);
+  assert.strictEqual(s.recovered, 1);
+  assert.strictEqual(s.notRecovered, 1);
+  assert.deepStrictEqual([s.reconnects, s.reconnectOk, s.withReturningPos], [1, 1, 1]);
+  assert.strictEqual(s.noProgress, 2);
+  assert.strictEqual(s.forcedMoves, 5);
+  assert.deepStrictEqual(s.resets, { stuck: 3, block_updated: 1 });
+  assert.strictEqual(s.returningSeen, 1);
+  const text = execFileSync('node', [TOOL, dir, '--text'], { encoding: 'utf8' });
+  assert.match(text, /動けない 2 回 \(回復 1・回復できず 1、入り直し 1\/1/);
+});

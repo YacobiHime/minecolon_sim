@@ -101,11 +101,13 @@ function actionOptions(actions, opts = {}) {
 const hasGoal = (ctx) => !!(ctx && ctx.goal && ctx.goal.text);
 
 function troubledText(troubles) {
-  return troubles.map((t) => `${t.about}が分からない (${t.kind === 'noChange' ? '何度やっても何も変わらなかった' : '同じ失敗が続いた'})`).join(' / ');
+  return troubles.map((t) => (t.kind === 'stuck' ? `${t.about} (${t.lastMsg || '移動が続けて1m未満だった'})`
+    : `${t.about}が分からない (${t.kind === 'noChange' ? '何度やっても何も変わらなかった' : '同じ失敗が続いた'})`)).join(' / ');
 }
 
 function troubledTextEn(troubles) {
-  return troubles.map((t) => `${t.key}: ${t.kind === 'noChange' ? 'nothing changed however many times it was done' : 'failed again and again'}`).join('; ');
+  return troubles.map((t) => (t.kind === 'stuck' ? 'stuck: could not move from this spot (moves went under 1 m several times in a row)'
+    : `${t.key}: ${t.kind === 'noChange' ? 'nothing changed however many times it was done' : 'failed again and again'}`)).join('; ');
 }
 
 // 英語の state (Jev 用)。ctx.en = { obs, mem, social, lastResult, base, hints, plan } (agent の buildContext と goalPath が作る)

@@ -260,6 +260,7 @@ class GoalPath {
       ctx.socialText ? `## 体と心\n${ctx.socialText}` : '',
       ctx.worst ? `## いちばんつらいこと\n${ctx.worst.text}` : '',
       ctx.policy ? `## 自分の方針 (前に自分で決めたこと)\n${String(ctx.policy).slice(0, this.cfg.policyMax)}` : '',
+      (ctx.troubles || []).some((t) => t.kind === 'stuck') ? `## 困っていること\n${ctx.troubles.filter((t) => t.kind === 'stuck').map((t) => `${t.about} (${t.lastMsg})`).join('\n')}` : '',
       ctx.peopleText ? `## 周りの人\n${ctx.peopleText}` : '',
       ctx.board && ctx.board.text ? ctx.board.text : '', // 全体に届いた話・取り決め・共同の目標・共有のチェスト (board.js)
       facts.length ? `## 知っていること\n${facts.join('\n')}` : '',

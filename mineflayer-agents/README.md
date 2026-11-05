@@ -31,7 +31,7 @@ llm/                   llama-server (CPU) の用意と start/stop (/opt/llama.cp
 # 1回だけ
 bash mineflayer-agents/server-fabric/setup.sh     # /root/mc-server-fabric
 bash mineflayer-agents/llm/setup_llama.sh         # /opt/llama.cpp, /opt/models
-(cd mineflayer-agents && npm install)
+(cd mineflayer-agents && npm install)               # postinstall で patches/ (mineflayer-pathfinder の returningPos の修正) が当たる
 
 # サーバーと LLM
 bash /root/mc-server-fabric/start.sh              # 停止: stop.sh。入力: echo '<cmd>' > cmd_pipe、出力: console.log

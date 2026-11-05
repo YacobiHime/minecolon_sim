@@ -85,6 +85,7 @@ class Social {
       if (s.timeOfDay == null) s.timeOfDay = raw.self.timeOfDay;
       if (s.time == null && raw.self.day != null && raw.self.timeOfDay != null) s.time = raw.self.day * 24000 + raw.self.timeOfDay;
       if (s.health == null) s.health = raw.self.health;
+      if (s.food == null && Number.isFinite(raw.self.food)) s.food = raw.self.food;
       const ents = raw.entities || [];
       if (!s.hostiles) s.hostiles = ents.filter((e) => e.kind === 'hostile').map((e) => ({ name: e.name, d: e.d }));
       if (!s.players) s.players = ents.filter((e) => e.kind === 'player').map((e) => ({ name: e.name, d: e.d, affinity: this.relations[e.name] ? this.relations[e.name].affinity : 50 }));
