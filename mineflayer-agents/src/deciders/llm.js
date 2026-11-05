@@ -80,8 +80,9 @@ class LLMDecider {
     ];
   }
 
-  async complete(messages, schema) {
-    const body = { model: this.model, messages, temperature: this.temperature, max_tokens: this.maxTokens, stream: false };
+  // opts: { maxTokens, temperature } (この呼び出しだけ変える。ゴールの案を k 個出すときなど)
+  async complete(messages, schema, opts = {}) {
+    const body = { model: this.model, messages, temperature: opts.temperature ?? this.temperature, max_tokens: opts.maxTokens ?? this.maxTokens, stream: false };
     if (this.constrained && schema) body.response_format = { type: 'json_schema', json_schema: { name: 'decision', schema, strict: true } };
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.timeoutMs);

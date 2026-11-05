@@ -6,6 +6,7 @@
 // サーバー全体の情報 (プレイヤー一覧・ワールドの座標一覧など) は使わない。
 const { Vec3 } = require('vec3');
 const { relDir, dist3, timePhase, round1 } = require('./util');
+const en = require('./en');
 
 const IGNORE = new Set(['air', 'cave_air', 'void_air']);
 // 敵 (夜や暗い所に出る、こちらを襲うもの)。観測では kind: 'hostile' にして「敵」と書く
@@ -192,4 +193,25 @@ function summarizeObservation(raw, opts = {}) {
   return lines.join('\n');
 }
 
-module.exports = { cropRipe, VEHICLE, collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };
+// Jev 用の英語の観察 (summarizeObservation と同じ raw から)。判断に関係の薄いものを削り、数・距離は段階の言葉にする。
+//   visible: 目印 (notable)・names (道筋・ゴール・選択肢に出てくる名前) に当たるブロック・作物だけ。maxVisible 種類まで
+//   位置の座標は出さない。見えている数は none/one/a few/some/many
+function observationEn(raw, opts = {}) {
+  const s = raw.self;
+  const names = opts.names || new Set();
+  const maxVisible = opts.maxVisible ?? 8;
+  const maxNearby = opts.maxNearby ?? 6;
+  const self = [`health ${en.healthWord(s.health)}`, `food ${en.foodWord(s.food)}`, en.phaseEn(s.phase)];
+  if (opts.showDay && s.day != null) self.push(en.dayEn(s.day));
+  if (s.vehicle) self.push(`riding a ${s.vehicle}`);
+  if (s.held) self.push(`holding ${s.held}`);
+  const keep = raw.blocks.filter((b) => b.notable || names.has(b.name) || b.ripe != null);
+  const blocks = keep.sort((a, b) => (names.has(b.name) - names.has(a.name)) || (b.notable - a.notable) || (a.nearest.d - b.nearest.d)).slice(0, maxVisible);
+  const visible = blocks.map((b) => `${b.name} (${en.whereEn(s.pos, b.nearest)}; ${b.ripe != null ? `${en.countWord(b.ripe)} fully grown of ${en.countWord(b.seen)}` : en.countWord(b.seen)})`);
+  const kindEn = { player: 'player', hostile: 'hostile', item: 'dropped item', vehicle: 'vehicle', mob: 'animal' };
+  const ents = raw.entities.slice(0, maxNearby);
+  const nearby = ents.map((e) => `${e.name} (${kindEn[e.kind] || e.kind}; ${en.whereEn(s.pos, e.pos)})`);
+  return { self: self.join(', '), inventory: en.invText(raw.inventory), visible: visible.length ? visible.join('; ') : 'nothing notable', nearby: nearby.length ? nearby.join('; ') : 'nobody' };
+}
+
+module.exports = { observationEn, cropRipe, VEHICLE, collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };

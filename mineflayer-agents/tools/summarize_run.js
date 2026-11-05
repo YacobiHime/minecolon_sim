@@ -284,6 +284,62 @@ function goalPathStats(all, n = 30) {
     progress: progress.slice(0, n).map((p) => `${p.who} ${p.goal}: ${p.nexts.join(' → ') || '-'}`) };
 }
 
+// Jev の行動の選び方 (R10・R5・R3): 選んだ選択肢の確率 p と 1位÷2位 の比 ratio の分布、選んだ選択肢の並びの位置 (先頭に寄るか)、
+//   道筋の次の一手が今すぐできるか (next_now) と、そのとき道筋どおりの行動を選んだ割合
+const P_BINS = [0.2, 0.4, 0.6, 0.8, 1.0001];
+const R_BINS = [1.5, 2, 4, 10, Infinity];
+function hist(xs, bins, label) {
+  const out = {};
+  let lo = 0;
+  for (const b of bins) { out[label(lo, b)] = xs.filter((x) => x >= lo && x < b).length; lo = b; }
+  return out;
+}
+function jevChoiceStats(loops, { yes = 0.7, no = 0.3 } = {}) {
+  const js = loops.filter((r) => r.jev && r.jev.choice);
+  const ps = js.map((r) => r.jev.choice.p).filter((x) => Number.isFinite(x));
+  const rs = js.map((r) => r.jev.choice.ratio).filter((x) => Number.isFinite(x));
+  const q = (a) => ({ n: a.length, p10: pct(a, 10), p50: pct(a, 50), p90: pct(a, 90) });
+  const pos = js.filter((r) => Number.isFinite(r.jev.choice.pos) && r.jev.choice.pos >= 0 && r.jev.choice.n > 1);
+  // 位置: 先頭の 10% に入った割合 (並べ方を変えていれば偏りがなければ約 10%)
+  const relPos = pos.map((r) => r.jev.choice.pos / (r.jev.choice.n - 1));
+  const shuffled = pos.filter((r) => r.jev.order && r.jev.order.shuffled);
+  const nn = js.filter((r) => r.jev.path && Number.isFinite(r.jev.path.nextNowP));
+  const can = nn.filter((r) => r.jev.path.nextNowP >= yes);
+  const cannot = nn.filter((r) => r.jev.path.nextNowP < no);
+  const share = (rows, m) => (rows.length ? Number((rows.filter((r) => r.jev.path.match === m).length / rows.length).toFixed(3)) : null);
+  return {
+    p: { ...q(ps), hist: hist(ps, P_BINS, (lo, b) => `${lo.toFixed(1)}-${Math.min(1, b).toFixed(1)}`) },
+    ratio: { ...q(rs), hist: hist(rs, R_BINS, (lo, b) => (b === Infinity ? `>=${lo}` : `${lo}-${b}`)) },
+    position: { n: pos.length, shuffled: shuffled.length, first: pos.filter((r) => r.jev.choice.pos === 0).length,
+      first10pct: relPos.length ? Number((relPos.filter((x) => x <= 0.1).length / relPos.length).toFixed(3)) : null, meanRel: relPos.length ? Number((relPos.reduce((a, b) => a + b, 0) / relPos.length).toFixed(3)) : null },
+    nextNow: {
+      asked: nn.length, can: can.length, cannot: cannot.length, unsure: nn.length - can.length - cannot.length,
+      canRate: nn.length ? Number((can.length / nn.length).toFixed(3)) : null,
+      // 「今すぐできる」と判定したとき、道筋どおり (step) / 近づく (approach) / ほか を選んだ割合
+      whenCan: { step: share(can, 'step'), approach: share(can, 'approach'), other: share(can, 'other') },
+      whenCannot: { step: share(cannot, 'step'), approach: share(cannot, 'approach'), other: share(cannot, 'other') },
+    },
+  };
+}
+
+// ゴールの選び方 (R1・R2): 案の数・外した案 (満たされている・たどれない)・Jev の点で選んだ規則・2B の最初の案と違う案を選んだ割合
+function goalSelectStats(all, n = 12) {
+  const ev = all.filter((r) => r.event === 'goal_path');
+  const props = ev.filter((r) => r.kind === 'proposals' || (r.kind === 'goal' && r.proposals));
+  const goals = ev.filter((r) => r.kind === 'goal' && r.ok && r.select);
+  const allProps = props.flatMap((r) => r.proposals || []);
+  const examples = goals.slice(0, n).map((r) => `${r._name} t${r.tick}: ${r.select.needs.map((x) => `${x.need}(${x.distress})`).join(' ')} | ${(r.select.scores || []).map((s, i) => `${i === r.select.chosen ? '*' : ''}${s.target}${s.count ? ` ${s.count}` : ''}=${s.score} ${JSON.stringify(s.P)}`).join(' / ')} [${r.select.rule}]`);
+  return {
+    rounds: props.length, goalsSelected: goals.length, proposals: allProps.length,
+    dropped: countBy(allProps.filter((x) => !x.ok), (x) => x.result || '-'),
+    satisfiedSingle: ev.filter((r) => r.kind === 'satisfied').length,
+    rules: countBy(goals, (r) => r.select.rule || '-'),
+    notFirst: goals.filter((r) => r.select.chosen > 0).length,
+    jevTokens: sum(goals.map((r) => (r.select.jev ? r.select.jev.inputTokens : 0))),
+    examples,
+  };
+}
+
 function countBy(rows, f) { const m = {}; for (const r of rows) { const k = f(r); m[k] = (m[k] || 0) + 1; } return m; }
 
 // 拠点に何が集まったか (event 'base_site'): 人ごとに最後に見た様子と、それまでで一番多かった数
@@ -482,6 +538,8 @@ function main() {
     selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
     goalPlan: all.some((r) => r.event === 'goal_plan') ? goalPlanStats(all) : null,
     goalPath: all.some((r) => r.event === 'goal_path') ? goalPathStats(all) : null,
+    goalSelect: all.some((r) => r.event === 'goal_path' && (r.kind === 'proposals' || r.select || r.kind === 'satisfied')) ? goalSelectStats(all) : null,
+    jevChoice: jevChoiceStats(loops),
     reflect: all.some((r) => r.event === 'reflect') ? reflectStats(all) : null,
     penActs: penActStats(loops),
     baseSite: all.some((r) => r.event === 'base_site') ? baseSiteStats(all) : null,
@@ -539,6 +597,11 @@ function main() {
         const wm = g.worstMatch;
         console.log(`  いちばんつらい欲求とゴールの need が合っていた ${wm.matched}/${wm.judged}${wm.rate != null ? ` (${Math.round(wm.rate * 100)}%)` : ''} ${JSON.stringify(wm.pairs)}`);
       }
+      if (out.goalSelect) {
+        const gs = out.goalSelect;
+        console.log(`ゴールの案 ${gs.proposals} 個 (${gs.rounds} 回、外した ${JSON.stringify(gs.dropped)}、1案のとき満たされていて外した ${gs.satisfiedSingle})、Jev の点で選んだ ${gs.goalsSelected} 回 (${JSON.stringify(gs.rules)}、2B の最初の案以外 ${gs.notFirst}、Jev ${gs.jevTokens} トークン)`);
+        for (const l of gs.examples.slice(0, 6)) console.log(`  ${l}`);
+      }
       if (out.reflect) {
         console.log(`振り返り ${out.reflect.count} 回 (方針を書けた ${out.reflect.ok}、${JSON.stringify(out.reflect.byReason)})`);
         for (const l of out.reflect.list.slice(0, 10)) console.log(`  ${l}`);
@@ -582,6 +645,13 @@ function main() {
       if (tl) console.log(`2B の応答 (全体): ${tl.calls} 回、全体 p50 ${tl.ms.p50}ms・p95 ${tl.ms.p95}ms、待ち p50 ${tl.waitMs.p50}ms・p95 ${tl.waitMs.p95}ms・最大 ${tl.waitMs.max}ms、切断 ${out.load.disconnects ?? '-'}`);
     }
     console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
+    const jc = out.jevChoice;
+    if (jc && jc.p.n) {
+      console.log(`Jev の選択の確率 p: p10 ${jc.p.p10}・p50 ${jc.p.p50}・p90 ${jc.p.p90} ${JSON.stringify(jc.p.hist)}、1位÷2位: p50 ${jc.ratio.p50} ${JSON.stringify(jc.ratio.hist)}`);
+      console.log(`  選んだ選択肢の位置: 先頭 ${jc.position.first}/${jc.position.n} (先頭10% ${jc.position.first10pct}、平均の位置 ${jc.position.meanRel}、並べ替えあり ${jc.position.shuffled})`);
+      const nx = jc.nextNow;
+      if (nx.asked) console.log(`  道筋の次の一手が今すぐできる (P≥0.7) ${nx.can}/${nx.asked} (${nx.canRate})、できない (P<0.3) ${nx.cannot}。できるとき道筋どおり ${nx.whenCan.step}・近づく ${nx.whenCan.approach}・ほか ${nx.whenCan.other}`);
+    }
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
     console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision}・呼び出し ${out.jev.callsPerDecision} 回、1呼び出し ${out.jev.inputTokensPerCall})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);
   }

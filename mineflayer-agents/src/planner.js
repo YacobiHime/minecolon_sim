@@ -457,6 +457,34 @@ function nextText(s) {
   return `${s.item} を手に入れる`;
 }
 
+// 英語 (Jev 用。同じ手順から)
+const WHERE_EN = { visible: 'visible', known: 'seen before', unseen: 'not seen yet' };
+function stepTextEn(s) {
+  const n = `${s.item} x${s.count}`;
+  const w = [WHERE_EN[s.where], s.tool ? `with ${s.tool}` : ''].filter(Boolean).join(', ');
+  if (s.how === 'collect') return `${n} <- ${s.from === s.item ? (CROP_BLOCKS.test(s.from) ? 'harvest' : 'dig') : `from ${s.from}`}${w ? ` (${w})` : ''}`;
+  if (s.how === 'kill') return `${n} <- kill ${s.from}${w ? ` (${w})` : ''}`;
+  if (s.how === 'craft') return `${n} <- ${Object.entries(s.ings).map(([k, v]) => `${k} x${v}`).join(' + ')}${s.station ? ` (at ${s.station})` : ''}`;
+  if (s.how === 'smelt') return `${n} <- smelt ${s.from} x${s.count} (furnace, fuel ${s.fuel})`;
+  return n;
+}
+function nextTextEn(s) {
+  if (!s) return '';
+  if (s.how === 'craft') return `make ${s.item}`;
+  if (s.how === 'smelt') return `smelt ${s.from} into ${s.item}`;
+  if (s.how === 'kill' && s.from) return `get ${s.item} by killing ${s.from}`;
+  if (s.how === 'collect' && s.from && s.from !== s.item) return `get ${s.item} from ${s.from}`;
+  return `get ${s.item}`;
+}
+// Jev の state.plan.path (配列) と next
+function pathEn(p, { maxShown = 5 } = {}) {
+  if (!p || !p.ok) return null;
+  if (p.done) return { path: 'everything is in hand', next: null };
+  const shown = p.steps.slice(0, maxShown).map(stepTextEn);
+  if (p.steps.length > maxShown) shown.push(`and ${p.steps.length - maxShown} more`);
+  return { path: shown, next: nextTextEn(p.next) };
+}
+
 // Jev の state.plan に出す道筋の文 (短く。maxShown 手順まで)
 function pathText(p, { maxShown = 5 } = {}) {
   if (!p || !p.ok) return '';
@@ -484,10 +512,11 @@ function plan(target, count, world, opts) { return new Planner(world, opts).plan
 
 // 手間の言葉 (数値はモデルに渡さない): 小 < 5 ≤ 中 < 20 ≤ 大
 const EFFORT_WORDS = [[5, '小'], [20, '中'], [Infinity, '大']];
+const EFFORT_EN = { なし: 'none', 小: 'small', 中: 'medium', 大: 'large' };
 function effortWord(c) {
   if (!Number.isFinite(c)) return null;
   if (c <= 0) return 'なし';
   return EFFORT_WORDS.find(([lim]) => c < lim)[1];
 }
 
-module.exports = { Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };
+module.exports = { EFFORT_EN, stepTextEn, nextTextEn, pathEn, WHERE_EN, Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };

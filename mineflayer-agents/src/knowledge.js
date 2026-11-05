@@ -1,6 +1,6 @@
 'use strict';
 // 知っていること (仕様の事実) から、今に関係するものだけを選ぶ部品 (bot に依存しない)。
-//   knowledge/facts.json: [{ id, text, items: ["oak_log", "*_planks", "wooden_*"], actions: ["craft"], always: false }]
+//   knowledge/facts.json: [{ id, text (日本語、2B 向け), text_en (英語、Jev 向け。同じ事実), items: ["oak_log", "*_planks", "wooden_*"], actions: ["craft"], always: false }]
 //     items   : minecraft のアイテム・ブロック・生き物の名前。先頭の * は後方一致 (*_planks)、末尾の * は前方一致 (wooden_*)
 //     actions : 関係する行動の名前 (2段目でその行動が選ばれたときに当たる)
 //     always  : true なら常に出す (今の facts.json では使っていない。状況で出す when に移した)
@@ -26,7 +26,7 @@ function loadFacts(file = DEFAULT_FILE, { reload = false } = {}) {
     const txt = fs.readFileSync(f, 'utf8').trim();
     const d = txt ? JSON.parse(txt) : [];
     facts = (Array.isArray(d) ? d : []).filter((x) => x && typeof x.text === 'string' && x.text.trim())
-      .map((x, i) => ({ id: x.id || `f${i}`, text: x.text.trim(), items: Array.isArray(x.items) ? x.items : [], actions: Array.isArray(x.actions) ? x.actions : [], when: Array.isArray(x.when) ? x.when : [], always: !!x.always }));
+      .map((x, i) => ({ id: x.id || `f${i}`, text: x.text.trim(), text_en: typeof x.text_en === 'string' && x.text_en.trim() ? x.text_en.trim() : null, items: Array.isArray(x.items) ? x.items : [], actions: Array.isArray(x.actions) ? x.actions : [], when: Array.isArray(x.when) ? x.when : [], always: !!x.always }));
   } catch (_) {
     facts = [];
   }
@@ -96,4 +96,7 @@ function selectFacts(facts, { names = new Set(), strong = new Set(), actions = n
 // 文の中の英語名 (道筋・ゴールの文から strong の名前を作る)
 function namesInText(text) { return new Set(String(text || '').match(/[a-z][a-z0-9_]+/g) || []); }
 
-module.exports = { loadFacts, selectFacts, namesInView, namesInText, situations, matchName, DEFAULT_FILE, DEFAULTS, WEIGHT };
+// Jev 用の文 (英語があれば英語)
+function factText(f, lang = 'ja') { return lang === 'en' && f.text_en ? f.text_en : f.text; }
+
+module.exports = { factText, loadFacts, selectFacts, namesInView, namesInText, situations, matchName, DEFAULT_FILE, DEFAULTS, WEIGHT };

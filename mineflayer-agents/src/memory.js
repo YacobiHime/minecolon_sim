@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { relDir, dist3 } = require('./util');
+const en = require('./en');
 
 const DEFAULT_LIMITS = {
   places: 40, // 覚えておく場所の数 (古いものから忘れる)
@@ -239,6 +240,22 @@ class Memory {
     // 時刻の順に並べ直す (古い → 新しい)
     chosen.sort((a, b) => a.x.t - b.x.t);
     return chosen;
+  }
+
+  // Jev 用の英語の記憶 (toPromptText と同じ記憶から)。件数を絞る: 場所 maxPlaces・やったこと maxEvents (新しい順)・
+  //   聞いた話 maxHeard (発言の中身は原文のまま)・教わったこと maxTaught。やったことの文は e.en (agent が英語で残す) か msgEn
+  toStateEn(here, opts = {}) {
+    const { maxPlaces = 4, maxEvents = 5, maxHeard = 3, maxTaught = 2 } = opts;
+    const places = (opts.places || this.placesForPrompt(here)).slice(0, maxPlaces);
+    const out = {};
+    out.places = places.length ? places.map((p) => `${p.id}=${p.kind === '拠点' ? 'base' : p.kind} (${en.whereEn(here, p.pos)})`).join('; ') : 'none';
+    const evs = this.events.slice(-maxEvents);
+    out.recent = evs.length ? evs.map((e) => e.en || en.resultEn({ action: e.action, arg: e.arg, ok: e.ok, msg: e.msg })) : 'nothing yet';
+    const hd = this.heard.filter((h) => h.from !== '自分').slice(-maxHeard);
+    if (hd.length) out.heard = hd.map((h) => `${h.from}「${h.text}」`).join(' ');
+    const kn = this.knowledge.slice(-maxTaught);
+    if (kn.length) out.taught = kn.map((k) => `from ${k.from}: 「${k.text}」`).join(' ');
+    return out;
   }
 
   toPromptText(here, opts = {}) {

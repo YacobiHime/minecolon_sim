@@ -63,8 +63,8 @@ test('JevDecider: 1回の呼び出しに choice / score / noul / 相手ごとの
   assert.strictEqual(b.questions.talk.type, 'noul'); // mockRaw には見えている人 (Hanako) がいる
   assert.match(b.questions.rel_0.instructions, /Hanako/); // Hanako の発言が聞こえている
   assert.strictEqual(b.state.you, 'Taro');
-  assert.match(b.state.now, /持ち物/);
-  assert.ok(b.state.knowledge.includes('板材'));
+  assert.match(b.state.inventory, /spruce_log x2/); // 英語の state (stateLang: en が既定)
+  assert.ok(b.state.knowledge.some((k) => k.includes('板材')), '英語の文の無い goal.hints は原文のまま');
   assert.ok(r.parseOk);
   assert.ok(resolveDecision(ctx().actions, r.action, r.arg).ok);
   assert.strictEqual(r.jev.talkP, 0.8);

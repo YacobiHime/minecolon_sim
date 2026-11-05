@@ -302,6 +302,19 @@ summarize_run の「build で置いた物」(原木・板材・そのほかの�
 - **寝る**: `playersSleepingPercentage 50` (寝ている人が半分以上で夜が明ける、5人なら3人)。① にも事実として書いた。
 - **死んだら**: 持ち物はバニラどおり落ち、すぐ生き返って続ける。`death` (死因 = 死亡メッセージの translate・日・時刻・位置) を記録。
 - **観測**: 敵は「敵zombie 東5(5m)」、時間は「時間:夜 2日目」。置くときは置く面に視線が通り手が届く所だけ。
+- **Jev の state は英語** (`decider.jev.stateLang: "en"`、2026-11-05。`"ja"` で前の日本語の state): 観察 (`self`・`inventory`・`visible`・`nearby`)・
+  記憶・気持ち・道筋 (`plan` = `{goal, for_need, why, path, next}`)・知識 (`facts.json` の `text_en`)・拠点・`last_result` を、日本語と同じ値から英語で作る
+  (`src/en.js`・各部品の `lang: 'en'`・行動の `descEn`/`labelEn`)。座標は出さず、距離・数は段階の言葉 (here/near/a short walk/far、none/one/a few/some/many)。
+  見えるブロックは目印と道筋に出てくる名前だけ、記憶は件数を絞る (`decider.jev.state`)。人の名前・発言・2B が書いた文 (方針・why) は原文のまま。
+  2B 向けの文は日本語のまま。行動の結果の文はよく出る形だけ英語に直し、直せない文は原文。比べ方: `node tools/jev_state_compare.js runs/<時刻>/ [--call]`。
+- **選択肢の並べ方を毎回変える** (`order.shuffle`、`src/order.js`): Jev の行動の選択肢・2B のゴールの候補・Jev に聞くゴールの案。種は `order.seed` か `--seed`
+  (無ければ run.js が決め、event `start` と run.json に残す)。記録 `jev.order = {seed, stream, n}` から `replay()` で同じ並びを作り直せる。
+- **ゴールの選び方** (`goalPath.select`、D2A の形): 2B が案を k 個 → もう満たされている案 (持っている数以下の物・もう近くの人・着いている所) と
+  たどれない案を外す → Jev に 案 × 今つらい欲求 (上位 `needs` 個) の noul を1回で聞く → 点 = Σ つらさ^power × P の最大 (同点は 2B が先に書いた案)。
+  点は event `goal_path` (kind: goal) の `select` に残す。1案のとき (select なし) も、満たされている案は外して聞き直す (kind: satisfied)。
+- **記録**: `jev.choice` に選んだ選択肢の確率 `p`・1位÷2位 `ratio`・上位3つ・並びの位置 `pos`。道筋の「次」が今すぐできるかを noul `next_now` で
+  同じ呼び出しに聞き (`jev.nextNowP`。行動の選び方には使わない)、選んだ行動が道筋どおりか (`jev.path.match`: step/approach/other)。
+  summarize_run の `jevChoice` (分布・位置・できると判定した割合と、そのとき道筋どおりの割合) と `goalSelect`。
 
 ```bash
 # 世界 (一度だけ): サーバー停止中に新しいワールドへ

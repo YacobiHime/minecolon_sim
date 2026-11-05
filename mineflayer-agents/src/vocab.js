@@ -7,7 +7,8 @@
 //       先にたどった道筋 (planner) から言葉にした事実 (入手元が見えるか・まれに落ちるか・作業台/かまど/道具が要るか・手間 小/中/大)。
 //   「この欲求にはこの物」という対応はここでは作らない (2B が選ぶ)。
 //   人: 知っている人・見えている人。場所: 拠点・覚えている場所 (M番号)・8方位の遠く (行ったことがあるか)。
-const { index, Planner, GROUND, VOCAB_MIN_CHANCE, effortWord, CROP_BLOCKS } = require('./planner');
+const { index, Planner, GROUND, VOCAB_MIN_CHANCE, effortWord, CROP_BLOCKS, EFFORT_EN } = require('./planner');
+const { dir8En } = require('./en');
 const { jaName, WOOD, COLOR } = require('./names_ja');
 const { matchName } = require('./knowledge');
 
@@ -80,25 +81,30 @@ function itemCandidates(ctx) {
   out.sort((a, b) => (pri[a.src] - pri[b.src]) || (a.order - b.order));
   const foods = md.foodsByName || {};
   const annotate = ctx.annotate !== false;
+  // 持っている物は「もう持っている n」を事実として付ける (R2。2B が選んだ数が持っている数以下なら goalpath が外す)
+  // descEn: Jev に渡す英語 (同じ値から)
   return out.slice(0, ctx.maxItems ?? 40).map((x) => {
-    const head = [jaName(x.name), useSpec(x.name, md, foods), x.have ? `持っている${x.have}` : null, !annotate && x.seen ? '見える' : null].filter(Boolean).join('・');
-    if (!annotate || x.have) return { name: x.name, desc: head };
+    const head = [jaName(x.name), useSpec(x.name, md, foods), x.have ? `もう持っている${x.have}` : null, !annotate && x.seen ? '見える' : null].filter(Boolean).join('・');
+    const headEn = [x.name, useSpec(x.name, md, foods, 'en'), x.have ? `already have ${x.have}` : null, !annotate && x.seen ? 'visible' : null].filter(Boolean).join('; ');
+    if (!annotate || x.have) return { name: x.name, desc: head, descEn: headEn, have: x.have };
     const ex = planner.explain(x.name);
     const ann = ex.ok ? pathFacts(ex, raw, { target: x.name }) : [];
+    const annEn = ex.ok ? pathFacts(ex, raw, { target: x.name, lang: 'en' }) : [];
     const eff = ex.ok ? effortWord(ex.c) : null;
-    return { name: x.name, desc: [head, ...ann, eff ? `手間: ${eff}` : null].filter(Boolean).join('。'), effort: eff };
+    return { name: x.name, desc: [head, ...ann, eff ? `手間: ${eff}` : null].filter(Boolean).join('。'), descEn: [headEn, ...annEn, eff ? `effort ${EFFORT_EN[eff] || eff}` : null].filter(Boolean).join('; '), effort: eff, have: 0 };
   });
 }
 
 // 仕様の事実 (物の働き。どう使うとよいかは書かない): 食べ物と満腹度・寝られる・明るさ・入れられる数・柵の高さ・耕せる
-function useSpec(name, md, foods = md.foodsByName || {}) {
-  if (foods[name]) return `食べ物 (満腹度+${foods[name].foodPoints})`;
-  if (/_bed$/.test(name)) return '寝られる';
+function useSpec(name, md, foods = md.foodsByName || {}, lang = 'ja') {
+  const en = lang === 'en';
+  if (foods[name]) return en ? `food (restores ${foods[name].foodPoints} food points)` : `食べ物 (満腹度+${foods[name].foodPoints})`;
+  if (/_bed$/.test(name)) return en ? 'can be slept in' : '寝られる';
   const b = md.blocksByName[name];
-  if (b && b.emitLight > 0 && !/^(lava|fire|soul_fire|magma_block)$/.test(name)) return `明かり (明るさ${b.emitLight})`;
-  if (/^(chest|barrel|trapped_chest)$/.test(name)) return '物を入れられる (27マス)';
-  if (/_fence$|_fence_gate$|_wall$/.test(name)) return '高さ1.5 (跳び越えられない)';
-  if (/_hoe$/.test(name)) return '土に使ったとき耕地になる';
+  if (b && b.emitLight > 0 && !/^(lava|fire|soul_fire|magma_block)$/.test(name)) return en ? `light source (light level ${b.emitLight})` : `明かり (明るさ${b.emitLight})`;
+  if (/^(chest|barrel|trapped_chest)$/.test(name)) return en ? 'holds items (27 slots)' : '物を入れられる (27マス)';
+  if (/_fence$|_fence_gate$|_wall$/.test(name)) return en ? '1.5 blocks high (cannot be jumped over)' : '高さ1.5 (跳び越えられない)';
+  if (/_hoe$/.test(name)) return en ? 'used on dirt, makes farmland' : '土に使ったとき耕地になる';
   return null;
 }
 
@@ -112,12 +118,13 @@ function dir8(from, to) {
   return DIR8[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
 }
 
-function rareWord(expect) { return expect < 0.05 ? 'まれに' : expect < 0.5 ? 'ときどき' : ''; }
+function rareWord(expect, lang = 'ja') { return lang === 'en' ? (expect < 0.05 ? 'rarely' : expect < 0.5 ? 'sometimes' : '') : expect < 0.05 ? 'まれに' : expect < 0.5 ? 'ときどき' : ''; }
 
 // 道筋 (planner.explain の結果) から、入手元・要る物を言葉にする (最大 maxFacts 個)。順は
 //   主な入手元 (ゴールの物そのもの・焼く前の物の入手元) → 要る道具 → かまど → まだ見ていない・まれにしか落ちない入手元 → 作業台
 //   (道具・かまど・作業台は、持っていない・見えていない・覚えていないときだけ)
-function pathFacts(ex, raw, { maxFacts = 3, target = null } = {}) {
+function pathFacts(ex, raw, { maxFacts = 3, target = null, lang = 'ja' } = {}) {
+  if (lang === 'en') return pathFactsEn(ex, raw, { maxFacts, target });
   const here = raw && raw.self ? raw.self.pos : null;
   const posOf = (s) => {
     if (s.how === 'kill') { const e = (raw.entities || []).find((x) => x.name === s.from && x.kind !== 'player' && x.kind !== 'item'); return e ? e.pos : null; }
@@ -143,23 +150,50 @@ function pathFacts(ex, raw, { maxFacts = 3, target = null } = {}) {
   return [...new Set(out)].slice(0, maxFacts);
 }
 
+// pathFacts の英語 (同じ道筋から)
+function pathFactsEn(ex, raw, { maxFacts = 3, target = null } = {}) {
+  const here = raw && raw.self ? raw.self.pos : null;
+  const posOf = (s) => {
+    if (s.how === 'kill') { const e = (raw.entities || []).find((x) => x.name === s.from && x.kind !== 'player' && x.kind !== 'item'); return e ? e.pos : null; }
+    const b = (raw.blocks || []).find((x) => x.name === s.from); return b ? b.nearest : null;
+  };
+  const vis = (s) => {
+    if (s.where === 'visible') { const d = dir8En(here, posOf(s)); return d ? (d === 'here' ? 'visible right here' : `visible to the ${d}`) : 'visible'; }
+    return s.where === 'known' ? 'seen before' : 'not seen yet';
+  };
+  const say = (s) => {
+    const rare = rareWord(s.expect, 'en');
+    if (s.how === 'kill') return `${s.from} ${vis(s)}${rare ? ` (${rare} drops it)` : ''}`;
+    if (s.from === s.item) return CROP_BLOCKS.test(s.from) ? `grown ones ${vis(s)}` : vis(s);
+    return `${s.item === target ? 'it' : s.item} ${rare ? `${rare} ` : ''}drops from ${s.from} (${s.from} ${vis(s)})`;
+  };
+  const out = [];
+  if (ex.main) out.push(say(ex.main));
+  if (ex.tools.length) out.push(`needs ${ex.tools[0]}`);
+  if (ex.stations.includes('furnace')) out.push('needs furnace');
+  for (const l of ex.leaves) if (l !== ex.main && (l.where !== 'visible' || l.expect < 0.5)) out.push(say(l));
+  if (ex.stations.includes('crafting_table')) out.push('needs crafting_table');
+  return [...new Set(out)].slice(0, maxFacts);
+}
+
 // 人: { name, desc }。people = [{ name, relation, seen }]
 function personCandidates(people) {
-  return (people || []).map((p) => ({ name: p.name, desc: [p.relation, p.seen ? `今は${p.seen}にいる` : '今は見えない'].filter(Boolean).join('・') }));
+  return (people || []).map((p) => ({ name: p.name, desc: [p.relation, p.seen ? `今は${p.seen}にいる` : '今は見えない'].filter(Boolean).join('・'),
+    descEn: [p.relationEn || null, p.seenEn ? `now ${p.seenEn}` : p.seen ? 'visible now' : 'not visible now'].filter(Boolean).join('; '), near: !!p.near }));
 }
 
 // 場所: 拠点・覚えている場所 (M番号、拠点以外)・8方位の遠く。cellAt(x, z) → 行ったマス | null
 function placeCandidates({ here, base = null, baseLabel = null, places = [], cellAt = null, far = 48, maxPlaces = 4 } = {}) {
   const out = [];
-  if (base) out.push({ name: '拠点', desc: baseLabel || '自分の拠点', pos: base, type: 'base' });
-  for (const p of places.filter((q) => q.kind !== '拠点').slice(0, maxPlaces)) out.push({ name: p.id, desc: p.label, pos: p.pos, type: 'memory' });
+  if (base) out.push({ name: '拠点', desc: baseLabel || '自分の拠点', descEn: 'my base', pos: base, type: 'base' });
+  for (const p of places.filter((q) => q.kind !== '拠点').slice(0, maxPlaces)) out.push({ name: p.id, desc: p.label, descEn: `a remembered place: ${p.kind}`, pos: p.pos, type: 'memory' });
   for (const [id, ja, dx, dz] of DIRS8) {
     const l = Math.hypot(dx, dz);
     const x = here ? here.x + (dx / l) * far : 0; const z = here ? here.z + (dz / l) * far : 0;
     const c = cellAt && here ? cellAt(x, z) : null;
-    out.push({ name: `${ja}の方`, desc: c ? `${far}mほど先・行ったことがある` : `${far}mほど先・行ったことがない`, dir: id, vec: [dx / l, dz / l], type: 'dir' });
+    out.push({ name: `${ja}の方`, desc: c ? `${far}mほど先・行ったことがある` : `${far}mほど先・行ったことがない`, descEn: `far to the ${id}; ${c ? 'been there before' : 'never been there'}`, dir: id, vec: [dx / l, dz / l], type: 'dir' });
   }
   return out;
 }
 
-module.exports = { itemCandidates, personCandidates, placeCandidates, familyKey, collapse, DIRS8, useSpec, pathFacts, dir8, rareWord };
+module.exports = { pathFactsEn, itemCandidates, personCandidates, placeCandidates, familyKey, collapse, DIRS8, useSpec, pathFacts, dir8, rareWord };

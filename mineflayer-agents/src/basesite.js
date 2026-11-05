@@ -50,4 +50,16 @@ function baseSiteText(site, { label = '拠点', dirText = null, near = true, dar
   return `${label}${dirText ? ` (${dirText})` : ''} 前に見たとき: ${items}、${extra.join('、')}`;
 }
 
-module.exports = { baseSite, baseSiteText, NATURAL };
+// 英語 (Jev 用。同じ site から)。数は段階の言葉
+function baseSiteTextEn(site, { label = 'base', near = true, where = null, darkBelow = 8 } = {}) {
+  if (!site) return '';
+  const { countWord } = require('./en');
+  const items = site.kinds.length ? site.kinds.map(([k, n]) => `${k} (${countWord(n)})`).join(', ') + (site.more ? ', and more' : '') : 'nothing placed';
+  const extra = [];
+  if (site.light != null) extra.push(site.light >= darkBelow ? 'bright' : 'dark');
+  extra.push(site.enclosed ? 'enclosed' : site.roof ? 'has a roof' : 'not enclosed');
+  if (near) return `near ${label}: ${items}; ${extra.join(', ')}`;
+  return `${label}${where ? ` (${where})` : ''}, when last seen: ${items}; ${extra.join(', ')}`;
+}
+
+module.exports = { baseSite, baseSiteText, baseSiteTextEn, NATURAL };

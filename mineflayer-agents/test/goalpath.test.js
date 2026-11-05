@@ -250,15 +250,16 @@ test('GoalPath: 手に入れても欲求が下がらなければ needWait 判断
   const ev = [];
   const gp = new GoalPath({ llm, log: (e) => ev.push(e), cfg: { needWait: 3, patience: 4 } });
   const have = rawWith([{ name: 'jungle_log', count: 1 }]);
-  await gp.update(gctx(have), 1);
+  await gp.update(gctx(rawWith()), 1);
   assert.strictEqual(gp.goal.target, 'jungle_log');
-  for (let t = 2; t <= 3; t++) assert.strictEqual(await gp.update(gctx(have), t), null);
-  assert.strictEqual(await gp.update(gctx(have), 4), 'need_unmet');
+  assert.strictEqual(await gp.update(gctx(have), 2), null); // 着いた
+  for (let t = 3; t <= 4; t++) assert.strictEqual(await gp.update(gctx(have), t), null);
+  assert.strictEqual(await gp.update(gctx(have), 5), 'need_unmet');
   assert.match(llm.seen[1].messages[1].content, /jungle_log 1 \(何のため: x\): 手に入れた\/着いたが、眠気のつらさは変わらなかった/);
   // white_bed: 持ち物が変わらないまま patience 判断 → stuck
   const none = rawWith();
   let r = null;
-  for (let t = 5; t <= 10 && r !== 'stuck'; t++) r = await gp.update(gctx(none), t);
+  for (let t = 6; t <= 11 && r !== 'stuck'; t++) r = await gp.update(gctx(none), t);
   assert.strictEqual(r, 'stuck');
   const st = ev.find((e) => e.kind === 'reselect' && e.result === 'stuck');
   assert.match(st.reason, /判断、道筋が縮まなかった/);
@@ -303,7 +304,7 @@ function survivalCtx(over = {}, extra = {}) {
   return buildContext(mockRaw(over), new Memory({ limits: cfg.memory.limits }), cfg, { foods: new Set(['bread']), ...extra });
 }
 
-test('Jev: goalPath のとき plan は道筋の文。step_done は聞かない。拠点の様子は now に入る', async () => {
+test('Jev (stateLang: ja、前の日本語の state): goalPath のとき plan は道筋の文。step_done は聞かない。拠点の様子は now に入る', async () => {
   const plan = 'ゴール: white_bed 1 (眠りたいから) / 道筋: jungle_log 2 ← 掘る(見える) / 次: jungle_log を手に入れる';
   const c = survivalCtx({}, { planText: plan, baseText: '拠点 (M1) の近く: chest 1、明るい、囲まれていない' });
   assert.ok(c.goalPath && !c.goalPlan && !c.selfGoal);
@@ -315,7 +316,7 @@ test('Jev: goalPath のとき plan は道筋の文。step_done は聞かない�
     const k = Object.keys(body.questions.next_action.criteria)[0];
     return { ok: true, status: 200, headers: new Map(), json: async () => ({ answers: { next_action: { type: 'choice', choice: k, confidence: 0.6 }, remember: { type: 'score', score: 1 } }, usage: { input_tokens: 2000, output_tokens: 10 } }) };
   };
-  const d = new JevDecider({ client: new JevClient({ apiKey: 'k', fetch }), twoStage: false });
+  const d = new JevDecider({ client: new JevClient({ apiKey: 'k', fetch }), twoStage: false, stateLang: 'ja' });
   await d.decide(c);
   assert.strictEqual(bodies[0].state.plan, plan);
   assert.ok(!bodies[0].questions.step_done && !bodies[0].questions.goal_done);

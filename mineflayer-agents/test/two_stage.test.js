@@ -62,7 +62,7 @@ test('JevDecider (2段): 分類が選ばれたら、最小限の state で2回�
   assert.deepStrictEqual(Object.keys(b2.questions.target.criteria), ['north', 'south', 'east', 'west']);
   for (const k of ['memory', 'feelings', 'now', 'heard_now', 'personality']) assert.ok(!(k in b2.state), `2回目に ${k} を送らない`);
   assert.match(b2.state.action, /^explore: /);
-  assert.match(b2.state.inventory, /spruce_logx2/);
+  assert.match(b2.state.inventory, /spruce_log x2/);
   assert.strictEqual(r.action, 'explore');
   assert.strictEqual(r.arg, 'east');
   assert.ok(r.parseOk);

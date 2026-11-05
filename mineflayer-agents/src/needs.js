@@ -13,6 +13,8 @@
 const BASIC = ['hunger', 'sleep', 'safety'];
 const HIGHER = ['connection', 'recognition', 'curiosity', 'greed', 'care'];
 const NEEDS = [...BASIC, ...HIGHER];
+// 欲求の英語の名前 (Jev の state のキー)
+const NEED_EN = { hunger: 'hunger', sleep: 'sleep', safety: 'safety', connection: 'connection', recognition: 'recognition', curiosity: 'curiosity', greed: 'possessions', care: 'helping_others' };
 const NEED_LABEL = {
   hunger: '空腹', sleep: '眠気', safety: '安心', connection: '人とのつながり', recognition: '認められたい',
   curiosity: '好奇心', greed: '物が欲しい', care: '人の役に立ちたい',
@@ -203,28 +205,28 @@ class Needs {
     const up = []; const down = [];
     const shelter = s.shelter || {};
     const light = Number.isFinite(s.light) ? s.light : (night ? 4 : 15);
-    if (light < sc.darkLight) up.push({ key: 'dark', w: sc.dark, text: '周りが暗い' });
-    if (night && !shelter.enclosed) up.push({ key: 'nightOutside', w: sc.nightOutside, text: '夜なのに外にいる' });
+    if (light < sc.darkLight) up.push({ key: 'dark', w: sc.dark, text: '周りが暗い', en: 'it is dark around here' });
+    if (night && !shelter.enclosed) up.push({ key: 'nightOutside', w: sc.nightOutside, text: '夜なのに外にいる', en: 'it is night and I am outside' });
     const hs = (s.hostiles || []).filter((h) => h.d <= sc.hostileRadius).sort((a, b) => a.d - b.d);
     if (hs.length) {
       const w = sc.hostile * clamp(0.3 + (1 - hs[0].d / sc.hostileRadius) + 0.15 * (hs.length - 1), 0, 1.5);
-      up.push({ key: 'hostile', w, text: `近くに${[...new Set(hs.map((h) => h.name))].slice(0, 2).join('や')}がいる` });
+      up.push({ key: 'hostile', w, text: `近くに${[...new Set(hs.map((h) => h.name))].slice(0, 2).join('や')}がいる`, en: `${[...new Set(hs.map((h) => h.name))].slice(0, 2).join(' and ')} nearby` });
     }
     const players = s.players || [];
     const anyone = players.some((p) => p.d <= sc.aloneRadius);
-    if (!anyone && s.unfamiliar) up.push({ key: 'alone', w: sc.alone, text: '知らない場所に一人でいる' });
+    if (!anyone && s.unfamiliar) up.push({ key: 'alone', w: sc.alone, text: '知らない場所に一人でいる', en: 'alone in an unfamiliar place' });
     const raise = up.reduce((t, x) => t + x.w, 0) * fearMul;
-    if (s.atHome) down.push({ key: 'home', w: sc.home, text: '自分の寝床の近くにいる' });
-    if (shelter.enclosed) down.push({ key: 'enclosed', w: sc.enclosed, text: '周りを囲まれた場所にいる' });
+    if (s.atHome) down.push({ key: 'home', w: sc.home, text: '自分の寝床の近くにいる', en: 'I am near my own bed' });
+    if (shelter.enclosed) down.push({ key: 'enclosed', w: sc.enclosed, text: '周りを囲まれた場所にいる', en: 'I am in an enclosed place' });
     const trusted = players.filter((p) => p.d <= sc.trustedRadius && (p.affinity ?? 50) >= sc.trustedAffinity);
-    if (trusted.length) down.push({ key: 'trusted', w: sc.trusted, text: `${trusted.map((p) => p.name).slice(0, 2).join('と')}が近くにいる` });
-    if (light >= 12) down.push({ key: 'bright', w: sc.bright, text: '明るい' });
+    if (trusted.length) down.push({ key: 'trusted', w: sc.trusted, text: `${trusted.map((p) => p.name).slice(0, 2).join('と')}が近くにいる`, en: `${trusted.map((p) => p.name).slice(0, 2).join(' and ')} nearby` });
+    if (light >= 12) down.push({ key: 'bright', w: sc.bright, text: '明るい', en: 'it is bright' });
     const lower = down.reduce((t, x) => t + x.w, 0);
     const shock = this.shock.death + this.shock.hurt;
     const target = clamp(raise - lower + shock);
     v.safety = clamp(v.safety + (target - v.safety) * (target > v.safety ? sc.up : sc.down));
-    if (this.shock.death >= 0.15) up.push({ key: 'death', w: this.shock.death, text: '前に殺されたことが頭から離れない' });
-    if (this.shock.hurt >= 0.1) up.push({ key: 'hurt', w: this.shock.hurt, text: 'さっき痛い目にあった' });
+    if (this.shock.death >= 0.15) up.push({ key: 'death', w: this.shock.death, text: '前に殺されたことが頭から離れない', en: 'I cannot stop thinking about being killed before' });
+    if (this.shock.hurt >= 0.1) up.push({ key: 'hurt', w: this.shock.hurt, text: 'さっき痛い目にあった', en: 'I just got hurt' });
     this.reasons = up.sort((a, b) => b.w - a.w);
     this.comfort = down.sort((a, b) => b.w - a.w);
     // つながり・認められたい・性格ごと
@@ -346,74 +348,95 @@ class Needs {
   }
 
   // ---- 言葉 (数値は出さない) ----
-  // 体と心の状態。毎回必ず返す
-  words() {
+  // 体と心の状態。毎回必ず返す。lang: 'ja' (2B と記録) | 'en' (Jev)。同じ値から両方の言葉を作る
+  words({ lang = 'ja' } = {}) {
+    const L = (ja, en) => (lang === 'en' ? en : ja);
     const v = this.v;
     const out = [];
     const h = v.hunger;
-    out.push(h < 0.2 ? 'お腹は空いていない' : h < 0.45 ? '少しお腹が空いた' : h < 0.7 ? 'お腹が空いた' : 'お腹がぺこぺこ');
-    if (h >= 0.5 && this.lastAte == null && this.lastTime != null) out.push('ここに来てから何も食べていない');
-    else if (h >= 0.5 && this.lastTime != null && this.lastAte != null && this.lastTime - this.lastAte >= 8000) out.push('長いこと何も食べていない');
+    out.push(h < 0.2 ? L('お腹は空いていない', 'not hungry') : h < 0.45 ? L('少しお腹が空いた', 'a little hungry') : h < 0.7 ? L('お腹が空いた', 'hungry') : L('お腹がぺこぺこ', 'starving'));
+    if (h >= 0.5 && this.lastAte == null && this.lastTime != null) out.push(L('ここに来てから何も食べていない', 'have eaten nothing since arriving here'));
+    else if (h >= 0.5 && this.lastTime != null && this.lastAte != null && this.lastTime - this.lastAte >= 8000) out.push(L('長いこと何も食べていない', 'have not eaten for a long time'));
     const nights = this.missedNights;
-    if (nights >= 2) out.push(`${KANJI[Math.min(10, nights)]}晩ちゃんと寝ていない`);
-    else if (nights === 1) out.push('昨夜は寝られなかった');
+    if (nights >= 2) out.push(L(`${KANJI[Math.min(10, nights)]}晩ちゃんと寝ていない`, `have not slept properly for ${nights >= 4 ? 'many' : 'several'} nights`));
+    else if (nights === 1) out.push(L('昨夜は寝られなかった', 'could not sleep last night'));
     const sl = v.sleep;
-    out.push(sl < 0.3 ? '眠くない' : sl < 0.55 ? '少し眠い' : sl < 0.8 ? '眠い' : '眠くてたまらない');
-    out.push(this.safetyWords());
+    out.push(sl < 0.3 ? L('眠くない', 'not sleepy') : sl < 0.55 ? L('少し眠い', 'a little sleepy') : sl < 0.8 ? L('眠い', 'sleepy') : L('眠くてたまらない', 'desperately sleepy'));
+    out.push(this.safetyWords({ lang }));
     const e = this.effective();
     const hi = [
-      ['connection', ['誰かと一緒に何かしたい', 'ひとりぼっちで寂しい']],
-      ['recognition', ['誰かに頼られたい', '誰にも認められていない気がする']],
-      ['curiosity', ['知らない所が気になる', '知らない所を見てみたくてうずうずする']],
-      ['greed', ['もっと物が欲しい', '持ち物が少なくて落ち着かない']],
-      ['care', ['誰かの役に立ちたい', '誰の役にも立てていなくてもどかしい']],
+      ['connection', ['誰かと一緒に何かしたい', 'ひとりぼっちで寂しい'], ['want to do something together with someone', 'lonely, all by myself']],
+      ['recognition', ['誰かに頼られたい', '誰にも認められていない気がする'], ['want someone to rely on me', 'feel that nobody appreciates me']],
+      ['curiosity', ['知らない所が気になる', '知らない所を見てみたくてうずうずする'], ['curious about unknown places', 'itching to see places I have never been']],
+      ['greed', ['もっと物が欲しい', '持ち物が少なくて落ち着かない'], ['want more things', 'uneasy about having so few things']],
+      ['care', ['誰かの役に立ちたい', '誰の役にも立てていなくてもどかしい'], ['want to help someone', 'frustrated at not helping anyone']],
     ].filter(([k]) => e[k] >= 0.35).sort((a, b) => e[b[0]] - e[a[0]]).slice(0, 2);
-    for (const [k, w] of hi) out.push(w[e[k] >= 0.65 ? 1 : 0]);
+    for (const [k, ja, en] of hi) out.push((lang === 'en' ? en : ja)[e[k] >= 0.65 ? 1 : 0]);
     const S = this.stress;
-    if (S >= 0.2) out.push(S < 0.45 ? '気が張っている' : S < 0.7 ? 'かなり参っている' : 'もう限界に近い');
-    return out.filter(Boolean).join('。');
+    if (S >= 0.2) out.push(S < 0.45 ? L('気が張っている', 'tense') : S < 0.7 ? L('かなり参っている', 'quite worn down') : L('もう限界に近い', 'close to the breaking point'));
+    return out.filter(Boolean).join(lang === 'en' ? '; ' : '。');
   }
 
-  safetyWords() {
+  safetyWords({ lang = 'ja' } = {}) {
+    const en = lang === 'en';
     const a = this.v.safety;
-    const why = this.reasons.slice(0, 2).map((r) => r.text);
+    const why = this.reasons.slice(0, 2).map((r) => (en ? r.en || r.text : r.text));
     if (a < 0.25) {
-      const ok = this.comfort.filter((x) => x.key !== 'bright').slice(0, 1).map((x) => x.text);
+      const ok = this.comfort.filter((x) => x.key !== 'bright').slice(0, 1).map((x) => (en ? x.en || x.text : x.text));
+      if (en) return ok.length ? `feel safe because ${ok[0]}` : 'calm';
       return ok.length ? `${ok[0]}ので安心している` : '落ち着いている';
+    }
+    if (en) {
+      const w = a < 0.5 ? 'a little uneasy' : a < 0.75 ? 'uneasy' : 'scared';
+      return why.length ? `${w} because ${why.join(' and ')}` : w;
     }
     const reason = why.length ? `${why.join('し、')}ので` : '';
     return `${reason}${a < 0.5 ? '少し落ち着かない' : a < 0.75 ? '落ち着かない' : '怖い'}`;
   }
 
+  // 欲求ごとのつらさの点 (worst と、ゴールを選ぶときの重み)。大きいほどつらい
+  distress(k) {
+    const e = this.effective();
+    const w = this.cfg.stress.weights;
+    return (e[k] / this.threshold(k)) * (w[k] ?? 0.3) * (1 + this.unmet[k] / this.cfg.stress.T);
+  }
+
   // いちばんつらいこととその理由 (ゴール作りに渡す)。{ need, label, text } | null
   worst() {
     const e = this.effective();
-    const w = this.cfg.stress.weights;
-    const score = (k) => (e[k] / this.threshold(k)) * (w[k] ?? 0.3) * (1 + this.unmet[k] / this.cfg.stress.T);
-    const k = [...NEEDS].sort((a, b) => score(b) - score(a))[0];
+    const k = [...NEEDS].sort((a, b) => this.distress(b) - this.distress(a))[0];
     if (!k || e[k] < this.threshold(k) * 0.6) return null;
     return { need: k, label: NEED_LABEL[k], text: this.whyText(k) };
   }
 
-  whyText(k) {
+  // つらい順の上位 n 個 [{ need, distress, ratio (しきい値に対する割合), text, textEn }]。ratio が minRatio 未満のものは入れない
+  pressing({ n = 3, minRatio = 0.6 } = {}) {
+    const e = this.effective();
+    return [...NEEDS].map((k) => ({ need: k, distress: r3(this.distress(k)), ratio: r3(e[k] / this.threshold(k)) }))
+      .filter((x) => x.ratio >= minRatio).sort((a, b) => b.distress - a.distress).slice(0, n)
+      .map((x) => ({ ...x, text: this.whyText(x.need), textEn: this.whyText(x.need, { lang: 'en' }) }));
+  }
+
+  whyText(k, { lang = 'ja' } = {}) {
+    const L = (ja, en) => (lang === 'en' ? en : ja);
     const v = this.v;
     if (k === 'hunger') {
-      const long = this.lastAte == null ? 'ここに来てから何も食べていない' : this.lastTime - this.lastAte >= 8000 ? '長いこと何も食べていない' : '';
-      return [v.hunger >= 0.7 ? 'お腹がぺこぺこ' : 'お腹が空いた', long].filter(Boolean).join('。');
+      const long = this.lastAte == null ? L('ここに来てから何も食べていない', 'have eaten nothing since arriving here') : this.lastTime - this.lastAte >= 8000 ? L('長いこと何も食べていない', 'have not eaten for a long time') : '';
+      return [v.hunger >= 0.7 ? L('お腹がぺこぺこ', 'starving') : L('お腹が空いた', 'hungry'), long].filter(Boolean).join(L('。', '; '));
     }
     if (k === 'sleep') {
       const n = this.missedNights;
-      const nights = n >= 2 ? `${KANJI[Math.min(10, n)]}晩ちゃんと寝ていない` : n === 1 ? '昨夜は寝られなかった' : '';
-      return [nights, v.sleep >= 0.8 ? '眠くてたまらない' : '眠い'].filter(Boolean).join('。');
+      const nights = n >= 2 ? L(`${KANJI[Math.min(10, n)]}晩ちゃんと寝ていない`, `have not slept properly for ${n >= 4 ? 'many' : 'several'} nights`) : n === 1 ? L('昨夜は寝られなかった', 'could not sleep last night') : '';
+      return [nights, v.sleep >= 0.8 ? L('眠くてたまらない', 'desperately sleepy') : L('眠い', 'sleepy')].filter(Boolean).join(L('。', '; '));
     }
-    if (k === 'safety') return this.safetyWords();
+    if (k === 'safety') return this.safetyWords({ lang });
     const e = this.effective();
     const t = {
-      connection: e.connection >= 0.65 ? 'ずっと誰とも一緒に何もしていなくて寂しい' : '誰かと一緒に何かしたい',
-      recognition: e.recognition >= 0.65 ? '誰にも頼られず、認められていない気がする' : '誰かに頼られたい',
-      curiosity: '知らない所を見てみたい',
-      greed: '持ち物が少なくて落ち着かない',
-      care: '誰の役にも立てていなくてもどかしい',
+      connection: e.connection >= 0.65 ? L('ずっと誰とも一緒に何もしていなくて寂しい', 'lonely; have not done anything with anyone for a long time') : L('誰かと一緒に何かしたい', 'want to do something together with someone'),
+      recognition: e.recognition >= 0.65 ? L('誰にも頼られず、認められていない気がする', 'nobody relies on me; I feel unappreciated') : L('誰かに頼られたい', 'want someone to rely on me'),
+      curiosity: L('知らない所を見てみたい', 'want to see places I have never been'),
+      greed: L('持ち物が少なくて落ち着かない', 'uneasy about having so few things'),
+      care: L('誰の役にも立てていなくてもどかしい', 'frustrated at not helping anyone'),
     };
     return t[k];
   }
@@ -425,4 +448,4 @@ class Needs {
 // 人ごとの設定: cfg.needs (全員) に persona.needs (人ごと) を重ねる
 function needsConfig(cfg = {}, persona = {}) { return merge(merge({}, cfg.needs || {}), persona.needs || {}); }
 
-module.exports = { Needs, NEEDS, BASIC, HIGHER, NEED_LABEL, LABEL_TO_NEED, NEEDS_DEFAULTS, senseShelter, effectiveLight, foodPoints, needsConfig, merge };
+module.exports = { NEED_EN, Needs, NEEDS, BASIC, HIGHER, NEED_LABEL, LABEL_TO_NEED, NEEDS_DEFAULTS, senseShelter, effectiveLight, foodPoints, needsConfig, merge };

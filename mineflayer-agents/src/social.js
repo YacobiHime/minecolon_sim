@@ -19,6 +19,17 @@ const EMO_WORD = {
   disgust: ['少しうんざりしている', 'うんざりしている', 'ひどくうんざりしている'],
   surprise: ['少し驚いている', '驚いている', 'とても驚いている'],
 };
+const EMO_WORD_EN = {
+  joy: ['a little glad', 'glad', 'very glad'],
+  sadness: ['a little down', 'down', 'very down'],
+  anger: ['a little irritated', 'irritated', 'quite angry'],
+  fear: ['a little anxious', 'anxious', 'very scared'],
+  disgust: ['a little fed up', 'fed up', 'thoroughly fed up'],
+  surprise: ['a little surprised', 'surprised', 'very surprised'],
+};
+// 関係のメモ (r.note) の英語
+const NOTE_EN = { 前に物をあげた: 'I gave them something before', 前に物をくれた: 'they gave me something before', 前にやり方を教えてくれた: 'they taught me how to do something before',
+  聞いたが知らなかった: 'I asked them but they did not know', 聞いたのに返事がなかった: 'I asked them but got no answer' };
 const { Needs, NEED_LABEL } = require('./needs');
 // ストレスの出どころ → どの感情に出やすいか
 const STRESS_SOURCE = {
@@ -184,26 +195,31 @@ class Social {
   // いちばんつらいこと { need, label, text } | null
   worstNeed() { return this.needsModel.worst(); }
 
-  // 相手との関係の言葉
-  relationWord(name) {
+  // 相手との関係の言葉 (lang: 'ja' | 'en')
+  relationWord(name, { lang = 'ja' } = {}) {
     const r = this.relations[name];
-    if (!r) return '知らない人';
-    const how = r.affinity >= 75 ? '仲が良い' : r.affinity >= 58 ? '感じが良い' : r.affinity <= 25 ? '仲が悪い' : r.affinity <= 42 ? '少し苦手' : '知り合い';
+    const en = lang === 'en';
+    if (!r) return en ? 'a stranger' : '知らない人';
+    const i = r.affinity >= 75 ? 0 : r.affinity >= 58 ? 1 : r.affinity <= 25 ? 2 : r.affinity <= 42 ? 3 : 4;
+    const how = (en ? ['close friends', 'on good terms', 'on bad terms', 'a little uncomfortable with them', 'acquaintances'] : ['仲が良い', '感じが良い', '仲が悪い', '少し苦手', '知り合い'])[i];
+    if (en) return `${how}${r.note ? `; ${NOTE_EN[r.note] || r.note}` : ''}`;
     return `${how}${r.note ? '。' + r.note : ''}`;
   }
 
-  // 2B と Jev に渡す短い言葉。数値は渡さない。体と心の状態 (needs.js) は毎回必ず入れる
-  words({ maxRelations = 3, relations = true } = {}) {
-    const out = [this.needsModel.words()];
+  // 2B と Jev に渡す短い言葉。数値は渡さない。体と心の状態 (needs.js) は毎回必ず入れる。lang: 'en' は Jev 用 (同じ値から作る)
+  words({ maxRelations = 3, relations = true, lang = 'ja' } = {}) {
+    const en = lang === 'en';
+    const out = [this.needsModel.words({ lang })];
     const emo = EMOTIONS.map((e) => [e, this.emotions[e]])
       .filter(([e, v]) => v >= 3 && !(e === 'joy' && v < 4))
       .sort((a, b) => b[1] - a[1]).slice(0, 2);
-    for (const [e, v] of emo) out.push(EMO_WORD[e][v >= 8 ? 2 : v >= 5 ? 1 : 0]);
-    if (!relations) return out.join('。');
+    for (const [e, v] of emo) out.push((en ? EMO_WORD_EN : EMO_WORD)[e][v >= 8 ? 2 : v >= 5 ? 1 : 0]);
+    const sep = en ? '; ' : '。';
+    if (!relations) return out.join(sep);
     const rels = Object.entries(this.relations).filter(([, r]) => r.met || r.talks || r.helpedMe || r.ignoredMe)
       .sort((a, b) => Math.abs(b[1].affinity - 50) - Math.abs(a[1].affinity - 50)).slice(0, maxRelations);
-    for (const [name] of rels) out.push(`${name}とは${this.relationWord(name)}`);
-    return out.join('。');
+    for (const [name] of rels) out.push(en ? `with ${name}: ${this.relationWord(name, { lang })}` : `${name}とは${this.relationWord(name)}`);
+    return out.join(sep);
   }
 }
 

@@ -4,6 +4,7 @@
     {
       "name": "Taro",
       "personality": "まじめで少しのんびりした木こり。",
+      "personality_en": "Earnest and a little easygoing woodcutter.",
       "speech": "くだけた短い日本語。語尾に「〜だな」をよく使う。",
       "temperament": {
         "bravery": 0.5,
@@ -22,6 +23,7 @@
     {
       "name": "Hanako",
       "personality": "世話好きで、人に教えるのが好き。",
+      "personality_en": "Caring; likes teaching people.",
       "speech": "やわらかい丁寧語。",
       "temperament": {
         "bravery": 0.4,
@@ -43,6 +45,7 @@
     {
       "name": "Jiro",
       "personality": "せっかちで負けず嫌い。自分でやりたがる。",
+      "personality_en": "Impatient and competitive; wants to do things himself.",
       "speech": "ぶっきらぼうで短い。",
       "temperament": {
         "bravery": 0.8,
@@ -64,6 +67,7 @@
     {
       "name": "Yuki",
       "personality": "慎重で怖がり。夜が苦手。",
+      "personality_en": "Cautious and timid; does not like the night.",
       "speech": "控えめで、ときどき言いよどむ。",
       "temperament": {
         "bravery": 0.2,
@@ -83,6 +87,7 @@
     {
       "name": "Ken",
       "personality": "陽気で話し好き。段取りを仕切りたがる。",
+      "personality_en": "Cheerful and talkative; likes to run the show.",
       "speech": "元気なくだけた話し方。",
       "temperament": {
         "bravery": 0.6,
@@ -104,6 +109,7 @@
     {
       "name": "Mai",
       "personality": "素直で、人に言われたことをそのまま信じる。",
+      "personality_en": "Honest; believes what people tell her.",
       "speech": "明るい丁寧語。",
       "temperament": {
         "bravery": 0.4,
@@ -123,6 +129,7 @@
     {
       "name": "Sota",
       "personality": "無口で、一人で黙々とやるのが好き。",
+      "personality_en": "Quiet; likes to work alone in silence.",
       "speech": "ほとんど話さず、話すときは一言だけ。",
       "temperament": {
         "bravery": 0.6,
@@ -142,6 +149,7 @@
     {
       "name": "Aoi",
       "personality": "好奇心が強く、知らない物や場所が気になってしかたない。",
+      "personality_en": "Very curious; cannot stop thinking about unknown things and places.",
       "speech": "はきはきした話し方で、よく質問する。",
       "temperament": {
         "bravery": 0.7,
@@ -160,6 +168,7 @@
     {
       "name": "Daiki",
       "personality": "欲張りで、物をたくさん持っていないと落ち着かない。",
+      "personality_en": "Greedy; feels uneasy without lots of things.",
       "speech": "遠慮のないくだけた話し方。",
       "temperament": {
         "bravery": 0.5,
@@ -178,6 +187,7 @@
     {
       "name": "Rin",
       "personality": "ずる賢く、自分が損をしないように立ち回る。",
+      "personality_en": "Crafty; acts so as never to lose out.",
       "speech": "愛想のいい丁寧語だが、本音はあまり言わない。",
       "temperament": {
         "bravery": 0.4,
@@ -199,6 +209,7 @@
     {
       "name": "Haruto",
       "personality": "勇敢で、危ない所にも先に行ってしまう。",
+      "personality_en": "Brave; goes ahead even into dangerous places.",
       "speech": "短く力強い言い方。",
       "temperament": {
         "bravery": 0.95,
@@ -218,6 +229,7 @@
     {
       "name": "Emi",
       "personality": "心配性で、いつも先のことを気にしている。",
+      "personality_en": "A worrier; always thinking about what comes next.",
       "speech": "小さな声で、念を押すように話す。",
       "temperament": {
         "bravery": 0.3,
@@ -239,6 +251,7 @@
     {
       "name": "Shota",
       "personality": "のんきで、あまり急がない。",
+      "personality_en": "Carefree; rarely in a hurry.",
       "speech": "のんびりした話し方。語尾がのびる。",
       "temperament": {
         "bravery": 0.5,
@@ -260,6 +273,7 @@
     {
       "name": "Nana",
       "personality": "寂しがりで、一人になるのが嫌い。",
+      "personality_en": "Gets lonely easily; hates being alone.",
       "speech": "甘えたような、くだけた話し方。",
       "temperament": {
         "bravery": 0.3,
@@ -279,6 +293,7 @@
     {
       "name": "Ryo",
       "personality": "頑固で、自分のやり方を曲げない。",
+      "personality_en": "Stubborn; does not change his own way.",
       "speech": "理屈っぽく、短く言い切る。",
       "temperament": {
         "bravery": 0.6,
@@ -297,6 +312,7 @@
     {
       "name": "Kaori",
       "personality": "几帳面で、物をきちんと揃えておきたい。",
+      "personality_en": "Meticulous; wants things neatly in order.",
       "speech": "きっちりした丁寧語。",
       "temperament": {
         "bravery": 0.4,
@@ -315,6 +331,7 @@
     {
       "name": "Takumi",
       "personality": "見栄っ張りで、人に良く思われたい。",
+      "personality_en": "Vain; wants people to think well of him.",
       "speech": "大げさな話し方で、自慢が混じる。",
       "temperament": {
         "bravery": 0.6,
@@ -334,6 +351,7 @@
     {
       "name": "Mio",
       "personality": "人見知りで、知らない人に話しかけるのが苦手。",
+      "personality_en": "Shy; finds it hard to talk to people she does not know.",
       "speech": "控えめで言葉が少ない。",
       "temperament": {
         "bravery": 0.3,
@@ -355,6 +373,7 @@
     {
       "name": "Goro",
       "personality": "気が短く、思いどおりにならないとすぐ怒る。",
+      "personality_en": "Short-tempered; gets angry quickly when things do not go his way.",
       "speech": "荒っぽいくだけた話し方。",
       "temperament": {
         "bravery": 0.7,
@@ -376,6 +395,7 @@
     {
       "name": "Sayaka",
       "personality": "お人よしで、頼まれると断れない。",
+      "personality_en": "Good-natured; cannot say no when asked.",
       "speech": "穏やかで落ち着いた話し方。",
       "temperament": {
         "bravery": 0.5,
@@ -458,6 +478,19 @@
         "walled": 1,
         "chest": 8
       }
+    },
+    "select": {
+      "_comment": "ゴールの選び方 (サーベイ R1、D2A の形。ユーザー了承 2026-11-05): 2B が案を k 個 (今の候補から、schema の enum) → もう満たされている・たどれない案を外す → Jev に「この案を果たすと、この欲求が和らぐか」を 案 × 欲求 (今つらい上位 needs 個。しきい値に対する割合 minRatio 以上) の noul で1回に聞く → 点 = Σ つらさ^power × P の最大を選ぶ。最大との差 tieEps 以内は 2B が先に書いた案。全部の P が lowP 未満なら onAllLow (best: 点の最大 / first: 2B の最初の案)。つらい欲求が無いときは Jev を呼ばず 2B の最初の案。つらさ = (効いている強さ / しきい値) × ストレスの重み × (1 + 満たされない時間 / T) (needs.js distress)。maxTokens・temperature は案を出す 2B の呼び出し",
+      "enabled": true,
+      "k": 4,
+      "needs": 3,
+      "minRatio": 0.6,
+      "power": 1,
+      "tieEps": 0.02,
+      "lowP": 0.3,
+      "onAllLow": "best",
+      "maxTokens": 480,
+      "temperature": 0.7
     }
   },
   "reflect": {
@@ -521,7 +554,17 @@
         "summaryMax": 8
       },
       "maxConcurrent": 8,
-      "timeoutMs": 15000
+      "timeoutMs": 15000,
+      "stateLang": "en",
+      "_comment_state": "stateLang: en = Jev の state を英語にする (観察・記憶・気持ち・道筋・知識・拠点・last_result。人の名前・発言・2B の書いた方針は原文)。ja で前の日本語の state。state: 英語の state に入れる数 (見えるブロックは目印と道筋の名前だけ maxVisible 種類・近くの物 maxNearby・覚えている場所 maxPlaces・やったこと maxEvents・聞いた話 maxHeard・教わったこと maxTaught)",
+      "state": {
+        "maxVisible": 8,
+        "maxNearby": 6,
+        "maxPlaces": 4,
+        "maxEvents": 5,
+        "maxHeard": 3,
+        "maxTaught": 2
+      }
     },
     "llm": {
       "think": true
@@ -627,5 +670,10 @@
     "minutes": 60,
     "failWindow": 4,
     "failRepeat": 2
+  },
+  "order": {
+    "_comment": "選択肢の並べ方を毎回変える (src/order.js。サーベイ R5): Jev の行動の選択肢・2段目の対象・2B のゴールの候補 (物・状態・人・場所の一覧)・Jev に聞くゴールの案。seed は実行の種 (--seed で上書き。null なら run.js が決めて start / run.json に残す)。人ごとの種 = hash(seed:名前)、1回ごとの並びは (人の種, 流れ, 通し番号 n) から決まる",
+    "shuffle": true,
+    "seed": null
   }
 }

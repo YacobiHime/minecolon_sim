@@ -6,7 +6,9 @@
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const { Vec3 } = require('vec3');
-const { collectRaw, summarizeObservation, notableMatcher } = require('./observe');
+const { collectRaw, summarizeObservation, notableMatcher, observationEn } = require('./observe');
+const en = require('./en');
+const { Order, agentSeed } = require('./order');
 const { listActions, resolveDecision } = require('./actions');
 const { executeAction } = require('./act');
 const { Memory } = require('./memory');
@@ -21,7 +23,7 @@ const { SelfGoal } = require('./selfgoal');
 const { GoalPlan } = require('./goalplan');
 const { GoalPath } = require('./goalpath');
 const { Reflect } = require('./reflect');
-const { baseSite, baseSiteText } = require('./basesite');
+const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
 const { isPlaceableBlockItem } = require('./planner');
 const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
@@ -54,6 +56,16 @@ function factsOpts(raw, memory, planText = '', extraNames = null) {
   for (const n of extraNames || []) strong.add(n);
   const died = [...(memory.events || [])].reverse().find((e) => e.action === 'death');
   return { strong, situations: knowledge.situations(raw, { tick: memory.tick, diedAt: died ? died.t : null }) };
+}
+
+// Jev の英語の state に入れる数 (cfg.decider.jev.state で上書き)
+const JEV_STATE_DEFAULTS = { maxVisible: 8, maxNearby: 6, maxPlaces: 4, maxEvents: 5, maxHeard: 3, maxTaught: 2 };
+
+function jevStateCfg(cfg) { return { ...JEV_STATE_DEFAULTS, ...((cfg.decider && cfg.decider.jev && cfg.decider.jev.state) || {}) }; }
+// 英語の観察。見えるブロックは目印と、道筋・ゴールの文 (planText) に出てくる名前だけ
+function obsEn(raw, cfg, planText) {
+  const js = jevStateCfg(cfg);
+  return observationEn(raw, { names: knowledge.namesInText(planText), maxVisible: js.maxVisible, maxNearby: js.maxNearby, showDay: cfg.perception.showDay });
 }
 
 // 観測と記憶から、decider に渡す材料を作る (bot に依存しない)
@@ -91,6 +103,17 @@ function buildContext(raw, memory, cfg, extra = {}) {
     factsShown = knowledge.selectFacts(kn.facts, { ...factsOpts(raw, memory, prog, extra.factsNames), names: knowledge.namesInView({ raw, actions, plan: prog }), max: kn.max, exclude: hints });
   }
   const goal = help.hints ? { ...cfg.goal, hints: [...(cfg.goal.hints || []), ...factsShown.map((f) => f.text)] } : { ...cfg.goal, hints: [] };
+  // Jev 用の英語 (同じ raw・記憶・事実から。jev の stateLang: 'en' のときに使う)。件数は cfg.decider.jev.state で絞る
+  const js = jevStateCfg(cfg);
+  const enCtx = {
+    obs: obsEn(raw, cfg, prog),
+    mem: memory.toStateEn(here, { places: memPlaces, maxPlaces: js.maxPlaces, maxEvents: js.maxEvents, maxHeard: js.maxHeard, maxTaught: js.maxTaught }),
+    social: extra.socialEn || '',
+    lastResult: extra.lastResultEn || '',
+    base: extra.baseEn || '',
+    hints: help.hints ? [...(cfg.goal.hints_en || cfg.goal.hints || []), ...factsShown.map((f) => knowledge.factText(f, 'en'))] : [],
+    plan: extra.planEn || null,
+  };
   // 正味の変化で見た繰り返し (agent が extra.net で渡す) の回数を、1回ごとの penalties に合わせる
   const pens = nc ? nochange.mergePenalties(nochange.penalties(memory.events, nc.weightWindow), extra.net ? extra.net.counts : null) : null;
   return {
@@ -112,6 +135,9 @@ function buildContext(raw, memory, cfg, extra = {}) {
     noChange: nc ? { penalties: pens, weight: nc.weight } : null,
     knowledge: kn,
     factsShown: factsShown.map((f) => f.id),
+    en: enCtx,
+    order: extra.order || null,
+    pathNext: extra.pathNext,
   };
 }
 
@@ -164,6 +190,11 @@ class Agent {
     this.talking = false;
     this.pendingUse = []; // 教わった答えを使ったかを見張るもの
     this.lastResult = '';
+    this.lastResultEn = '';
+    // 選択肢の並べ方 (order.js)。cfg.order = { shuffle, seed }。人ごとの種は実行の種と名前から
+    const oc = cfg.order || {};
+    this.runSeed = oc.seed != null ? Number(oc.seed) >>> 0 : null;
+    this.order = new Order({ enabled: oc.shuffle === true, seed: agentSeed(this.runSeed ?? 0, cfg.persona.name) });
     this.goalAt = null;
     this.selfGoal = this.help.selfGoal
       ? new SelfGoal({ cfg: cfg.selfGoal || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.selfGoal && cfg.selfGoal.llm) || {}) }, meter })
@@ -185,6 +216,7 @@ class Agent {
     if (this.help.goalPath) {
       this.goalPlan = null;
       this.goalPath = new GoalPath({ cfg: cfg.goalPath || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.goalPath && cfg.goalPath.llm) || {}) }, meter,
+        jev: decider && decider.kind === 'jev' ? decider : null, order: this.order,
         log: (e) => { this.recorder.write({ event: 'goal_path', ...e }); if (this.reflect) this.reflect.noteGoal(e); } });
     } else this.goalPath = null;
     // 振り返りと方針 (cfg.reflect。reflect.js)。ゴール (help.goalPath) と一緒に使う
@@ -202,8 +234,10 @@ class Agent {
   baseView(raw, memPlaces) {
     if (this.cfg.baseSite === false || this.help.goalPath !== true) return '';
     const center = this.base || this.homeSpot;
+    this.baseEn = '';
     if (!center) return '';
     const m = memPlaces.find((p) => p.kind === BASE_KIND);
+    const labelEn = this.base ? `the base${m ? ` (${m.id})` : ''}` : 'the spot where I placed my bed/chest';
     const label = this.base ? `拠点${m ? ` (${m.id})` : ''}` : '自分のベッド/チェストを置いた所';
     const here = raw.self.pos;
     const near = dist3(here, center) <= (this.cfg.perception.visionRadius ?? 16);
@@ -211,8 +245,12 @@ class Agent {
       const site = baseSite((x, y, z) => this.bot.blockAt(new Vec3(x, y, z)), center, (this.cfg.baseSiteOpts || {}));
       if (site) this.baseSeen = { site, tick: this.memory.tick };
     }
-    if (!this.baseSeen) return near ? `${label}の近く: まだ数えていない` : `${label}: ${relDir(here, center)}`;
+    if (!this.baseSeen) {
+      this.baseEn = near ? `near ${labelEn}: not counted yet` : `${labelEn}: ${en.whereEn(here, center)}`;
+      return near ? `${label}の近く: まだ数えていない` : `${label}: ${relDir(here, center)}`;
+    }
     const text = baseSiteText(this.baseSeen.site, { label, near, dirText: relDir(here, center) });
+    this.baseEn = baseSiteTextEn(this.baseSeen.site, { label: labelEn, near, where: en.whereEn(here, center) });
     const key = JSON.stringify(this.baseSeen.site.counts) + this.baseSeen.site.enclosed + (this.baseSeen.site.light >= 8);
     if (near && key !== this.lastBaseText) {
       this.lastBaseText = key;
@@ -229,7 +267,7 @@ class Agent {
     for (const h of this.memory.heard) if (h.from !== '自分' && h.from !== me) names.add(h.from);
     return [...names].filter((n) => n && n !== me).map((name) => {
       const e = raw.entities.find((x) => x.kind === 'player' && x.name === name);
-      return { name, relation: this.social.relationWord(name), seen: e ? relDir(raw.self.pos, e.pos) : null };
+      return { name, relation: this.social.relationWord(name), relationEn: this.social.relationWord(name, { lang: 'en' }), seen: e ? relDir(raw.self.pos, e.pos) : null, seenEn: e ? en.whereEn(raw.self.pos, e.pos) : null };
     });
   }
 
@@ -601,7 +639,9 @@ class Agent {
     const worst = this.social.worstNeed();
     const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)));
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
+    const socialEn = this.social.words({ lang: 'en' });
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText,
+      socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
@@ -660,9 +700,13 @@ class Agent {
         blockAt: bot && typeof bot.blockAt === 'function' ? (x, y, z) => bot.blockAt(new Vec3(x, y, z)) : null,
         containers: (this.memory.extra && this.memory.extra.containers) || {}, home: this.homeSpot,
         policy: this.reflect ? this.reflect.policyText() : null,
+        pressing: (o) => this.social.needsModel.pressing(o),
       }, tick, { troubles });
       this.lastGave = [];
       ctx.progress = this.goalPath.planText();
+      ctx.en.plan = this.goalPath.planEn();
+      ctx.en.obs = obsEn(raw, cfg, ctx.progress);
+      ctx.pathNext = this.goalPath.pathNext();
       if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
     }
     const obsMs = Date.now() - tObs;
@@ -729,6 +773,9 @@ class Agent {
     this.social.onActionResult(resolved.action, result.ok, { repeatedFail: !result.ok && troubles.some((t) => t.key === key) });
     this.social.onActionNeeds(resolved.action, resolved.arg, result, tick);
     this.lastResult = `${plannedText}→${result.ok ? '成功' : '失敗'}: ${result.msg}`;
+    // 英語 (Jev 用。同じ結果と、行動の前後の持ち物の差から)。記憶のやったことにも英語の文を残す
+    this.lastResultEn = en.resultEn({ action: resolved.action, arg: resolved.arg, ok: result.ok, msg: result.msg, delta: en.invDelta(raw.inventory, inv) });
+    ev.en = this.lastResultEn;
     if (this.reflect) {
       const g = this.goalPath && this.goalPath.goal;
       const near = raw.entities.filter((e) => e.kind === 'player' && e.d <= this.reflect.cfg.nearDist).map((e) => e.name);
@@ -815,7 +862,7 @@ class Agent {
     const cfg = this.cfg;
     const t = this.bot && this.bot.time;
     this.recorder.write({
-      event: 'start', persona: cfg.persona, goal: cfg.goal, decider: this.decider.kind, talker: this.talker ? this.talker.kind : null,
+      event: 'start', order: { shuffle: this.order.enabled, runSeed: this.runSeed, seed: this.order.seed }, jevStateLang: this.decider && this.decider.lang ? this.decider.lang : null, persona: cfg.persona, goal: cfg.goal, decider: this.decider.kind, talker: this.talker ? this.talker.kind : null,
       help: this.help, perception: cfg.perception, memoryLimits: this.memory.limits, base: this.base, world: cfg.world || null,
       talk: cfg.talk || null, askCfg: cfg.ask || null, noChangeCfg: this.help.noChange ? noChangeCfg(cfg) : null,
       explore: { ...((cfg.act && cfg.act.explore) || { mode: 'basic' }), cell: this.memory.limits.exploreCell }, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null, ...extra,
@@ -859,4 +906,4 @@ class Agent {
   stop() { this.stopped = true; }
 }
 
-module.exports = { Agent, buildContext, factsOpts, updateMemoryFromObservation, goalMet, DEFAULT_HELP };
+module.exports = { obsEn, JEV_STATE_DEFAULTS, Agent, buildContext, factsOpts, updateMemoryFromObservation, goalMet, DEFAULT_HELP };

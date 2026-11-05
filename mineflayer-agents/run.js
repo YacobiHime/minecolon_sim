@@ -2,7 +2,7 @@
 'use strict';
 // 使い方: node mineflayer-agents/run.js --config mineflayer-agents/configs/first_setting.json [--agents 1|5|20] [--minutes 15]
 //         [--decider llm|split|jev|random] [--llm http://127.0.0.1:18081] [--name Taro] [--host 127.0.0.1] [--port 25565]
-//         [--max-jev-tokens 3000000] [--stagger-ms 1500] [--procs ceil(N/5)] [--monitor-sec 30] [--random-talk 0.2]
+//         [--max-jev-tokens 3000000] [--seed N (選択肢の並べ方の種)] [--stagger-ms 1500] [--procs ceil(N/5)] [--monitor-sec 30] [--random-talk 0.2]
 // 1プロセスで --agents 人を動かす。Jev の使用量の上限・2B の窓口は全員で共有する。
 // --procs P (P > 1) なら、P 個の子プロセス (node run.js --child) に人を分ける (pathfinder の計算は1プロセスの中では直列なので)。
 //   子は同じ runs/<時刻>/ に書き、親が Jev の入力トークンを合計して上限で全員を止め、最後に run.json にまとめる。
@@ -132,7 +132,14 @@ async function main() {
   if (llmUrl || args.decider) ov.decider = { ...(args.decider ? { type: args.decider } : {}), ...(llmUrl ? { llm: { baseUrl: llmUrl } } : {}) };
   if (args['max-jev-tokens']) ov.usage = { maxJevInputTokens: Number(args['max-jev-tokens']) };
   if (args['random-talk']) ov.decider = { ...(ov.decider || {}), talkP: Number(args['random-talk']) };
+  // 並べ方の種: --seed か config の order.seed。どちらも無ければここで決め、子プロセスにも --seed で渡す (記録の start と run.json に残る)
+  if (args.seed != null) ov.order = { seed: Number(args.seed) >>> 0 };
   const base = loadConfig(args.config, ov);
+  if (!base.order || base.order.seed == null) {
+    base.order = { ...(base.order || {}), seed: Math.floor(Math.random() * 2 ** 32) >>> 0 };
+    args.seed = String(base.order.seed);
+    process.argv.push('--seed', args.seed);
+  }
   const n = Math.max(1, Number(args.agents || base.agents || 1));
   // 既定は 5人ずつ (20人なら4プロセス)。1プロセスに20人だとイベントループが 1〜2 秒止まり、keepalive で切断された (2026-11-04 の試験)
   const procs = Math.max(1, args.procs ? Number(args.procs) : Math.ceil(n / 5));
@@ -208,7 +215,7 @@ async function main() {
   const results = await Promise.all(ready.map((a) => a.run({ runId: stamp, agents: n })));
   if (monitor) monitor.stop();
   if (usageTimer) { clearInterval(usageTimer); try { process.send({ type: 'usage', jevInputTokens: meter.jev.inputTokens }); } catch (_) { /* ignore */ } }
-  const summary = { runId: stamp, config: path.resolve(args.config), agents: n, connected: ready.length, ...(child ? { proc: child, agentRange: [from, to] } : {}), decider: decType,
+  const summary = { runId: stamp, config: path.resolve(args.config), order: base.order || null, agents: n, connected: ready.length, ...(child ? { proc: child, agentRange: [from, to] } : {}), decider: decType,
     minutes: Math.round((Date.now() - t0) / 600) / 100, results, disconnects, usage: meter.summary(), twoBLatency: LLM_STATS.total(),
     ...(child ? { twoBLatencyRaw: { ms: LLM_STATS.all.map((r) => r.ms), waitMs: LLM_STATS.all.map((r) => r.waitMs), serverMs: LLM_STATS.all.map((r) => r.serverMs) } } : {}) };
   fs.writeFileSync(path.join(runDir, child ? `run-part${child}.json` : 'run.json'), JSON.stringify(summary, null, 2));

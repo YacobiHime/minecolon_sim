@@ -9,7 +9,7 @@
 //   済んだかはプログラムが確かめる (checkState)。道筋は仕様だけで作る (planState): 要る物は planner でたどり、
 //   そのあとに行動の手順 (囲う・連れてくる・増やす・耕す・置く・入れる) を並べる。
 //   研究方針: 仕様・事実は見せるが、どう使うとよいかは書かない。数値はここで持ち、モデルには言葉だけ (手間は 小/中/大)。
-const { Planner, effortWord } = require('./planner');
+const { Planner, effortWord, EFFORT_EN } = require('./planner');
 const { dist3 } = require('./util');
 
 const { BREED_FOOD } = require('./animals');
@@ -115,6 +115,17 @@ function stateGoalText(st, count) {
   if (st.type === 'lit') return `拠点の近くに明かりが${n}個ある`;
   if (st.type === 'walled') return '拠点の真ん中が囲われている';
   if (st.type === 'chest') return `拠点の近くのチェストに ${st.item} が${n}個ある`;
+  return '';
+}
+
+// 英語 (Jev 用)
+function stateGoalTextEn(st, count) {
+  const n = count ?? DEFAULTS.counts[st.type];
+  if (st.type === 'pen') return `${n} ${st.animal} inside an enclosure near the base`;
+  if (st.type === 'farmland') return `${n} farmland near water`;
+  if (st.type === 'lit') return `${n} lights near the base`;
+  if (st.type === 'walled') return 'the center of the base is enclosed';
+  if (st.type === 'chest') return `${n} ${st.item} in a chest near the base`;
   return '';
 }
 
@@ -249,6 +260,17 @@ function actText(a) {
   return a.how;
 }
 
+function actTextEn(a) {
+  if (a.how === 'enclose') return `enclose (inside ${a.size}x${a.size}, ${a.item}${a.height === 2 ? ', 2 high' : ''}${a.gate ? `, gate ${a.gate}` : ''})`;
+  if (a.how === 'lure') return `lead ${a.count} ${a.animal} here (holding ${a.food})`;
+  if (a.how === 'breed') return `breed ${a.count} more ${a.animal} (${a.food} to two of them)`;
+  if (a.how === 'till') return `till ${a.count} (${a.tool} on dirt near water)`;
+  if (a.how === 'find') return `find ${a.block}`;
+  if (a.how === 'place') return `place ${a.count} ${a.item} (${a.where === '拠点' ? 'at the base' : a.where})`;
+  if (a.how === 'chest_put') return `put ${a.count} ${a.item} into a chest`;
+  return a.how;
+}
+
 const UNIT = { pen: '頭', farmland: 'マス', lit: '個', walled: '', chest: '個' };
 const GEAR = /_(sword|axe|pickaxe|shovel|hoe|helmet|chestplate|leggings|boots)$|^(shield|bow|crossbow|fishing_rod|shears)$/;
 
@@ -271,24 +293,29 @@ function stateCandidates(ctx) {
     const status = senseState(st, sense, c);
     const p = planState(st, n, ctx.world || {}, status, { planner, cfg: c });
     const facts = [];
-    if (status.noBase) facts.push('拠点はまだない');
-    else if (st.type === 'farmland' || status.known) facts.push(st.type === 'walled' ? (status.have ? '今は囲われている' : '今は囲われていない') : `今${status.have}${UNIT[st.type]}`);
-    else facts.push(status.far ? '拠点から離れているので今は数えられない' : '今は数えられない');
+    const fe = []; // 英語 (Jev 用。同じ値から)
+    if (status.noBase) { facts.push('拠点はまだない'); fe.push('no base yet'); }
+    else if (st.type === 'farmland' || status.known) {
+      facts.push(st.type === 'walled' ? (status.have ? '今は囲われている' : '今は囲われていない') : `今${status.have}${UNIT[st.type]}`);
+      fe.push(st.type === 'walled' ? (status.have ? 'enclosed now' : 'not enclosed now') : `${status.have} now`);
+    } else { facts.push(status.far ? '拠点から離れているので今は数えられない' : '今は数えられない'); fe.push('cannot be counted now'); }
     if (st.type === 'pen') {
       const e = (raw.entities || []).find((x) => x.name === st.animal && x.kind !== 'player');
       facts.push(e ? `${st.animal} が${ctx.dir ? ctx.dir(e.pos) : ''}に見える` : `${st.animal} はまだ見ていない`);
+      fe.push(e ? `${st.animal} visible` : `${st.animal} not seen yet`);
     }
-    if (st.type === 'farmland') facts.push((ctx.world && (ctx.world.visibleBlocks || []).includes('water')) ? 'water が見える' : 'water は見えない');
+    if (st.type === 'farmland') { const w = (ctx.world && (ctx.world.visibleBlocks || []).includes('water')); facts.push(w ? 'water が見える' : 'water は見えない'); fe.push(w ? 'water visible' : 'no water visible'); }
     if (p.ok && p.acts.length) {
       const needs = p.acts.flatMap((a) => (a.how === 'enclose' ? [`${a.item} ${a.count - (a.gate ? 1 : 0)}${a.gate ? `・${a.gate} 1` : ''}`] : a.how === 'lure' || a.how === 'breed' ? [] : a.how === 'till' ? [`${a.tool} 1`] : a.how === 'place' || a.how === 'chest_put' ? [`${a.item} ${a.count}`] : []));
       const food = p.acts.find((a) => a.how === 'lure' || a.how === 'breed');
       if (food) needs.push(`${food.food} ${p.items.steps.filter((x) => x.item === food.food).reduce((t, x) => t + x.count, 0) || 1}`);
-      if (needs.length) facts.push(`要る物: ${[...new Set(needs)].join('・')}`);
+      if (needs.length) { facts.push(`要る物: ${[...new Set(needs)].join('・')}`); fe.push(`needs ${[...new Set(needs)].join(', ')}`); }
     }
-    if (!p.ok) facts.push(`${p.missing} の手に入れ方が分からない`);
-    out.push({ name: id, state: st, count: n, desc: `状態: ${stateGoalText(st, n)}。${facts.join('。')}${p.ok && p.effortWord ? `。手間: ${p.effortWord}` : ''}` });
+    if (!p.ok) { facts.push(`${p.missing} の手に入れ方が分からない`); fe.push(`no known way to get ${p.missing}`); }
+    out.push({ name: id, state: st, count: n, have: status.known ? status.have : null, desc: `状態: ${stateGoalText(st, n)}。${facts.join('。')}${p.ok && p.effortWord ? `。手間: ${p.effortWord}` : ''}`,
+      descEn: `state: ${stateGoalTextEn(st, n)}; ${fe.join('; ')}${p.ok && p.effortWord ? `; effort ${EFFORT_EN[p.effortWord] || p.effortWord}` : ''}` });
   }
   return out;
 }
 
-module.exports = { stateCandidates, UNIT,  BREED_FOOD, PEN_ANIMALS, BARRIER, LIGHTS, DEFAULTS, ACT_COST, enclosedArea, hydratedFarmland, countLights, parseStateId, stateGoalText, senseState, planState, actText, isBarrier, isSolid };
+module.exports = { stateGoalTextEn, actTextEn, stateCandidates, UNIT,  BREED_FOOD, PEN_ANIMALS, BARRIER, LIGHTS, DEFAULTS, ACT_COST, enclosedArea, hydratedFarmland, countLights, parseStateId, stateGoalText, senseState, planState, actText, isBarrier, isSolid };
