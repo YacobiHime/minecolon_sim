@@ -12,6 +12,7 @@
 //   研究方針: 仕様・事実は見せるが、どう使うとよいかは書かない。数値はここで持ち、モデルには言葉だけ (手間は 小/中/大)。
 const { Planner, effortWord, EFFORT_EN, FARM, FARM_CROPS } = require('./planner');
 const { dist3 } = require('./util');
+const { waterWithin, waterCost, waterText, waterTextEn } = require('./farmwater');
 const { chestLabelEn } = require('./board');
 
 const { BREED_FOOD } = require('./animals');
@@ -91,14 +92,20 @@ function hydratedFarmland(blockAt, center, { radius = DEFAULTS.farmRadius, hydra
 //   返り値 { farmland, empty, emptyPos: [近い順に数個], growing: { wheat: n }, ripe: { wheat: n }, cropPos: { wheat: [...] } }
 function farmStatus(blockAt, center, { radius = DEFAULTS.farmRadius, down = 3, up = 2, keep = 4 } = {}) {
   const cx = Math.floor(center.x); const cy = Math.floor(center.y); const cz = Math.floor(center.z);
-  const out = { farmland: 0, empty: 0, emptyPos: [], growing: {}, ripe: {}, cropPos: {} };
+  const out = { farmland: 0, empty: 0, emptyPos: [], growing: {}, ripe: {}, cropPos: {}, wet: 0, dry: 0, planted: 0, dryEmpty: 0 };
   for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let dy = -down; dy <= up; dy++) {
     const b = blockAt(cx + dx, cy + dy, cz + dz);
     if (!b || b.name !== 'farmland') continue;
     out.farmland += 1;
+    // 湿っている: moisture が 7 (見た目が湿った耕地)。moisture が読めなければ、水平4マス以内 (同じ高さか1つ上) の水で
+    let m = null;
+    try { m = typeof b.getProperties === 'function' ? Number(b.getProperties().moisture) : (b.moisture ?? null); } catch (_) { m = null; }
+    const wet = Number.isFinite(m) ? m === 7 : waterWithin(blockAt, { x: cx + dx, y: cy + dy, z: cz + dz });
+    if (wet) out.wet += 1; else out.dry += 1;
     const above = blockAt(cx + dx, cy + dy + 1, cz + dz);
     const pos = { x: cx + dx, y: cy + dy, z: cz + dz, d: Math.round(Math.hypot(dx, dz, dy) * 10) / 10 };
-    if (!above || above.name === 'air' || above.name === 'cave_air') { out.empty += 1; out.emptyPos.push(pos); continue; }
+    if (!above || above.name === 'air' || above.name === 'cave_air') { out.empty += 1; if (!wet) out.dryEmpty += 1; out.emptyPos.push({ ...pos, wet }); continue; }
+    out.planted += 1;
     if (!FARM_CROPS.test(above.name)) continue;
     let age = null;
     try { age = typeof above.getProperties === 'function' ? Number(above.getProperties().age) : (above.age ?? null); } catch (_) { age = null; }
@@ -229,6 +236,14 @@ function senseState(st, sense, cfg = DEFAULTS) {
 }
 
 // ---- 道筋 ----
+// 耕す前の水の段: world.water (farmwater.waterInfo: 見えている・覚えている M 番号と距離・知らない) があればそれ、
+//   無ければ見えているブロックに water があるか。手間は farmwater.waterCost (見えている 小・覚えている 距離・知らない 探す)
+//   済んだ (段を出さない) のは「水から4マス以内で高さの合う耕せるマスが近くにある」(water.ready) とき。world.water が無ければ、水が見えていれば済んだとみなす
+function waterAct(world, visBlocks) {
+  const w = world && world.water ? world.water : (visBlocks.has('water') ? { where: 'visible', ready: true } : (world && (world.knownBlocks || []).includes('water') ? { where: 'known', id: null, ready: false } : { where: 'unknown', ready: false }));
+  return w.ready ? null : { how: 'water', water: w };
+}
+
 // world: planner の world (goalpath.world())。status: senseState の返り値。count: めざす数
 // 返り値 { ok, items: planMany の結果, acts: [{ how, ... }], steps (物の手順 + 行動の手順), next, effort, missing }
 function planState(st, count, world, status = { have: 0 }, opts = {}) {
@@ -267,7 +282,8 @@ function planState(st, count, world, status = { have: 0 }, opts = {}) {
   } else if (st.type === 'farmland' && left > 0) {
     const hoe = cheapest(['hoe']);
     need.push({ item: hoe, count: 1 });
-    if (!visBlocks.has('water')) acts.push({ how: 'find', block: 'water' });
+    const wa = waterAct(world, visBlocks);
+    if (wa) acts.push(wa);
     acts.push({ how: 'till', count: left, tool: hoe });
   } else if (st.type === 'planted' && left > 0) {
     need.push({ item: st.seed, count: left });
@@ -275,7 +291,8 @@ function planState(st, count, world, status = { have: 0 }, opts = {}) {
     if (till > 0) {
       const hoe = cheapest(['hoe']);
       need.push({ item: hoe, count: 1 });
-      if (!visBlocks.has('water') && !(status.farmland > 0)) acts.push({ how: 'find', block: 'water' });
+      const wa = !(status.farmland > 0) ? waterAct(world, visBlocks) : null;
+      if (wa) acts.push(wa);
       acts.push({ how: 'till', count: till, tool: hoe });
     }
     acts.push({ how: 'plant', seed: st.seed, crop: st.crop, count: left });
@@ -305,6 +322,7 @@ function planState(st, count, world, status = { have: 0 }, opts = {}) {
     else if (a.how === 'breed') effort += ACT_COST.breed * a.count;
     else if (a.how === 'till') effort += ACT_COST.till * a.count;
     else if (a.how === 'find') effort += ACT_COST.findWater;
+    else if (a.how === 'water') effort += waterCost(a.water);
     else if (a.how === 'place') effort += ACT_COST.place * a.count;
     else if (a.how === 'chest_put') effort += ACT_COST.chestPut;
     else if (a.how === 'plant') effort += ACT_COST.plant * a.count;
@@ -320,6 +338,7 @@ function actText(a) {
   if (a.how === 'breed') return `${a.animal} を${a.count}頭増やす (${a.food} を2頭に)`;
   if (a.how === 'till') return `耕す ${a.count} (${a.tool} を水の近くの土に)`;
   if (a.how === 'find') return `${a.block} を探す`;
+  if (a.how === 'water') return waterText(a.water);
   if (a.how === 'plant') return `${a.seed} ${a.count} を耕地に植える`;
   if (a.how === 'place') return `${a.item} ${a.count} を置く (${a.where})`;
   if (a.how === 'chest_put') return a.chest ? `共有のチェスト ${a.chest} に ${a.item} ${a.count} を入れる` : `chest に ${a.item} ${a.count} を入れる`;
@@ -332,6 +351,7 @@ function actTextEn(a) {
   if (a.how === 'breed') return `breed ${a.count} more ${a.animal} (${a.food} to two of them)`;
   if (a.how === 'till') return `till ${a.count} (${a.tool} on dirt near water)`;
   if (a.how === 'find') return `find ${a.block}`;
+  if (a.how === 'water') return waterTextEn(a.water);
   if (a.how === 'plant') return `plant ${a.count} ${a.seed} on farmland`;
   if (a.how === 'place') return `place ${a.count} ${a.item} (${a.where === '拠点' ? 'at the base' : a.where})`;
   if (a.how === 'chest_put') return a.chest ? `put ${a.count} ${a.item} into ${chestLabelEn(a.chest)}` : `put ${a.count} ${a.item} into a chest`;

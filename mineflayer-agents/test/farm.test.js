@@ -17,13 +17,13 @@ test('planner: bread は 種 → 耕す → 植える → 育ったら取る →
   const seeds = p.steps.find((s) => s.item === 'wheat_seeds');
   assert.strictEqual(seeds.from, 'grass');
   assert.ok(p.steps.indexOf(seeds) < p.steps.indexOf(farm));
-  assert.match(pathText(p, { maxShown: 20 }), /wheat 3 ← 耕す 3 \(wooden_hoe を土に\) → wheat_seeds 3 を耕地に植える → 育ったら wheat を壊して取る/);
+  assert.match(pathText(p, { maxShown: 20 }), /wheat 3 ← 耕す 3 \(wooden_hoe を水から4マス以内の土に\) → wheat_seeds 3 を耕地に植える → 育ったら wheat を壊して取る/);
   // 種とクワを持っていて、空いた耕地が2マス → 耕すのは1
   const q = new Planner({ ...W, inventory: [{ name: 'wheat_seeds', count: 3 }, { name: 'wooden_hoe', count: 1 }], farm: { empty: 2 } }).plan('wheat', 3);
   const f2 = q.steps.find((s) => s.how === 'farm');
   assert.strictEqual(f2.till, 1);
   assert.strictEqual(q.next.how, 'farm');
-  assert.match(pathEn(q).next, /till dirt into farmland with wooden_hoe/);
+  assert.match(pathEn(q).next, /till dirt within 4 blocks of water into farmland with wooden_hoe/);
   // 植わっている (育ち途中) → 待つだけ
   const g = new Planner({ ...W, visibleBlocks: [...W.visibleBlocks, 'wheat'], farm: { growing: { wheat: 3 } } }).plan('wheat', 3);
   assert.strictEqual(g.steps.length, 1);

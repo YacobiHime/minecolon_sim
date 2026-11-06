@@ -24,6 +24,7 @@ const { SelfGoal } = require('./selfgoal');
 const { GoalPlan } = require('./goalplan');
 const { GoalPath } = require('./goalpath');
 const { farmStatus } = require('./states');
+const farmwater = require('./farmwater');
 const { SharedExplore } = require('./explored');
 const { PlayerCache, playerDistance, peopleOf } = require('./people');
 const { Reflect } = require('./reflect');
@@ -87,6 +88,10 @@ function obsEn(raw, cfg, planText) {
 
 // use_on の畑の対象: 近くの空いている耕地・育ちきった作物 (farm = states.farmStatus) と、覚えている耕地・作物の場所 (cfg.act.farmRadius m 以内)
 const FARM_PLACE = /^(farmland|wheat|carrots|potatoes|beetroots)$/;
+// 覚えている場所の一覧 (M 番号) に必ず1つ入れる種類 (耕す行き先 farmland_spot@M・道筋の水の段に使う)
+const PLACE_ENSURE = ['water'];
+// 作物が育つのを待つ間に、困りごと・変わらなかったに数えない行動
+const GROW_WAIT_ACTS = /^(wait|look_around):/;
 function farmTargets(raw, memPlaces, farm, cfg) {
   const out = [];
   if (farm) {
@@ -98,8 +103,19 @@ function farmTargets(raw, memPlaces, farm, cfg) {
   }
   const far = (cfg.act && cfg.act.farmRadius) ?? 48;
   for (const p of memPlaces || []) {
-    if (!FARM_PLACE.test(p.kind) || p.d > far || p.d < 4) continue;
+    if (!FARM_PLACE.test(p.kind) || p.d > far || p.d < 4 || p.unreachable) continue;
     out.push({ name: p.kind, idName: `${p.kind}@${p.id}`, pos: p.pos, note: `覚えている所 ${p.id}`, noteEn: `remembered place ${p.id}` });
+  }
+  // 耕す行き先: 見えている、水から4マス以内 (同じ高さか1つ上) の耕せるマス (farm.till = farmwater.tillSpots。無ければ見えているブロックから)
+  const spots = farm && Array.isArray(farm.till) ? farm.till : farmwater.tillSpotsFromRaw(raw);
+  if (spots.length) {
+    const s0 = spots[0];
+    out.push({ name: farmwater.SPOT, idName: farmwater.SPOT, pos: { x: s0.x, y: s0.y, z: s0.z }, note: `水から4マス以内の${s0.name}`, noteEn: `${s0.name} within 4 blocks of water` });
+  }
+  // 覚えている・聞いた水場の近く (着いてから、水から4マス以内の耕せるマスを探す)。見えている水場の近くに耕せる所があるときは出さない
+  const waterFar = (cfg.act && cfg.act.waterRadius) ?? 96;
+  for (const p of (memPlaces || []).filter((q) => q.kind === 'water' && q.pos && !q.unreachable && q.d <= waterFar && (!spots.length || q.d > 16)).slice(0, (cfg.act && cfg.act.waterSpots) ?? 2)) {
+    out.push({ name: farmwater.SPOT, idName: `${farmwater.SPOT}@${p.id}`, pos: p.pos, note: `${p.from ? `${p.from}が言っていた` : '覚えている'}水場 ${p.id} の近く`, noteEn: `near the ${p.from ? `water ${p.from} told of` : 'remembered water'} ${p.id}` });
   }
   return out;
 }
@@ -117,7 +133,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
   const help = helpOf(cfg);
   const here = raw.self.pos;
   const visibleNotable = new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name));
-  const memPlaces = memory.placesForPrompt(here, visibleNotable);
+  const memPlaces = memory.placesForPrompt(here, visibleNotable, { ensure: PLACE_ENSURE });
   // ④ 失敗の除外 (段階1)。first_setting では外し、代わりに「聞く」を使う
   const blocked = help.excludeFailures ? memory.recentFailures(cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2) : new Set();
   const nc = help.noChange ? noChangeCfg(cfg) : null;
@@ -1014,7 +1030,10 @@ class Agent {
     // 直近 netWindow 回をさかのぼった正味の変化がほぼ0なら、その間に繰り返した行動も「何も変わらなかった」扱い
     const net = nc && nc.net !== false ? nochange.netNoChange(this.loopHist, nc) : null;
     const ncT = nc && net && net.keys.size ? { ...nc, netKeys: net.keys } : nc;
-    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, ncT).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
+    // 作物が育つのを待っている間 (道筋の次が「育つのを待つ」) は、待つ・見回すの繰り返しを困りごとに数えない
+    const growWaitNow = !!(this.goalPath && this.goalPath.waitingGrowth());
+    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, ncT).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool))
+      .filter((t) => !(growWaitNow && GROW_WAIT_ACTS.test(t.key))) : [];
     // その場から動けない (unstuck.js): 回復のあと troubleLoops ループ出す (Jev の state・2B のゴール選び)
     const stuckT = this.stuck.trouble(tick);
     if (stuckT) troubles.unshift(stuckT);
@@ -1027,13 +1046,21 @@ class Agent {
     const socialText = this.social.words();
     const worst = this.social.worstNeed();
     const ahead = aheadOf(this.social.needsModel);
-    const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)));
+    const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)), { ensure: PLACE_ENSURE });
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
     const socialEn = this.social.words({ lang: 'en' });
     const bview = this.prepareBoard(raw);
     // 近くの畑 (空いている耕地・植わっている作物)。use_on の対象・planner の world.farm に使う
     let farm = null;
-    try { farm = bot && typeof bot.blockAt === 'function' ? farmStatus((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos) : null; } catch (_) { farm = null; }
+    try {
+      if (bot && typeof bot.blockAt === 'function') {
+        const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z));
+        farm = farmStatus(at, raw.self.pos);
+        farm.till = farmwater.tillSpots(at, raw.self.pos).spots; // 水から4マス以内の耕せるマス (use_on の farmland_spot・道筋の水の段)
+      }
+    } catch (_) { farm = null; }
+    raw.farm = farm; // 観察の文 (近くの耕地の様子) に使う
+    this.checkTilled(bot, tick); // 耕した所が土に戻ったか (記録 farmland_reverted)
     const { allCells, others } = this.exploreShare(tick, raw);
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
@@ -1165,13 +1192,23 @@ class Agent {
       const p = bot.entity.position;
       this.homeSpot = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
     }
+    // 覚えている場所へ行けなかった・行けた (go_to の覚えている場所・耕す行き先 farmland_spot@M)。続けて行けなかった所に印を付ける
+    const chosen = resolved.choice || {};
+    const toMem = chosen.pos && ((resolved.action === 'go_to' && chosen.fromMemory) || (resolved.action === 'use_on' && chosen.till && /@M\d+$/.test(String(resolved.arg || ''))));
+    if (toMem) {
+      const moveFail = !result.ok && (result.unreachable || resolved.action === 'go_to' || /時間切れ|timeout/.test(String(result.msg || '')));
+      if (moveFail) { if (this.memory.noteUnreachable(chosen.pos)) result.markedUnreachable = true; } else if (result.ok) this.memory.noteReached(chosen.pos);
+    }
     const key = `${resolved.action}:${resolved.arg}`;
     const inv = bot.inventory.items().map((i) => ({ name: i.name, count: i.count }));
     const after = nochange.snapshot({ inventory: inv, pos: bot.entity.position, hutFilled: this.trueHutFilled() });
     const stateChanged = nochange.changed(before, after);
     const ev = this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
-    ev.nc = !stateChanged; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
-    if (nc) {
+    // 作物が育つのを待っている間の 待つ・見回す は「変わらなかった」に数えない (育つのは目に見えないので)
+    const growWait = !!(this.goalPath && this.goalPath.waitingGrowth()) && GROW_WAIT_ACTS.test(key);
+    ev.nc = !stateChanged && !growWait; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
+    if (growWait) ev.growWait = true;
+    if (nc && !growWait) {
       const p = bot.entity.position;
       const { cx, cz } = this.memory.cellOf(p);
       this.loopHist.push(nochange.histEntry({ action: resolved.action, arg: resolved.arg, inventory: inv, pos: p, newCell: !this.memory.cellAt(cx, cz), result }));
@@ -1262,14 +1299,37 @@ class Agent {
       inventory: inv,
       worn: raw.self.worn && raw.self.worn.length ? raw.self.worn : null, // 着けている防具・もう片方の手 (行動の前。summarize_run の備え)
       foodCount: raw.foodCount,
+      // 近くの耕地 (行動の前。summarize_run の畑)
+      farm: raw.farm ? { farmland: raw.farm.farmland, wet: raw.farm.wet, dry: raw.farm.dry, planted: raw.farm.planted, dryEmpty: raw.farm.dryEmpty, tillSpots: (raw.farm.till || []).length } : null,
       hutSeen: raw.hut,
       hutTrue: this.trueHut || null,
       goalMet: met,
+      growWait: growWait || undefined, // 作物が育つのを待っている間の 待つ・見回す (困りごと・変わらなかったに数えない)
     });
     this.memory.save();
     this.log(`[${bot.username}] #${loopNo} ${valid ? '' : '(fallback) '}${resolved.action}(${resolved.arg}) -> ${result.ok ? 'OK' : 'NG'} ${result.msg}${said ? ` / say「${said}」` : ''} [decide ${dec.latencyMs}ms, act ${actMs}ms]`);
     if (stuckNow) await this.recoverStuck(loopNo, tick, resolved, move);
     return { met };
+  }
+
+  // 耕した所 (act_more が memory.extra.tilled に入れる) が土に戻ったかを見る。戻っていたら記録 (farmland_reverted) して一覧から外す。
+  //   読み込まれていない所 (blockAt が null) はそのまま残す。耕地でも土でもない物になっていたら外すだけ
+  checkTilled(bot, tick) {
+    const ex = this.memory.extra || {};
+    const list = ex.tilled;
+    if (!Array.isArray(list) || !list.length || !bot || typeof bot.blockAt !== 'function') return;
+    const keep = [];
+    for (const p of list) {
+      let b = null;
+      try { b = bot.blockAt(new Vec3(p.x, p.y, p.z)); } catch (_) { b = null; }
+      if (!b || b.name === 'farmland') { keep.push(p); continue; }
+      if (b.name === 'dirt') {
+        let wet = null;
+        try { wet = farmwater.waterWithin((x, y, z) => bot.blockAt(new Vec3(x, y, z)), p); } catch (_) { wet = null; }
+        this.recorder.write({ event: 'farmland_reverted', loop: tick, pos: { x: p.x, y: p.y, z: p.z }, tilledAt: p.t ?? null, nearWater: wet });
+      }
+    }
+    ex.tilled = keep;
   }
 
   // 動けない: 回復手順 (unstuck.recover)。駄目なら同じ名前で入り直す。記録は event 'unstuck'

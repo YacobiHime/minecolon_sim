@@ -48,8 +48,10 @@ test('more: use_on は 持ち物と素手 × 見えている対象。近い物 +
   assert.deepStrictEqual(t.find((x) => x.name === 'wheat').pos, { x: 4, y: 64, z: 0 });
   assert.match(t.find((x) => x.name === 'wheat').label, /育ちきった/);
   const a = moreActions(raw, {}, all).find((x) => x.name === 'use_on');
-  assert.strictEqual(a.choices.length, 3 * 4); // 素手 + 2種 × 4
-  const c = a.choices.find((x) => x.id === 'wooden_hoe>grass_block');
+  // 素手 + 2種 × 4 から、水から4マスより遠い grass_block へのクワを外す (耕す候補は水から4マス以内だけ)
+  assert.strictEqual(a.choices.length, 3 * 4 - 1);
+  assert.ok(!a.choices.some((x) => x.id === 'wooden_hoe>grass_block'));
+  const c = a.choices.find((x) => x.id === 'wheat_seeds>grass_block');
   assert.strictEqual(c.targetKind, 'block');
   assert.strictEqual(a.choices.find((x) => x.id === 'wheat_seeds>cow').entityId, 7);
   assert.ok(a.choices.some((x) => x.id === 'hand>wheat'));

@@ -18,6 +18,7 @@ const { peopleOf } = require('./people');
 const { whereEn } = require('./en');
 const { usefulOn, usefulItem } = require('./usable');
 const { BREED_FOOD } = require('./animals');
+const { TILLABLE, TILL_TOOL, SPOT } = require('./farmwater');
 
 const MAX_CHOICES = 255;
 const CONTAINER = /^(chest|trapped_chest|barrel)$|_shulker_box$|^shulker_box$/;
@@ -66,8 +67,10 @@ function useTargets(raw, ctx = {}) {
     .map((e) => ({ kind: 'entity', name: e.name, pos: e.pos, entityId: e.id, label: `${e.kind === 'hostile' ? '敵' : ''}${e.name} ${relDir(here, e.pos)}`, labelEn: `${e.kind === 'hostile' ? 'hostile ' : ''}${e.name} (${whereEn(here, e.pos)})` }));
   // 畑 (agent が渡す ctx.farmTargets): 空いている耕地・植わっている作物 (近くを数えたもの)・覚えている耕地/作物の場所 (M番号)。
   //   見えている同じ名前の対象より遠い所でも出す (歩いて行って使う)。id は name@所 で見えている物と分ける
+  //   耕す行き先 (name: farmland_spot): 水から4マス以内 (同じ高さか1つ上) の耕せるマス。見えている所 (farmland_spot) と、
+  //   覚えている・聞いた水場の近く (farmland_spot@M3)。クワ・シャベルとだけ組にする (till: true)
   const extra = (ctx.farmTargets || []).filter((t) => !blocks.some((b) => b.name === t.name && b.pos && t.pos && Math.abs(b.pos.x - t.pos.x) + Math.abs(b.pos.y - t.pos.y) + Math.abs(b.pos.z - t.pos.z) === 0))
-    .map((t) => ({ kind: 'block', name: t.name, idName: t.idName || null, pos: t.pos, label: `${t.name}${t.note ? `(${t.note})` : ''} ${relDir(here, t.pos)}`, labelEn: `${t.name}${t.noteEn ? ` (${t.noteEn})` : ''} (${whereEn(here, t.pos)})` }));
+    .map((t) => ({ kind: 'block', name: t.name, idName: t.idName || null, pos: t.pos, till: t.name === SPOT, label: `${t.name}${t.note ? `(${t.note})` : ''} ${relDir(here, t.pos)}`, labelEn: `${t.name}${t.noteEn ? ` (${t.noteEn})` : ''} (${whereEn(here, t.pos)})` }));
   return [...blocks, ...extra, ...ents];
 }
 
@@ -119,9 +122,12 @@ function moreActions(raw, ctx = {}, on = () => true) {
     const ch = [];
     for (const [ii, ti] of rankPairs(items.length, targets.length)) {
       const it = items[ii]; const t = targets[ti];
+      // クワ・シャベル: 耕せる土 (dirt・grass_block・dirt_path) は水から4マス以内の farmland_spot だけ。耕地そのものには使わない (何も起きない)。
+      //   farmland_spot はクワ・シャベルとだけ組にする。ほかの持ち物の use_on は変えない
+      if (t.till ? !TILL_TOOL.test(it) : (TILL_TOOL.test(it) && (TILLABLE.test(t.name) || t.name === 'farmland'))) continue;
       const id = `${it}>${t.idName || t.name}`;
       if (!ok('use_on', id)) continue;
-      ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に`, labelEn: `${it === HAND ? 'bare hand' : it} on ${t.labelEn}`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null });
+      ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に`, labelEn: `${it === HAND ? 'bare hand' : it} on ${t.labelEn}`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null, ...(t.till ? { till: true } : {}) });
       if (ch.length >= maxN) break;
     }
     if (ch.length) out.push({ name: 'use_on', desc: '持ち物(か素手)を見えているブロックか生き物に使う (右クリック。近くへ歩いて狙う)', descEn: 'use an item (or bare hand) on a visible block or creature (right click; walks close and aims)', argType: 'choice', choices: ch });

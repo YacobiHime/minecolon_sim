@@ -25,6 +25,9 @@ const DEFAULT_LIMITS = {
   halfLife: 40, // 大事さ 0 の記憶が半分の強さになるまでのループ数
   impBoost: 6, // 大事さ 1 の記憶は halfLife の (1+impBoost) 倍もつ
   forgetBelow: 0.08, // 強さがこれを下回ったら忘れる
+  // 行けなかった場所: unreachableFails 回続けて行けなかったら、unreachableTicks ループのあいだ go_to・use_on の行き先に出さない
+  unreachableFails: 2,
+  unreachableTicks: 60,
 };
 
 const CELL = 8;
@@ -111,6 +114,24 @@ class Memory {
     this.enforceLimits();
     return p;
   }
+
+  // 覚えている場所 (pos から CELL 以内) へ行けなかった。unreachableFails 回で印 (unreachableUntil) を付ける。返り値: 印を付けた場所の数
+  noteUnreachable(pos, radius = CELL) {
+    let n = 0;
+    for (const p of this.places) {
+      if (p.keep || dist3(p, pos) > radius) continue;
+      p.fails = (p.fails || 0) + 1;
+      if (p.fails >= (this.limits.unreachableFails ?? 2)) { p.unreachableUntil = this.tick + (this.limits.unreachableTicks ?? 60); p.fails = 0; n += 1; }
+    }
+    return n;
+  }
+
+  // 着いた (行けた) ので、行けなかった回数を消す
+  noteReached(pos, radius = CELL) {
+    for (const p of this.places) if (dist3(p, pos) <= radius) { delete p.fails; delete p.unreachableUntil; }
+  }
+
+  isUnreachable(p) { return p.unreachableUntil != null && this.tick < p.unreachableUntil; }
 
   // 以前覚えた場所に行ったが、もう無かった (切った木など)
   forgetPlace(kind, pos, radius = CELL) {
@@ -242,17 +263,30 @@ class Memory {
   }
 
   // プロンプト用: 今いる場所から近い順に、上限の数だけ。id を付ける (go_to の引数になる)
-  placesForPrompt(here, excludeKindsVisibleNow = new Set()) {
-    return this.places
+  // opts.ensure: 一覧に必ず1つ入れる種類 (近い順で枠から漏れたら、いちばん遠い (忘れない場所でない) ものと入れ替える。例 ['water'])
+  //   行けなかった印の付いている場所 (noteUnreachable) は unreachable: true にする (go_to・use_on の行き先に出さない)
+  placesForPrompt(here, excludeKindsVisibleNow = new Set(), opts = {}) {
+    const all = this.places
       .filter((p) => !(excludeKindsVisibleNow.has(p.kind) && dist3(p, here) <= 16))
       .map((p) => ({ ...p, d: dist3(p, here) }))
-      .sort((a, b) => (!!b.keep - !!a.keep) || (a.d - b.d)) // 忘れない場所 (拠点) は必ず入れる
-      .slice(0, this.limits.promptPlaces)
-      .map((p, i) => {
-        const ref = this.origin ? this.commonRef(p) : null;
-        return { id: `M${i + 1}`, kind: p.kind, pos: { x: p.x, y: p.y, z: p.z }, d: Math.round(p.d), from: p.from || null,
-          label: `${p.kind}${p.from ? `(${p.from}が言っていた所)` : ''} ${relDir(here, p)}${ref ? `・${ref}` : ''}` };
-      });
+      .sort((a, b) => (!!b.keep - !!a.keep) || (a.d - b.d)); // 忘れない場所 (拠点) は必ず入れる
+    const list = all.slice(0, this.limits.promptPlaces);
+    for (const k of opts.ensure || []) {
+      if (list.some((p) => p.kind === k)) continue;
+      const add = all.find((p) => p.kind === k && !this.isUnreachable(p));
+      if (!add) continue;
+      let j = list.length - 1;
+      while (j >= 0 && (list[j].keep || (opts.ensure || []).includes(list[j].kind))) j -= 1;
+      if (list.length < this.limits.promptPlaces) list.push(add);
+      else if (j >= 0) { list.splice(j, 1); list.push(add); }
+    }
+    list.sort((a, b) => (!!b.keep - !!a.keep) || (a.d - b.d));
+    return list.map((p, i) => {
+      const ref = this.origin ? this.commonRef(p) : null;
+      const un = this.isUnreachable(p);
+      return { id: `M${i + 1}`, kind: p.kind, pos: { x: p.x, y: p.y, z: p.z }, d: Math.round(p.d), from: p.from || null, ...(un ? { unreachable: true } : {}),
+        label: `${p.kind}${p.from ? `(${p.from}が言っていた所)` : ''} ${relDir(here, p)}${ref ? `・${ref}` : ''}${un ? '・行けなかった所' : ''}` };
+    });
   }
 
   // 記憶の選び方 (promptItems > 0): 場所は近い順に promptPlaces まで、残りの枠を

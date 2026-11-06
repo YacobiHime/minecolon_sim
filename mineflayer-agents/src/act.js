@@ -165,9 +165,10 @@ const handlers = {
           return (a.distanceTo(bot.entity.position) + pa) - (b.distanceTo(bot.entity.position) + pb);
         });
       if (!cands.length) { lastErr = dug ? '' : `手の届く高さに${name}が見えない`; break; }
+      // 作物は育ちきった物だけ掘る。育ち途中しか無ければ何も掘らない (掘ると種しか落ちず、植えた物が無くなる)
       const ripeC = cands.filter((q) => ripeOf(q) === true);
       if (ripeC.length) cands.splice(0, cands.length, ...ripeC);
-      else if (dug > 0 && cands.some((q) => ripeOf(q) === false)) break; // 育ちきった物を掘り終えたら、育ち途中の物は掘らない
+      else if (cands.some((q) => ripeOf(q) === false)) { if (!dug) lastErr = `${name}はまだ育ち途中 (育ちきった物が見えない)`; break; }
       const p = cands.find((q) => !bad.has(q.toString()));
       if (!p) { lastErr = lastErr || '届く所に見えない'; break; }
       try {

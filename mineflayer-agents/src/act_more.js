@@ -7,6 +7,7 @@ const { goals } = require('mineflayer-pathfinder');
 const { blockVisible } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
 const { posKey, CONTAINER, FURNACE, TRADER, HAND } = require('./actions_more');
+const farmwater = require('./farmwater');
 
 // 投げる・撃つ物 (右クリックで飛ぶ物)。生き物に使うときは離れて狙う
 const PROJECTILE = /^(bow|crossbow|trident|snowball|egg|ender_pearl|splash_potion|lingering_potion|experience_bottle)$/;
@@ -217,6 +218,32 @@ async function walkToBlock(lib, bot, b, ctx, reach = 4) {
   }
 }
 
+// 耕す行き先 (farmland_spot): ch.pos (見えている耕せるマス、または覚えている水場) の近くへ行き、
+//   水から4マス以内 (同じ高さか1つ上) で真上が空いている耕せるマスを1つ選ぶ。返り値 { b } か { msg }
+async function tillSpotBlock(lib, bot, ch, ctx) {
+  const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z));
+  const p = ch.pos ? V(ch.pos) : null;
+  const ok = (q) => { const b = q && bot.blockAt(q); const up = q && bot.blockAt(q.offset(0, 1, 0)); return !!b && farmwater.TILLABLE.test(b.name) && (!up || /^(air|cave_air|void_air)$/.test(up.name)) && farmwater.waterWithin(at, q); };
+  if (p && ok(p)) return { b: bot.blockAt(p) };
+  if (p && p.distanceTo(bot.entity.position) > 8) {
+    try { await withTimeout(lib.gotoGoal(bot, new goals.GoalNear(p.x, p.y, p.z, 4)), ctx.spotWalkMs ?? 25000, () => lib.haltPath(bot)); } catch (e) { return { msg: `${ch.target}の所へ行けなかった: ${lib.pathErr(e)}`, unreachable: true }; }
+  }
+  const c = bot.entity.position;
+  const r = farmwater.tillSpots(at, p && p.distanceTo(c) <= 10 ? p : c, { radius: 6, keep: 8 });
+  if (!r.spots.length) return { msg: r.water ? `水から4マス以内 (同じ高さか1つ上) に耕せるマスが見つからなかった (水 ${r.water}マス)` : '近くに水が見つからなかった' };
+  const s0 = r.spots.sort((a, b) => dist3(a, c) - dist3(b, c))[0];
+  return { b: bot.blockAt(new Vec3(s0.x, s0.y, s0.z)) };
+}
+
+// 耕した所を覚える (agent.checkTilled が土に戻ったかを見る)
+function noteTilled(ctx, pos) {
+  if (!ctx || !ctx.memory) return;
+  const ex = ctx.memory.extra || (ctx.memory.extra = {});
+  const l = ex.tilled = Array.isArray(ex.tilled) ? ex.tilled : [];
+  if (!l.some((q) => q.x === pos.x && q.y === pos.y && q.z === pos.z)) l.push({ x: pos.x, y: pos.y, z: pos.z, t: ctx.memory.tick ?? null });
+  if (l.length > 128) l.splice(0, l.length - 128);
+}
+
 // 動く相手に dist まで近づく (最大 ms)
 async function approach(lib, bot, e, dist, ms, ctx) {
   const t0 = Date.now();
@@ -298,7 +325,13 @@ function moreHandlers(lib) {
         return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}に使ったが何も起きなかった` };
       }
       // ブロック
-      let b = findBlockNear(bot, ch, ctx);
+      let b;
+      if (ch.till) {
+        const r = await tillSpotBlock(lib, bot, ch, ctx);
+        if (!r.b) return { ok: false, msg: r.msg, ...(r.unreachable ? { unreachable: true } : {}) };
+        b = r.b;
+        ch = { ...ch, target: b.name, pos: { x: b.position.x, y: b.position.y, z: b.position.z } };
+      } else b = findBlockNear(bot, ch, ctx);
       if (!b) return { ok: false, msg: `${ch.target}が見えない` };
       try { await walkToBlock(lib, bot, b, ctx, 4); } catch (e) { return { ok: false, msg: `${ch.target}へ行けなかった: ${lib.pathErr(e)}` }; }
       // ボートは自分と重なる所には置けない (サーバーが断る)。水・溶岩は自分の足元の所を狙うとすくえないことがある。
@@ -348,14 +381,25 @@ function moreHandlers(lib) {
         ctx.memory.notePlace(nb.name, nb.position, { imp: 0.8 });
       }
       // 畑: 耕した耕地・植えた作物の場所を覚える (go_to・use_on の候補になる)
-      if (ctx.memory) {
+      //   結果に farm: { till, nearWater } (耕した。そのとき水から4マス以内だったか) / { plant: 作物 } を付ける (summarize_run の畑)
+      let farm = null;
+      {
         const now = bot.blockAt(b.position);
-        if (now && now.name === 'farmland' && b.name !== 'farmland') ctx.memory.notePlace('farmland', now.position, { imp: 0.7 });
         const up = bot.blockAt(b.position.offset(0, 1, 0));
-        if (now && now.name === 'farmland' && up && /^(wheat|carrots|potatoes|beetroots)$/.test(up.name)) ctx.memory.notePlace(up.name, up.position, { imp: 0.7 });
+        if (now && now.name === 'farmland' && b.name !== 'farmland') {
+          let nearWater = null;
+          try { nearWater = farmwater.waterWithin((x, y, z) => bot.blockAt(new Vec3(x, y, z)), b.position); } catch (_) { nearWater = null; }
+          farm = { till: true, nearWater };
+          if (ctx.memory) ctx.memory.notePlace('farmland', now.position, { imp: 0.7 });
+          noteTilled(ctx, { x: b.position.x, y: b.position.y, z: b.position.z });
+        }
+        if (now && now.name === 'farmland' && up && /^(wheat|carrots|potatoes|beetroots)$/.test(up.name)) {
+          if (b.name === 'farmland' && res) farm = { plant: up.name };
+          if (ctx.memory) ctx.memory.notePlace(up.name, up.position, { imp: 0.7 });
+        }
       }
       const far = b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.62, 0)).toFixed(1);
-      return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}(${b.position.x},${b.position.y},${b.position.z} ${far}m)に使ったが何も起きなかった${bot.entity.isInWater ? ' (自分は水の中)' : ''}` };
+      return { ...(farm ? { farm } : {}), ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}(${b.position.x},${b.position.y},${b.position.z} ${far}m)に使ったが何も起きなかった${bot.entity.isInWater ? ' (自分は水の中)' : ''}` };
     },
 
     // use_item: その場で使う

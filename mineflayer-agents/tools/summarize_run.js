@@ -710,6 +710,33 @@ function hearOf(all) {
   return st ? st.perception.hearRadius : 24;
 }
 
+// 畑: 耕した回数とそのとき水から4マス以内だった割合 (result.farm.nearWater。古い記録は分からない)、植えた、耕地が土に戻った (event farmland_reverted)、
+//   収穫した (育ちきった作物の collect が成功)、パンを作った、何も起きない操作 (クワを耕地に)、育つのを待った判断 (growWait)
+const CROP_RE = /^(wheat|carrots|potatoes|beetroots)$/;
+function farmStats(all, loops) {
+  const useOn = loops.filter((r) => r.action === 'use_on' && r.result);
+  const tilled = useOn.filter((r) => (r.result.farm && r.result.farm.till) || (!r.result.farm && r.result.ok && /_hoe>/.test(r.arg || '') && /farmland/.test(String(r.result.msg || '')) && !/>farmland/.test(r.arg || '')));
+  const known = tilled.filter((r) => r.result.farm && r.result.farm.nearWater != null);
+  const near = known.filter((r) => r.result.farm.nearWater).length;
+  const planted = useOn.filter((r) => (r.result.farm && r.result.farm.plant) || (!r.result.farm && r.result.ok && /^(wheat_seeds|carrot|potato|beetroot_seeds)>farmland/.test(r.arg || '')));
+  const reverted = all.filter((r) => r.event === 'farmland_reverted');
+  const harvest = loops.filter((r) => r.action === 'collect' && r.result && r.result.ok && CROP_RE.test(String(r.arg || '').split('@')[0]));
+  const bread = loops.filter((r) => r.action === 'craft' && r.result && r.result.ok && r.arg === 'bread');
+  const byAgent = {};
+  const add = (rows, k) => { for (const r of rows) { const a = (byAgent[r._name] = byAgent[r._name] || { till: 0, plant: 0, reverted: 0, harvest: 0, bread: 0 }); a[k] += 1; } };
+  add(tilled, 'till'); add(planted, 'plant'); add(reverted, 'reverted'); add(harvest, 'harvest'); add(bread, 'bread');
+  return {
+    till: tilled.length, tillNearWaterKnown: known.length, tillNearWater: near, tillNearWaterRate: known.length ? Number((near / known.length).toFixed(3)) : null,
+    tillToSpot: useOn.filter((r) => /farmland_spot/.test(r.arg || '')).length,
+    plant: planted.length, plantBy: countBy(planted, (r) => (r.result.farm && r.result.farm.plant) || String(r.arg).split('>')[0]),
+    reverted: reverted.length, revertedNearWater: reverted.filter((r) => r.nearWater).length,
+    harvest: harvest.length, bread: bread.length,
+    hoeOnFarmland: useOn.filter((r) => /_hoe>farmland(@|$)/.test(r.arg || '')).length,
+    growWait: loops.filter((r) => r.growWait).length,
+    perAgent: byAgent,
+  };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const target = args.find((a) => !a.startsWith('--'));
@@ -792,6 +819,7 @@ function main() {
     voices: voiceStats(all, { hearRadius: hearOf(all) }),
     voiceReach: voiceReach(all),
     placeShare: placeShareStats(all),
+    farm: farmStats(all, loops),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
@@ -870,6 +898,8 @@ function main() {
       console.log(`  夜の attack の割合 (人ごと、勇敢さ): ${Object.entries(pr.fight.perAgent).filter(([, v]) => v.night.seen).map(([nm, v]) => `${nm}(${v.bravery}) ${v.night.attack}/${v.night.seen}`).join('・')}`);
       if (pr.anticipation) for (const [nm, v] of Object.entries(pr.anticipation)) console.log(`  先の不安 ${nm} (最大 夜 ${v.max.night}・食べ物 ${v.max.food}): ${v.perMinute.filter((_, i) => i % 3 === 0).map((x) => `${x.min}分 ${x.night}`).join(' ')}`);
       if (Object.keys(pr.decidedBy).length) console.log(`  ゴールの選び方で決めた点 ${JSON.stringify(pr.decidedBy)}`);
+      const fm = out.farm;
+      if (fm.till || fm.plant || fm.harvest || fm.bread || fm.reverted) console.log(`畑: 耕した ${fm.till} 回 (水から4マス以内 ${fm.tillNearWater}/${fm.tillNearWaterKnown}${fm.tillNearWaterRate != null ? ` = ${Math.round(fm.tillNearWaterRate * 100)}%` : ''})・植えた ${fm.plant}・耕地が土に戻った ${fm.reverted}・収穫した ${fm.harvest}・パンを作った ${fm.bread}・クワを耕地に ${fm.hoeOnFarmland}・育つのを待った判断 ${fm.growWait}`);
       console.log(`ほかの人が拾った・壊したことを結果に足した ${out.others.appended} 回`);
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
     }

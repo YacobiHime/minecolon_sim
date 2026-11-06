@@ -8,6 +8,7 @@
 //   steps は手に入れる順 (要る物が先)。持っている分は除く。next = steps[0]
 // 2B・Jev には pathText() の短い文だけを渡す (手間の数値は渡さない)。
 const { SMELTABLE } = require('./actions');
+const farmwater = require('./farmwater');
 
 const DEFAULT_VERSION = '1.20.1';
 // rebreak / rekill: 落ちる確率が低い物を、同じ所でもう1回壊す・もう1匹倒す手間 (1回目は探して歩く手間を含むので、2回目からは小さい)
@@ -175,6 +176,9 @@ class Planner {
     this.chests0 = (world.sharedChests || []).map((c) => ({ id: c.id, items: Object.fromEntries((c.items || []).filter((i) => i.count > 0).map((i) => [i.name, i.count])) }));
     const fm = world.farm || {};
     this.farm = { empty: fm.empty || 0, growing: { ...(fm.growing || {}) }, ripe: { ...(fm.ripe || {}) } };
+    // 耕す前の水の段 (farmwater.waterInfo)。無ければ見えている・覚えているブロックの名前から (見えていれば済んだとみなす)
+    this.water = world.water || (this.vis.has('water') ? { where: 'visible', ready: true } : this.known.has('water') ? { where: 'known', id: null, ready: false } : { where: 'unknown', ready: false });
+    this.cropPlaces = world.cropPlaces || {};
     // 育ち途中しか見えていない作物は「見える」から外す (掘っても種しか落ちない)
     for (const c of Object.keys(this.farm.growing)) if (this.vis.has(c) && !(this.farm.ripe[c] > 0)) this.vis.delete(c);
     this.reach = null; this.costCache = null; this.dirty = true;
@@ -279,7 +283,9 @@ class Planner {
       if (!Number.isFinite(hoeC)) return null;
       hoeC *= COST.toolShare;
     }
-    return { c: (seedC + COST.farmPlant + COST.farmWait) / fm.yield + hoeC, how: 'farm', crop: fm.crop };
+    // 耕すなら水の近くへ (見えている・覚えている距離・知らない)。道具と同じく分けて持つ
+    const waterC = !(this.farm.empty > 0) ? farmwater.waterCost(this.water) * COST.toolShare : 0;
+    return { c: (seedC + COST.farmPlant + COST.farmWait) / fm.yield + hoeC + waterC, how: 'farm', crop: fm.crop };
   }
 
   // 届く物すべての手間を、変わらなくなるまで繰り返して求める (材料の輪があっても止まる)
@@ -410,7 +416,9 @@ class Planner {
         sim.tools.add(h.x); this.dirty = true; tool = h.x;
       }
     }
-    sim.out.push({ item, count: n, how: 'farm', crop: fm.crop, seed: fm.seed, plants, growing, till, tool, rounds });
+    const water = till > 0 && !this.water.ready ? { ...this.water } : null; // 耕す前に水の近くへ行く段 (済んでいれば出さない)
+    const at = this.cropPlaces[fm.crop] ? this.cropPlaces[fm.crop].id : null; // 植えた所 (覚えている M 番号)
+    sim.out.push({ item, count: n, how: 'farm', crop: fm.crop, seed: fm.seed, plants, growing, till, tool, rounds, ...(water ? { water } : {}), ...(at ? { at } : {}) });
     return true;
   }
 
@@ -565,28 +573,34 @@ function stepText(s) {
 // 畑の手順の文: 耕す → 植える → 育つ → 取る のうち、残っている所から
 function farmText(s) {
   const parts = [];
-  if (s.till > 0) parts.push(`耕す ${s.till} (${s.tool} を土に)`);
+  if (s.till > 0 && s.water) parts.push(farmwater.waterText(s.water));
+  if (s.till > 0) parts.push(`耕す ${s.till} (${s.tool} を水から4マス以内の土に)`);
   if (s.plants > 0) parts.push(`${s.seed} ${s.plants} を耕地に植える`);
-  if (s.growing > 0) parts.push(`植わっている ${s.crop} ${s.growing}`);
+  if (s.growing > 0) parts.push(`植わっている ${s.crop} ${s.growing}${s.at ? ` (${s.at})` : ''}`);
   parts.push(`育ったら ${s.crop} を壊して取る${s.rounds > 1 ? ` (植えて取るのを${s.rounds}回)` : ''}`);
   return parts.join(' → ');
 }
 function farmNext(s) {
-  if (s.till > 0) return `${s.tool} で土を耕して耕地にする`;
+  if (s.till > 0 && s.water) return `${farmwater.waterText(s.water)} → 水から4マス以内の土を ${s.tool} で耕す`;
+  if (s.till > 0) return `${s.tool} で水から4マス以内の土を耕して耕地にする`;
   if (s.plants > 0) return `${s.seed} を耕地に植える`;
+  if (s.growing > 0) return `育つのを待つ (植わっている ${s.crop} ${s.growing}${s.at ? `、${s.at}` : ''})`;
   return `${s.crop} が育ちきったら壊して ${s.item} を取る`;
 }
 function farmTextEn(s) {
   const parts = [];
-  if (s.till > 0) parts.push(`till ${s.till} (${s.tool} on dirt)`);
+  if (s.till > 0 && s.water) parts.push(farmwater.waterTextEn(s.water));
+  if (s.till > 0) parts.push(`till ${s.till} (${s.tool} on dirt within 4 blocks of water)`);
   if (s.plants > 0) parts.push(`plant ${s.plants} ${s.seed} on farmland`);
-  if (s.growing > 0) parts.push(`${s.growing} ${s.crop} planted already`);
+  if (s.growing > 0) parts.push(`${s.growing} ${s.crop} planted already${s.at ? ` (${s.at})` : ''}`);
   parts.push(`break fully grown ${s.crop}${s.rounds > 1 ? ` (plant and harvest ${s.rounds} times)` : ''}`);
   return parts.join(' -> ');
 }
 function farmNextEn(s) {
-  if (s.till > 0) return `till dirt into farmland with ${s.tool}`;
+  if (s.till > 0 && s.water) return `${farmwater.waterTextEn(s.water)} -> till dirt within 4 blocks of water with ${s.tool}`;
+  if (s.till > 0) return `till dirt within 4 blocks of water into farmland with ${s.tool}`;
   if (s.plants > 0) return `plant ${s.seed} on farmland`;
+  if (s.growing > 0) return `wait for it to grow (${s.growing} ${s.crop} planted${s.at ? `, ${s.at}` : ''})`;
   return `when ${s.crop} is fully grown, break it for ${s.item}`;
 }
 

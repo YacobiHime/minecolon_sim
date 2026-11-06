@@ -22,6 +22,7 @@ const { NEED_LABEL, LABEL_TO_NEED, NEED_EN } = require('./needs');
 const { whereEn } = require('./en');
 const { relDir, dist3 } = require('./util');
 const promptfit = require('./promptfit');
+const farmwater = require('./farmwater');
 
 const DEFAULTS = {
   maxItems: 40,
@@ -395,11 +396,30 @@ class GoalPath {
     return f;
   }
 
+  waterOf(ctx) {
+    const raw = ctx.raw;
+    const f = this.farmOf(ctx);
+    let ready;
+    if (f && Array.isArray(f.till)) ready = f.till.length > 0;
+    else if (ctx.blockAt && raw && raw.self) { try { ready = farmwater.tillSpots(ctx.blockAt, raw.self.pos).spots.length > 0; } catch (_) { ready = undefined; } }
+    return farmwater.waterInfo(raw && raw.self ? raw.self.pos : null, { raw, places: ctx.places || [], ready });
+  }
+
+  // 道筋の次が「作物が育つのを待つ」(畑の段で、耕す・植えるが残っておらず、植わっている作物がある)
+  waitingGrowth() {
+    const n = this.path && this.path.ok ? this.path.next : null;
+    return !!(n && n.how === 'farm' && !(n.till > 0) && !(n.plants > 0) && n.growing > 0);
+  }
+
   world(ctx) {
     const raw = ctx.raw;
     const kinds = new Set(ctx.placeKinds || []);
     return {
       farm: this.farmOf(ctx),
+      // 耕す前の水の段 (見えている・覚えている M 番号と距離・知らない)。済んだ = 水から4マス以内で高さの合う耕せるマスが近くにある
+      water: this.waterOf(ctx),
+      // 植えた作物の覚えている場所 (道筋の「育つのを待つ (植わっている n、M2)」)
+      cropPlaces: Object.fromEntries((ctx.places || []).filter((p) => FARM_CROPS.test(p.kind)).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).reverse().map((p) => [p.kind, { id: p.id, d: p.d }])),
       inventory: raw.inventory,
       visibleBlocks: raw.blocks.map((b) => b.name),
       visibleMobs: raw.entities.filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name),
@@ -790,6 +810,8 @@ class GoalPath {
       return 'unplannable';
     }
     if (st.d < g.best - 1e-9) { g.best = st.d; g.bestAt = tick; }
+    // 作物が育つのを待っている間は「道筋が縮まなかった」「困りごとが続いた」に数えない
+    if (this.waitingGrowth()) { g.bestAt = tick; this.troubleRun = 0; }
     const stuckTrouble = this.troubleRun >= this.cfg.troubleTicks;
     const stuckLong = tick - g.bestAt >= this.cfg.patience;
     if (!stuckTrouble && !stuckLong) return null;

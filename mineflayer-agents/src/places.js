@@ -55,8 +55,11 @@ const RE_XYZ = /\(?\s*(-?\d{1,6})\s*[,、]\s*(-?\d{1,3})\s*[,、]\s*(-?\d{1,6})\
 const RE_XZ = /x\s*[=:＝]?\s*(-?\d{1,6})\s*[,、 ]\s*(?:y\s*[=:＝]?\s*(-?\d{1,3})\s*[,、 ]\s*)?z\s*[=:＝]?\s*(-?\d{1,6})/gi;
 
 // 聞いた文から場所を読む → [{ pos, kind (物の名前 | null), how: 'common'|'xyz' }]
+//   質問の中に引いた失敗の文 (ask.js の「(「…」で失敗した)」) の座標は取り込まない (自分の失敗の所で、教えている場所ではない)。
+//   「(」で始まって「)」で閉じていない座標 (文字数で切れた「(-330,72,7」など) は捨てる
+const RE_FAIL_QUOTE = /「[^」]*(?:」|$)\s*で失敗した|「[^」]*$/g;
 function parsePlaces(text, origin, { version } = {}) {
-  const s = String(text || '');
+  const s = String(text || '').replace(RE_FAIL_QUOTE, ' ');
   const out = [];
   const kinds = namesIn(s, version);
   const kind = kinds[0] || null;
@@ -69,7 +72,13 @@ function parsePlaces(text, origin, { version } = {}) {
     RE_NEAR.lastIndex = 0;
   }
   for (const m of s.matchAll(RE_XZ)) out.push({ pos: { x: Number(m[1]), y: m[2] != null ? Number(m[2]) : (origin ? origin.y : 64), z: Number(m[3]) }, kind, how: 'xyz' });
-  if (!out.some((p) => p.how === 'xyz')) for (const m of s.matchAll(RE_XYZ)) out.push({ pos: { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) }, kind, how: 'xyz' });
+  if (!out.some((p) => p.how === 'xyz')) {
+    for (const m of s.matchAll(RE_XYZ)) {
+      const t = m[0].trim();
+      if (t.startsWith('(') && !t.endsWith(')')) continue; // 閉じかっこが無い = 途中で切れた座標
+      out.push({ pos: { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) }, kind, how: 'xyz' });
+    }
+  }
   return out;
 }
 

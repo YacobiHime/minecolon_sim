@@ -145,6 +145,7 @@ function buildStateEn(ctx, opts = {}) {
   st.inventory = o.inventory || 'nothing';
   st.visible = o.visible || 'nothing notable';
   st.nearby = o.nearby || 'nobody';
+  if (o.farmland) st.farmland = o.farmland; // 近くの耕地 (湿っている/乾いている・植わっている。observe.observationEn)
   if (e.base) st.base = e.base;
   if (opts.table && Object.keys(opts.table).length) st.actions = opts.table;
   if (ctx.showHints && e.hints && e.hints.length) st.knowledge = e.hints;
@@ -381,7 +382,10 @@ function pathMatch(s, action, arg) {
     if (s.how === 'farm') { // 畑: 耕す (クワを土に)・植える (種を耕地に)・取る (作物を壊す)
       const [x, y] = a.split('>');
       const yb = String(y || '').split('@')[0];
-      if (s.till > 0 && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block)$/.test(yb)) return 'step';
+      const wr = s.water && s.water.ready === false ? s.water : null; // 耕す前に水の近くへ行く段 (水から4マス以内の耕せるマスがまだ無い)
+      if (s.till > 0 && wr && action === 'go_to' && ((wr.id && a === wr.id) || a === 'water')) return 'step';
+      if (s.till > 0 && wr && wr.where === 'unknown' && action === 'explore') return 'step';
+      if (s.till > 0 && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block|farmland_spot)$/.test(yb)) return 'step';
       if (s.plants > 0 && action === 'use_on' && x === s.seed && yb === 'farmland') return 'step';
       if (!(s.till > 0) && !(s.plants > 0) && action === 'collect' && a === s.crop) return 'step';
       if (action === 'go_to' && /farmland|wheat|carrots|potatoes|beetroots/.test(a)) return 'approach';
@@ -394,7 +398,8 @@ function pathMatch(s, action, arg) {
   if (s.how === 'enclose' && action === 'enclose') return 'step';
   if (s.how === 'lure' && action === 'lure' && x === s.animal) return 'step';
   if (s.how === 'breed' && action === 'use_on' && y === s.animal) return 'step';
-  if (s.how === 'till' && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block)$/.test(String(y || '').split('@')[0])) return 'step';
+  if (s.how === 'till' && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block|farmland_spot)$/.test(String(y || '').split('@')[0])) return 'step';
+  if (s.how === 'water' && s.water && ((action === 'go_to' && ((s.water.id && a === s.water.id) || a === 'water')) || (s.water.where === 'unknown' && action === 'explore'))) return 'step';
   if (s.how === 'plant' && action === 'use_on' && x === s.seed && String(y || '').split('@')[0] === 'farmland') return 'step';
   if (s.how === 'place' && action === 'place' && fam(a, s.item)) return 'step';
   if (s.how === 'chest_put' && action === 'chest_put' && fam(a, s.item)) return 'step';

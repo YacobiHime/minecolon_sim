@@ -9,6 +9,7 @@ const { Vec3 } = require('vec3');
 const { relDir, dist3, timePhase, round1 } = require('./util');
 const en = require('./en');
 const { nearPlayers } = require('./people');
+const { farmText, farmTextEn } = require('./farmwater');
 
 const IGNORE = new Set(['air', 'cave_air', 'void_air']);
 // 敵 (夜や暗い所に出る、こちらを襲うもの)。観測では kind: 'hostile' にして「敵」と書く
@@ -200,6 +201,9 @@ function summarizeObservation(raw, opts = {}) {
   lines.push('見えるブロック: ' + (blocks.length
     ? blocks.map((b) => `${b.name}${b.ripe != null ? `(育ちきった${b.ripe}/${b.seen})` : ''} ${relDir(s.pos, b.nearest)}${b.seen > 1 ? ` 他${b.seen - 1}+` : ''}`).join(', ')
     : 'なし'));
+  // 近くの耕地 (raw.farm = states.farmStatus。agent が入れる): 数と、湿っている/乾いている・植わっている/乾いていて空き
+  const ft = farmText(opts.farm || raw.farm);
+  if (ft) lines.push(ft);
   const ents = raw.entities.slice(0, maxEntities);
   lines.push('近くの人・生き物・落ちている物: ' + (ents.length
     ? ents.map((e) => `${e.kind === 'player' ? 'プレイヤー' : e.kind === 'item' ? '落ちている' : e.kind === 'hostile' ? '敵' : ''}${e.name} ${relDir(s.pos, e.pos)}`).join(', ')
@@ -226,7 +230,8 @@ function observationEn(raw, opts = {}) {
   const kindEn = { player: 'player', hostile: 'hostile', item: 'dropped item', vehicle: 'vehicle', mob: 'animal' };
   const ents = raw.entities.slice(0, maxNearby);
   const nearby = ents.map((e) => `${e.name} (${kindEn[e.kind] || e.kind}; ${en.whereEn(s.pos, e.pos)})`);
-  return { self: self.join(', '), inventory: en.invText(raw.inventory), visible: visible.length ? visible.join('; ') : 'nothing notable', nearby: nearby.length ? nearby.join('; ') : 'nobody' };
+  const ft = farmTextEn(opts.farm || raw.farm);
+  return { self: self.join(', '), inventory: en.invText(raw.inventory), visible: visible.length ? visible.join('; ') : 'nothing notable', nearby: nearby.length ? nearby.join('; ') : 'nobody', ...(ft ? { farmland: ft } : {}) };
 }
 
 module.exports = { observationEn, cropRipe, VEHICLE, collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };

@@ -66,7 +66,9 @@ function listActions(raw, ctx = {}) {
   const collEx = ctx.collectExclude || null;
   const coll = raw.blocks
     .filter((b) => b.diggable && !blocked.has(`collect:${b.name}`) && !(collEx && collEx.test(b.name)))
-    .map((b) => ({ b, reach: (b.positions && b.positions.length ? b.positions : [b.nearest]).filter((p) => p.y - Math.floor(here.y) <= maxReachUp) }))
+    // 作物 (育ち具合の分かる物。observe の ripe) は、育ちきった所だけ。育ちきった物が無ければ候補に出さない
+    .map((b) => ({ b, reach: (b.positions && b.positions.length ? b.positions : [b.nearest]).filter((p) => p.y - Math.floor(here.y) <= maxReachUp && !(b.ripe != null && p.ripe === false)) }))
+    .filter((x) => !(x.b.ripe != null && !(x.b.ripe > 0)))
     .filter((x) => x.reach.length)
     .sort((x, y) => (y.b.notable - x.b.notable) || (x.reach[0].d - y.reach[0].d))
     .slice(0, maxCollect)
@@ -92,6 +94,7 @@ function listActions(raw, ctx = {}) {
   }
   for (const p of memPlaces) {
     if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`) || (collectable.has(p.kind) && !p.from)) continue; // 聞いた場所は遠くても出す
+    if (p.unreachable) continue; // 続けて行けなかった場所 (memory.noteUnreachable) はしばらく出さない
     if (p.pos && !reachable(p.pos)) continue;
     go.push({ id: p.id, label: p.label, labelEn: `${p.id}=${kindEn(p.kind)} (${p.pos ? whereEn(here, p.pos) : 'location unknown'}${p.from ? `; ${p.from} said so` : ''})`, pos: p.pos, kind: p.kind, fromMemory: true, ...(p.from ? { heardFrom: p.from } : {}) });
   }
