@@ -140,6 +140,7 @@ function buildStateEn(ctx, opts = {}) {
   if (e.plan) st.plan = e.plan;
   else if (ctx.progress) st.plan = ctx.progress; // goalPath 以外 (first_setting など) は日本語の文のまま
   if (ctx.policy) st.policy = ctx.policy; // 2B が書いた文 (原文のまま)
+  if (ctx.role) st.role = ctx.role; // 振り返りで自分が書いた、最近よくしていること (原文のまま。division.js)
   const o = e.obs || {};
   if (o.self) st.self = o.self;
   st.inventory = o.inventory || 'nothing';
@@ -157,6 +158,8 @@ function buildStateEn(ctx, opts = {}) {
   const b = e.board;
   if (b && b.state) for (const k of ['board', 'agreements', 'projects', 'shared_chests', 'broken_agreements']) if (b.state[k] && b.state[k].length) st[k] = b.state[k];
   if (b && b.open && Object.keys(b.open).length) st.open_proposals = b.open;
+  // 見聞きした、ほかの人が最近よくしていること (division.js。人の名前 → 英語の言葉)
+  if (e.othersDoing && Object.keys(e.othersDoing).length) st.others_doing = e.othersDoing;
   return st;
 }
 
@@ -247,8 +250,10 @@ function buildQuestionsEn(ctx, opts) {
         ? '`plan` is the goal `you` set for yourself: `plan.path` lists the things it needs ("X <- Y": X is obtained from or made of Y) and `plan.next` is the next one. '
         : '`plan` is the goal `you` set for yourself; for an item goal it lists the things it needs in order ("X n ← Y": X is obtained from or made of Y) and the next one. ')
         + (ctx.policy ? '`policy` is what `you` decided to keep doing when looking back on your days. ' : '')
+        + (ctx.role ? '`role` is what `you` wrote, when looking back, about what `you` often do lately. ' : '')
         : ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
         : ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : ctx.progress ? '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ' : '')
+      + (ctx.en && ctx.en.othersDoing && Object.keys(ctx.en.othersDoing).length ? '`others_doing` is what `you` have seen or heard other people often doing lately. ' : '')
       + (boardKeysText(ctx))
       + 'Check `inventory`, `visible`, `nearby` and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'
       + (ctx.askHint === false ? '' : ' If `troubled` is present and an ask option exists, asking a nearby player is a good choice.'),

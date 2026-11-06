@@ -23,6 +23,7 @@ const { whereEn } = require('./en');
 const { relDir, dist3 } = require('./util');
 const promptfit = require('./promptfit');
 const farmwater = require('./farmwater');
+const { goalActivity } = require('./division');
 
 const DEFAULTS = {
   maxItems: 40,
@@ -100,9 +101,13 @@ function proposalsSchema(cands, k, opts = {}) {
 // 案ごとの点 = Σ_欲求 つらさ^power × P(満たされる) ÷ (1 + alpha × 手間)。P[i] = { need: p }。needs = [{ need, distress }]。costs[i] = 手間 (無ければ割らない)
 //   同点 (最大との差 ≤ tieEps) は先に書かれた案 (rule: tie_first)。全部の P < lowP なら rule: all_low (onAllLow: first なら最初の案)
 function effortFactor(cost, alpha) { return Number.isFinite(cost) && alpha > 0 ? 1 / (1 + alpha * Math.max(0, cost)) : 1; }
-function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null) {
+//   division (分業。division.js): { T: [案ごとの反応の強さ], beta, gamma } があれば 点 = (Σ つらさ × P × (1 + beta × T) + gamma × T) ÷ (1 + alpha × 手間)
+function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null, division = null) {
   const alpha = effort && Number.isFinite(effort.alpha) ? effort.alpha : 0;
-  const scores = P.map((row, i) => Math.round(needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
+  const Ti = (i) => (division && division.T && Number.isFinite(division.T[i]) ? division.T[i] : 0);
+  const beta = division && Number.isFinite(division.beta) ? division.beta : 0;
+  const gamma = division && Number.isFinite(division.gamma) ? division.gamma : 0;
+  const scores = P.map((row, i) => Math.round((needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * (1 + beta * Ti(i)) + gamma * Ti(i)) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
   const allLow = P.every((row) => needs.every((x) => (row[x.need] || 0) < lowP));
   if (allLow && onAllLow === 'first') return { index: 0, scores, rule: 'all_low_first' };
   const best = Math.max(...scores);
@@ -341,6 +346,8 @@ class GoalPath {
       ctx.socialText ? `## 体と心\n${ctx.socialText}` : '',
       ctx.worst ? `## いちばんつらいこと\n${ctx.worst.text}` : '',
       ctx.policy && L.policy ? `## 自分の方針 (前に自分で決めたこと)\n${String(ctx.policy).slice(0, this.cfg.policyMax)}` : '',
+      ctx.role ? `## 自分が最近よくしていること (振り返りで自分が書いたこと)\n${ctx.role}` : '',
+      ctx.shortage ? `## みんなに足りていない物 (自分が見聞きした範囲)\n${ctx.shortage}` : '',
       (ctx.troubles || []).some((t) => t.kind === 'stuck') ? `## 困っていること\n${ctx.troubles.filter((t) => t.kind === 'stuck').map((t) => `${t.about} (${t.lastMsg})`).join('\n')}` : '',
       peopleText ? `## 周りの人\n${peopleText}` : '',
       board || '', // 全体に届いた話・取り決め・共同の目標・共有のチェスト (board.js)
@@ -662,7 +669,7 @@ class GoalPath {
     this.troubleRun = 0;
     // あとでやること (prospect.js) の候補を選んだ: どれか (summarize_run の「見込みの時刻のあと取りに行った」)
     const later = pg.place && pg.place.type === 'later' ? { id: pg.place.laterId, kind: pg.place.laterKind } : null;
-    this.log({ kind: 'goal', ok: true, ...base, ...(later ? { later } : {}), path: path ? this.pathRecord(path) : null });
+    this.log({ kind: 'goal', ok: true, ...base, activity: goalActivity(pg), ...(later ? { later } : {}), path: path ? this.pathRecord(path) : null });
     return true;
   }
 
@@ -729,7 +736,26 @@ class GoalPath {
     const later = sc.later && ctx.later ? ctx.later({ minRatio: sc.laterMinRatio }).slice(0, sc.laterNeeds) : [];
     const record = { needs: needs.map((x) => ({ need: x.need, distress: x.distress, ratio: x.ratio })), later: later.map((x) => ({ need: x.need, distress: x.distress, ratio: x.ratio, text: x.text })), scores: [], chosen: 0, rule: null };
     if (valid.length === 1) { record.rule = 'only_one'; return { index: 0, record }; }
-    if (!needs.length && !later.length) { record.rule = 'no_pressing_need'; return { index: 0, record }; }
+    // 分業 (division.js): 案ごとの活動・反応の強さ T・慣れ (手間を小さく感じる)
+    const dv = ctx.division || null;
+    const dsc = dv ? dv.score || {} : {};
+    const acts = dv ? valid.map((v) => dv.activityOf(v.pg)) : null;
+    const Tarr = dv ? acts.map((a) => (a && dv.T[a]) || 0) : null;
+    const famArr = dv ? acts.map((a) => (a && dv.fam[a]) || 0) : null;
+    const divOpt = dv ? { T: Tarr, beta: dsc.beta ?? 0, gamma: dsc.gamma ?? 0 } : null;
+    const costs = valid.map((v, i) => (Number.isFinite(v.cost) ? v.cost * (dv ? 1 - (dsc.skillCut ?? 0) * famArr[i] : 1) : null));
+    const rawCosts = valid.map((v) => (Number.isFinite(v.cost) ? v.cost : null));
+    if (dv) record.division = { acts, T: Tarr, fam: famArr, s: acts.map((a) => (a && dv.s[a]) || 0), theta: acts.map((a) => (a && dv.theta[a]) || null), beta: divOpt.beta, gamma: divOpt.gamma, skillCut: dsc.skillCut ?? 0 };
+    if (!needs.length && !later.length) {
+      // つらい欲求が無い: 刺激 (T) があれば gamma × T ÷ (1 + alpha × 手間') の最大 (Jev は呼ばない)。無ければ 2B が先に書いた案
+      if (dv && Tarr.some((t) => t > 0) && divOpt.gamma > 0) {
+        const out0 = selectScores(valid.map(() => ({})), [], { ...sc, onAllLow: 'best' }, costs, divOpt);
+        record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, activity: acts[i], T: Tarr[i], score: out0.scores[i] }));
+        record.rule = 'division_only'; record.chosen = out0.index; record.division.changed = out0.index !== 0; record.decidedBy = 'division';
+        return { index: out0.index, record };
+      }
+      record.rule = 'no_pressing_need'; return { index: 0, record };
+    }
     const p = ctx.persona || {};
     // 案の並べ方も変える (state のキーの順)
     let ids = valid.map((_, i) => i);
@@ -767,19 +793,23 @@ class GoalPath {
       ...needs.map((x) => [x.need, pv(`p${i + 1}_${NEED_EN[x.need] || x.need}`)]),
       ...later.map((x) => [`later_${x.need}`, pv(`p${i + 1}_later_${LATER_EN[x.need]}`)]),
     ]));
-    const costs = valid.map((v) => (Number.isFinite(v.cost) ? v.cost : null));
-    const out = selectScores(P, all, sc, costs);
-    const noEffort = selectScores(P, all, { ...sc, effort: null });
-    const nowOnly = needs.length ? selectScores(P, needs, sc, costs) : null;
-    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs) : null;
+    const out = selectScores(P, all, sc, costs, divOpt);
+    const noEffort = selectScores(P, all, { ...sc, effort: null }, null, divOpt);
+    const noDivision = dv ? selectScores(P, all, sc, rawCosts) : null; // 分業を入れなかったら (T も慣れも無し)
+    const nowOnly = needs.length ? selectScores(P, needs, sc, costs, divOpt) : null;
+    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs, divOpt) : null;
     const alpha = (sc.effort && sc.effort.alpha) || 0;
-    record.formula = alpha > 0 ? `score = sum(distress * P) / (1 + ${alpha} * cost)` : 'score = sum(distress * P)';
+    const num = dv ? `(sum(distress * P) * (1 + ${divOpt.beta} * T) + ${divOpt.gamma} * T)` : 'sum(distress * P)';
+    record.formula = alpha > 0 ? `score = ${num} / (1 + ${alpha} * cost${dv ? ` * (1 - ${dsc.skillCut ?? 0} * fam)` : ''})` : `score = ${num}`;
     record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, P: Object.fromEntries(Object.entries(P[i]).map(([kk, vv]) => [kk, Math.round(vv * 1000) / 1000])),
       now: nowOnly ? nowOnly.scores[i] : 0, later: laterOnly ? laterOnly.scores[i] : 0, cost: costs[i] == null ? null : Math.round(costs[i] * 100) / 100,
-      effort: costs[i] == null ? null : effortWord(costs[i]), factor: Math.round(effortFactor(costs[i], alpha) * 1000) / 1000, noEffort: noEffort.scores[i], score: out.scores[i] }));
+      effort: costs[i] == null ? null : effortWord(costs[i]), factor: Math.round(effortFactor(costs[i], alpha) * 1000) / 1000, noEffort: noEffort.scores[i], score: out.scores[i],
+      ...(dv ? { activity: acts[i], T: Tarr[i], fam: famArr[i], noDivision: noDivision.scores[i] } : {}) }));
     record.chosen = out.index; record.rule = out.rule;
+    if (dv) { record.division.changed = noDivision.index !== out.index; record.division.noDivisionChoice = noDivision.index; } // 分業を入れなければ別の案だった
     record.effortChanged = noEffort.index !== out.index; // 手間で割らなければ別の案だった
     record.decidedBy = !nowOnly ? 'later_only' : (laterOnly && nowOnly.index !== out.index ? 'later' : 'now');
+    if (dv && record.division.changed) record.decidedBy = `${record.decidedBy}+division`;
     record.nowChoice = nowOnly ? nowOnly.index : null;
     return { index: out.index, record };
   }
@@ -801,7 +831,7 @@ class GoalPath {
     else if (result === 'need_unmet') this.counts.needUnmet += 1;
     else if (result === 'stuck') this.counts.stuck += 1;
     else if (result === 'planted') this.counts.planted = (this.counts.planted || 0) + 1;
-    this.log({ ...h, kind: result === 'done' || result === 'planted' ? 'goal_done' : 'reselect', goalKind: g.kind, result, tick, reason: why || null, needAt: g.needAt ?? null, ...extra });
+    this.log({ ...h, kind: result === 'done' || result === 'planted' ? 'goal_done' : 'reselect', goalKind: g.kind, activity: goalActivity(g), place: g.place ? { type: g.place.type || null, kind: g.place.kind || null, laterKind: g.place.laterKind || null } : null, result, tick, reason: why || null, needAt: g.needAt ?? null, ...extra });
     this.goal = null; this.path = null; this.lastNextKey = null;
   }
 

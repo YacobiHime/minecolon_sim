@@ -198,15 +198,16 @@ function pathFactsEn(ex, raw, { maxFacts = 3, target = null } = {}) {
 
 // 人: { name, desc }。people = [{ name, relation, seen }]
 function personCandidates(people) {
-  return (people || []).map((p) => ({ name: p.name, desc: [p.relation, p.seen ? `今は${p.seen}にいる` : '今は見えない'].filter(Boolean).join('・'),
-    descEn: [p.relationEn || null, p.seenEn ? `now ${p.seenEn}` : p.seen ? 'visible now' : 'not visible now'].filter(Boolean).join('; '), near: !!p.near }));
+  // doing / doingEn: 見聞きした、その人が最近よくしていること (division.js othersDoing)
+  return (people || []).map((p) => ({ name: p.name, desc: [p.relation, p.seen ? `今は${p.seen}にいる` : '今は見えない', p.doing || null].filter(Boolean).join('・'),
+    descEn: [p.relationEn || null, p.seenEn ? `now ${p.seenEn}` : p.seen ? 'visible now' : 'not visible now', p.doingEn || null].filter(Boolean).join('; '), near: !!p.near }));
 }
 
 // 場所: 拠点・覚えている場所 (M番号、拠点以外)・8方位の遠く。cellAt(x, z) → 行ったマス | null
 function placeCandidates({ here, base = null, baseLabel = null, places = [], cellAt = null, far = 48, maxPlaces = 4, origin = null } = {}) {
   const out = [];
   if (base) out.push({ name: '拠点', desc: baseLabel || '自分の拠点', descEn: 'my base', pos: base, type: 'base' });
-  for (const p of places.filter((q) => q.kind !== '拠点').slice(0, maxPlaces)) out.push({ name: p.id, desc: p.label, descEn: `a remembered place: ${p.kind}`, pos: p.pos, type: 'memory' });
+  for (const p of places.filter((q) => q.kind !== '拠点').slice(0, maxPlaces)) out.push({ name: p.id, desc: p.label, descEn: `a remembered place: ${p.kind}`, pos: p.pos, type: 'memory', kind: p.kind });
   for (const [id, ja, dx, dz] of DIRS8) {
     const l = Math.hypot(dx, dz);
     const x = here ? here.x + (dx / l) * far : 0; const z = here ? here.z + (dz / l) * far : 0;

@@ -21,6 +21,8 @@ const DEFAULTS = {
   policyMax: 80, whyMax: 40,
   nearDist: 8, // 一緒にいた (この距離以内)
   stateMax: 80, // Jev の state.policy の長さ
+  // 役回りの認識 (division.js。2026-11-06): 自分の活動の回数 (数えた事実) を材料に足し、自分が最近よくしていることを role に書かせる (名前はモデルに任せる)
+  role: true, roleMax: 40,
 };
 const NEED_WORD = { hunger: '空腹', sleep: '眠気', safety: '安心', connection: 'つながり', recognition: '認められたい', curiosity: '好奇心', greed: '物が欲しい', care: '人の役に立ちたい' };
 const RESULT_JA = { done: '達成した', need_unmet: '手に入れた/着いたが、つらさは変わらなかった', stuck: '進まなかったのでやめた', unplannable: '手に入れ方が分からなかった' };
@@ -54,6 +56,7 @@ class Reflect {
     this.prevTod = null;
     this.sleptNight = null; // 寝る前の振り返りをした夜 (day)
     this.count = 0;
+    this.role = null; // { text, tick } 自分が最近よくしていること (振り返りで書いたもの)
   }
 
   // ---- 記録 ----
@@ -151,7 +154,8 @@ class Reflect {
     const sys = [
       `あなたは Minecraft の世界にいる「${p.name}」。${p.personality || ''}`,
       'これまでの自分の暮らしを振り返り、これから長く続けたいこと (方針) を1〜2行で書く。why にはそれが何のためかを書く。',
-      'JSON {"policy":"...","why":"..."} だけを出力する。',
+      this.cfg.role ? 'role には、自分が最近よくしていることを自分の言葉で短く書く。' : '',
+      this.cfg.role ? 'JSON {"policy":"...","why":"...","role":"..."} だけを出力する。' : 'JSON {"policy":"...","why":"..."} だけを出力する。',
     ];
     const user = [
       `## 振り返ること (${{ day_end: '1日が終わる', before_sleep: '寝る前', death: '死んだあと', goals: 'ゴールをいくつか終えた' }[ctx.reason] || ctx.reason})`,
@@ -161,16 +165,20 @@ class Reflect {
       `## 前の方針\n${this.policy ? `${this.policy.text}${this.policy.why ? ` (何のため: ${this.policy.why})` : ''}` : 'まだない'}`,
       '方針を JSON で。',
     ];
-    return [{ role: 'system', content: sys.join('\n') }, { role: 'user', content: user.filter(Boolean).join('\n') }];
+    return [{ role: 'system', content: sys.filter(Boolean).join('\n') }, { role: 'user', content: user.filter(Boolean).join('\n') }];
   }
 
   schema() {
-    return { type: 'object', properties: { policy: { type: 'string', maxLength: this.cfg.policyMax }, why: { type: 'string', maxLength: this.cfg.whyMax } }, required: ['policy', 'why'], additionalProperties: false };
+    const props = { policy: { type: 'string', maxLength: this.cfg.policyMax }, why: { type: 'string', maxLength: this.cfg.whyMax } };
+    if (this.cfg.role) props.role = { type: 'string', maxLength: this.cfg.roleMax };
+    return { type: 'object', properties: props, required: Object.keys(props), additionalProperties: false };
   }
 
   // 振り返る。返り値: 新しい方針 | null
+  //   ctx.activityFacts: 自分の活動の回数 (division.js countsText。数えた事実)
   async run(ctx, tick, reason) {
-    const facts = this.factsSince();
+    let facts = this.factsSince();
+    if (ctx.activityFacts) { facts.splice(Math.min(facts.length, this.cfg.maxFacts - 1), 0, ctx.activityFacts); facts = facts.slice(0, this.cfg.maxFacts); }
     const messages = this.messages({ ...ctx, reason }, facts);
     const promptChars = messages.reduce((s, m) => s + m.content.length, 0);
     const t0 = Date.now();
@@ -180,15 +188,17 @@ class Reflect {
     const text = o && typeof o.policy === 'string' ? o.policy.trim().slice(0, this.cfg.policyMax) : '';
     const why = o && typeof o.why === 'string' ? o.why.trim().slice(0, this.cfg.whyMax) : '';
     const ok = !!text;
+    const role = this.cfg.role && o && typeof o.role === 'string' ? o.role.trim().slice(0, this.cfg.roleMax) : '';
+    if (role) this.role = { text: role, tick };
     if (this.meter) this.meter.addTwoB({ kind: 'reflect', promptChars, promptTokens: r ? r.promptTokens : null, completionTokens: r ? r.completionTokens : null, ms: Date.now() - t0, error: error || (ok ? null : 'parse') });
     const prev = this.policy;
     if (ok) this.policy = { text, why: why || null, tick, reason };
     this.count += 1;
-    const rec = { tick, reason, ok, facts, policy: ok ? text : null, why: ok ? why || null : null, prevPolicy: prev ? prev.text : null, promptChars,
+    const rec = { tick, reason, ok, facts, policy: ok ? text : null, why: ok ? why || null : null, role: role || null, prevPolicy: prev ? prev.text : null, promptChars,
       promptTokens: r ? r.promptTokens : null, completionTokens: r ? r.completionTokens : null, ms: Date.now() - t0, error, rawOutput: r ? r.text : null };
     if (this.count === 1) rec.prompt = messages;
     this.log(rec);
-    this.history.push({ tick, reason, policy: rec.policy, why: rec.why });
+    this.history.push({ tick, reason, policy: rec.policy, why: rec.why, role: rec.role });
     this.lastAt = { tick, step: this.steps.length, event: this.events.length };
     this.pending = null;
     return ok ? this.policy : null;
@@ -196,6 +206,8 @@ class Reflect {
 
   // 2B (ゴール選び) に見せる文・Jev の state.policy に出す短い文
   policyText() { return this.policy ? `${this.policy.text}${this.policy.why ? ` (何のため: ${this.policy.why})` : ''}` : ''; }
+
+  roleText() { return this.role ? this.role.text : ''; }
 
   stateText() { return this.policy ? this.policy.text.slice(0, this.cfg.stateMax) : ''; }
 }

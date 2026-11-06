@@ -9,6 +9,7 @@ const path = require('path');
 const { JEV_USD_PER_MTOK } = require('../src/usage');
 const scale = require('./scale_stats');
 const { parsePlaces } = require('../src/places');
+const divisionTool = require('./division_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -883,6 +884,8 @@ function main() {
     mRefs: mRefStats(all),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
+    // 分業の指標 (tools/division_stats.js。division の記録が無い前の記録にも分類表で当てる)
+    division: divisionTool.divisionStats(all),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
     perAgent: agents,
     conversation: conversation(all, nEx),
@@ -1018,6 +1021,7 @@ function main() {
     console.log(`  移動の打ち切り (10秒近づかない) ${su.noProgress} 回 / goto ${su.gotos} 回 ${JSON.stringify(su.noProgressByAction)}、押し戻し ${su.forcedMoves} 回 ${JSON.stringify(su.forcedByAgent)}、path_reset ${JSON.stringify(su.resets)}、行動の終わりに消した returningPos ${su.returningCleared}`);
     for (const l of su.list) console.log(`  ${l}`);
     console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
+    for (const l of divisionTool.textLines(out.division)) console.log(l);
     const jc = out.jevChoice;
     if (jc && jc.p.n) {
       console.log(`Jev の選択の確率 p: p10 ${jc.p.p10}・p50 ${jc.p.p50}・p90 ${jc.p.p90} ${JSON.stringify(jc.p.hist)}、1位÷2位: p50 ${jc.ratio.p50} ${JSON.stringify(jc.ratio.hist)}`);

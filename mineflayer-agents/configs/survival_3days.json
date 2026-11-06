@@ -530,6 +530,55 @@
     "minGap": 10,
     "maxTokens": 160
   },
+  "division": {
+    "_comment": "分業をメンタルモデルの側で生ませる (src/division.js。2026-11-06 ユーザー決定「必要なものに対して欲求を上げる」)。1. 慣れ: 活動 (farming・wood・mining・hunting・exploring・building・cooking・crafting・social。ゴールの target と行動から分類) ごとに、やった回数・うまくいった回数。fam = exp/(exp+halfExp)、exp = うまくいったゴール + actWeight × うまくいった行動。言葉 (「畑のことは慣れている」) を体と心の言葉に足し、ゴール選びの手間を × (1 − score.skillCut × fam) にする (心の中の手間)。2. 刺激 s: 見聞きした範囲だけ (共有のチェストの中身・聞いた依頼の形の発言・自分の拠点が暗い/囲まれていない・取り決めと共同の目標の残り)。ほかの人がその活動をしているのを見聞きするほど ÷ (1 + coverW × 人数)。3. しきい値 θ = theta0 × (1 − traitScale × z(性格)) × (1 − famCut × fam)。性格と活動の表は division.js の TRAIT_ACT (論拠のコメント付き)。反応 T = s²/(s²+θ²) (Bonabeau)。4. 点 = (Σ つらさ × P × (1 + beta × T) + gamma × T) ÷ (1 + alpha × 手間')。つらい欲求が無くても T があれば gamma × T で選ぶ (rule division_only)。2B のゴールの案には「みんなに足りていない物 (自分が見聞きした範囲)」を渡す。5. 振り返りで自分がよくしていることを role に書かせ、ほかの人がよくしていること (見聞き) を人の言葉と Jev の others_doing に出す。記録: 毎判断の division {s, theta, T, fam, act}、goal の select.division (changed: 分業を入れなければ別の案)",
+    "enabled": true,
+    "experience": {
+      "actWeight": 0.2,
+      "halfExp": 6,
+      "levels": [
+        0.15,
+        0.4,
+        0.65
+      ],
+      "maxWords": 3
+    },
+    "stimulus": {
+      "chestW": 0.6,
+      "chestEnough": 16,
+      "heardW": 0.5,
+      "heardHalfLife": 20,
+      "heardKeep": 80,
+      "baseW": 0.3,
+      "projectW": 0.6,
+      "projectEnough": 8,
+      "coverW": 0.5,
+      "coverHalfLife": 30,
+      "coverKeep": 90,
+      "sMax": 1.5,
+      "showMin": 0.2,
+      "maxLines": 3,
+      "maxEvidence": 3
+    },
+    "threshold": {
+      "theta0": 0.5,
+      "traitScale": 0.5,
+      "famCut": 0.5,
+      "min": 0.05,
+      "max": 1
+    },
+    "score": {
+      "beta": 0.5,
+      "gamma": 0.4,
+      "skillCut": 0.3
+    },
+    "others": {
+      "roleHalfLife": 120,
+      "roleMin": 3,
+      "roleShare": 0.4,
+      "sayW": 0.5
+    }
+  },
   "others": {
     "_comment": "行動中に近く (radius、既定は visionRadius) でほかの人が拾った物・壊したブロックを、actions の行動の結果の文に足す (記憶にも入る)",
     "enabled": true,

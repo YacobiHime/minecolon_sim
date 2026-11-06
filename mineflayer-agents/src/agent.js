@@ -36,6 +36,7 @@ const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
 const { Board, DEFAULTS: BOARD_DEFAULTS, parseLine, line: boardLine, chestLabelJa } = require('./board');
 const { jaName, SUFFIX: JA_SUFFIX } = require('./names_ja');
+const { Division, countsText } = require('./division');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
@@ -251,6 +252,11 @@ class Agent {
     this.help = helpOf(cfg);
     this.memory = Memory.load(cfg.memory.file, { limits: cfg.memory.limits });
     this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona) });
+    // 分業 (division.js): 慣れ・集団の必要 (刺激)・反応しきい値。cfg.division.enabled: true で使う
+    this.division = cfg.division && cfg.division.enabled
+      ? Division.fromJSON(this.memory.extra.division, { cfg: cfg.division, temperament: cfg.persona.temperament || {}, drives: (needsConfig(cfg, cfg.persona).drives) || {}, me: cfg.persona.name })
+      : null;
+    this.divisionExpAt = this.division ? this.division.copyExp() : null; // 前の振り返りのときの回数
     this.recorder = new Recorder(recordDir || cfg.record.dir, cfg.persona.name, recordStamp);
     this.heardBuf = [];
     // 近くの人の位置 (people.js)。entity が一時的に無いときに最後の位置を staleMs まで使う。onChat の距離・raw.people に使う
@@ -302,7 +308,7 @@ class Agent {
       this.goalPlan = null;
       this.goalPath = new GoalPath({ cfg: cfg.goalPath || {}, llmOpts: llmOptsFor(cfg, 'goal', (cfg.goalPath && cfg.goalPath.llm) || {}), meter,
         jev: decider && decider.kind === 'jev' ? decider : null, order: this.order,
-        log: (e) => { this.recorder.write({ event: 'goal_path', ...e }); if (this.reflect) this.reflect.noteGoal(e); } });
+        log: (e) => { this.recorder.write({ event: 'goal_path', ...e }); if (this.reflect) this.reflect.noteGoal(e); if (this.division) this.division.noteGoal(e); } });
     } else this.goalPath = null;
     // 振り返りと方針 (cfg.reflect。reflect.js)。ゴール (help.goalPath) と一緒に使う
     this.reflect = cfg.reflect && cfg.reflect.enabled !== false && this.goalPath
@@ -433,6 +439,7 @@ class Agent {
       this.boardSeen.add(m.seq);
       // 聞いた内容は記憶に「Taro は〜と言っていた (いつ)」の形で残り、時間とともに薄れる (memory.js)
       this.memory.noteHeard(m.from, m.text, 0.3, { global: true, at: this.phaseSafe() });
+      if (this.division) this.division.noteHeard(m.from, m.text, tick);
       this.recorder.write({ event: 'board', kind: 'seen', from: m.from, to: me, msgKind: m.kind, pid: m.pid || null, text: m.text, why: m.why, hit: m.hit, loop: tick });
     }
     const open = this.board.openFor(me, this.boardAsked);
@@ -650,7 +657,8 @@ class Agent {
       const r = this.social.relations[name] || null;
       // affinity・talks・d はゴール選びの候補を上位 N 人に絞る並べ方だけに使う (2B には見せない)
       return { name, relation: this.social.relationWord(name), relationEn: this.social.relationWord(name, { lang: 'en' }), seen: e ? relDir(raw.self.pos, e.pos) : null, seenEn: e ? en.whereEn(raw.self.pos, e.pos) : null,
-        affinity: r ? r.affinity : null, talks: r ? r.talks || 0 : 0, helped: r ? (r.helpedMe || 0) + (r.iHelped || 0) : 0, d: e ? e.d : null };
+        affinity: r ? r.affinity : null, talks: r ? r.talks || 0 : 0, helped: r ? (r.helpedMe || 0) + (r.iHelped || 0) : 0, d: e ? e.d : null,
+        doing: this.division ? this.division.othersDoing(name) || null : null, doingEn: this.division ? this.division.othersDoing(name, { lang: 'en' }) || null : null };
     });
   }
 
@@ -984,6 +992,8 @@ class Agent {
       for (const e of ev.filter((x) => x.who === name)) { const k = `${e.name}を${e.kind === 'pickup' ? '拾った' : '壊した'}`; did[k] = (did[k] || 0) + e.count; }
       const dl = Object.entries(did).slice(-3).map(([k, n]) => k.replace('を', `を${n}個`));
       if (dl.length) parts.push(`最近 ${dl.join('・')}`);
+      const doing = this.division ? this.division.othersDoing(name) : '';
+      if (doing) parts.push(doing);
       lines.push(parts.join('。'));
     }
     return lines.join('\n');
@@ -1030,6 +1040,7 @@ class Agent {
     // 近くの声 (発言・答え) の中の場所を覚えた (共有の分析用。【発見】は onBoardLine で via: 'board')
     for (const l of learnedNear) this.recorder.write({ event: 'heard_place', via: 'near', from: l.from, to: cfg.persona.name, text: l.text, places: l.places, d: l.d, loop: tick });
     for (const h of raw.heard) this.social.onHeard(h.from, tick, h.text);
+    if (this.division) { for (const h of raw.heard) this.division.noteHeard(h.from, h.text, tick); if (this.others) this.division.noteOthers(this.others.events, tick); }
     const steps = this.help.steps ? cfg.goal.steps : null;
     this.social.tick({ tick, raw, sense: this.senseNeeds(raw, { newCell: !knownCell, cell: knownCell }) });
     const forgotten = this.memory.forget();
@@ -1052,13 +1063,23 @@ class Agent {
       if (!bp) this.base = null;
       else if (dist3(raw.self.pos, this.base) <= (cfg.perception.visionRadius ?? 16)) this.memory.notePlace(BASE_KIND, this.base, { imp: 1 });
     }
-    const socialText = this.social.words();
+    let socialText = this.social.words();
     const worst = this.social.worstNeed();
     const ahead = aheadOf(this.social.needsModel);
     const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)), { ensure: PLACE_ENSURE });
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
-    const socialEn = this.social.words({ lang: 'en' });
+    let socialEn = this.social.words({ lang: 'en' });
     const bview = this.prepareBoard(raw);
+    // 分業: 見聞きした範囲から刺激を作り直し、慣れの言葉を体と心の言葉に足す
+    let divisionSnap = null;
+    if (this.division) {
+      const site = this.base && this.baseSeen ? this.baseSeen.site : null;
+      divisionSnap = this.division.update({ tick, chests: bview ? bview.goal.chests : [], shared: bview ? bview.goal.shared : [],
+        base: site ? { dark: site.light != null && site.light < 8, enclosed: !!site.enclosed } : null });
+      const fw = this.division.famWords(); const fwEn = this.division.famWords({ lang: 'en' });
+      if (fw) socialText = `${socialText}。${fw}`;
+      if (fwEn) socialEn = `${socialEn}; ${fwEn}`;
+    }
     // 近くの畑 (空いている耕地・植わっている作物)。use_on の対象・planner の world.farm に使う
     let farm = null;
     try {
@@ -1123,11 +1144,14 @@ class Agent {
     if (this.reflect) {
       const reason = this.reflect.due({ tick, timeOfDay: raw.self.timeOfDay, day: raw.self.day, canSleep: ctx.actions.some((a) => a.name === 'sleep') });
       if (reason) {
-        const pol = await this.reflect.run({ persona: cfg.persona, socialText, laterText: this.memory.laterTexts(raw.self.pos, memPlacesNow).join('\n') }, tick, reason);
+        const activityFacts = this.division ? countsText(this.division.countsSince(this.divisionExpAt)) : '';
+        const pol = await this.reflect.run({ persona: cfg.persona, socialText, activityFacts, laterText: this.memory.laterTexts(raw.self.pos, memPlacesNow).join('\n') }, tick, reason);
+        if (this.division) this.divisionExpAt = this.division.copyExp();
         reflected = reason;
         if (pol) this.log(`[${cfg.persona.name}] 振り返り (${reason}): ${pol.text} / ${pol.why || ''}`);
       }
       ctx.policy = this.reflect.stateText() || null;
+      ctx.role = this.reflect.roleText() || null; // 自分が最近よくしていること (振り返りで書いたもの)
     }
     if (this.goalPath) {
       const kn = this.help.hints ? this.knowledge : null;
@@ -1147,6 +1171,7 @@ class Agent {
         pressing: (o) => this.social.needsModel.pressing(o),
         later: (o) => this.social.needsModel.later(o), // 先のつらさ (anticipate.js)
         board: bview ? bview.goal : null,
+        division: this.division ? this.division.view() : null, shortage: this.division ? this.division.stimulusText() : '', role: ctx.role || null,
         _farm: farm || undefined, origin: this.memory.origin || null,
         // あとでやることのうち見込みの時刻を過ぎたもの (場所の候補 type: later)。取りに行くかは 2B が選ぶ
         laterPlaces: Number.isFinite(gameNow) ? this.memory.prospects.goalCandidates(gameNow, { here: raw.self.pos, places: memPlacesNow }) : [],
@@ -1154,6 +1179,11 @@ class Agent {
       this.lastGave = [];
       ctx.progress = this.goalPath.planText();
       ctx.en.plan = this.goalPath.planEn();
+      if (this.division) {
+        const od = {};
+        for (const p of this.peopleList(raw)) if (p.doingEn) od[p.name] = p.doingEn;
+        ctx.en.othersDoing = od;
+      }
       ctx.en.obs = obsEn(raw, cfg, ctx.progress);
       ctx.pathNext = this.goalPath.pathNext();
       if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
@@ -1240,6 +1270,7 @@ class Agent {
     }
     this.social.onActionResult(resolved.action, result.ok, { repeatedFail: !result.ok && troubles.some((t) => t.key === key) });
     this.social.onActionNeeds(resolved.action, resolved.arg, result, tick);
+    const divisionAct = this.division ? this.division.noteAction(resolved.action, resolved.arg, !!result.ok) : null;
     this.lastResult = `${plannedText}→${result.ok ? '成功' : '失敗'}: ${result.msg}`;
     // 英語 (Jev 用。同じ結果と、行動の前後の持ち物の差から)。記憶のやったことにも英語の文を残す
     this.lastResultEn = en.resultEn({ action: resolved.action, arg: resolved.arg, ok: result.ok, msg: result.msg, delta: en.invDelta(raw.inventory, inv) });
@@ -1268,6 +1299,7 @@ class Agent {
     const met = goalMet(cfg.goal, inv, raw);
     const stepSt = steps ? stepStatus(steps, raw).map((s) => s.done) : null;
     this.memory.extra.social = this.social.toJSON();
+    if (this.division) this.memory.extra.division = this.division.toJSON();
 
     this.recorder.write({
       loop: loopNo,
@@ -1290,6 +1322,8 @@ class Agent {
       planUpdated: planUpdate,
       reflected,
       policy: ctx.policy || null,
+      role: ctx.role || null,
+      division: divisionSnap ? { ...divisionSnap, act: divisionAct } : null,
       planStep: this.goalPlan && this.goalPlan.goal ? { goal: this.goalPlan.goal.n, idx: this.goalPlan.idx, of: this.goalPlan.steps.length } : null,
       goalPath: this.goalPath && this.goalPath.goal ? { goal: this.goalPath.goal.n, kind: this.goalPath.goal.kind, target: this.goalPath.goal.target, met: this.goalPath.goal.metAt != null,
         next: this.goalPath.path && this.goalPath.path.next ? this.goalPath.path.next.item : null, steps: this.goalPath.path && this.goalPath.path.ok ? this.goalPath.path.steps.length : null } : null,
@@ -1493,7 +1527,7 @@ class Agent {
     }
     // 発言・答えの途中なら少し待つ (記録を閉じる前に)
     for (let i = 0; i < 60 && (this.talking || this.answering); i++) await sleep(250);
-    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, reflect: this.reflect ? { count: this.reflect.count, history: this.reflect.history } : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON(), board: this.board ? this.board.snapshot() : null });
+    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, reflect: this.reflect ? { count: this.reflect.count, history: this.reflect.history } : null, division: this.division ? { exp: this.division.exp, fam: this.division.fam(), roles: Object.fromEntries(Object.keys(this.division.roles).map((n) => [n, this.division.rolesOf(n)])) } : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON(), board: this.board ? this.board.snapshot() : null });
     this.memory.extra.social = this.social.toJSON();
     this.memory.save();
     await this.recorder.close();
