@@ -640,7 +640,9 @@
   },
   "perception": {
     "visionRadius": 16,
-    "hearRadius": 24,
+    "_comment_people": "近くの交流の範囲 (2026-11-06 ユーザー決定で 24 → 48)。hearRadius: 近くの声 (発言・call・ask) の届く距離。peopleRadius: follow・give・go_to(人) の対象になる近くの人の距離。どちらも視線を問わず、サーバーが送る相手の位置からの距離だけで決める (src/people.js)。サーバーがプレイヤーの位置を送る距離 min(512 × entity-broadcast-range-percentage/100, (view-distance − 1) × 16) 以下にする (fabric の今の設定 view-distance 8 で 112m)",
+    "hearRadius": 48,
+    "peopleRadius": 48,
     "showDay": true
   },
   "act": {
@@ -690,10 +692,10 @@
       "randomMin": 15,
       "randomMax": 60,
       "maxRing": 6,
-      "_comment_share": "shared: 踏破したマスと今いる所を同じ実行の全員で分け合う (runs/<id>/explored/、shareEvery 判断ごとに書いて読む。src/explored.js)。scope: all で「まだ行っていない」「行ったか」を全員の踏破で決める (self: 自分だけ)。extra: 近さだけで選ばない候補 (拠点から離れる方・踏破したマスが少ない方・人の少ない方。行き先は far m 先) を足す。sectorRing: 方角ごとに数えるマスの範囲",
+      "_comment_share": "shared: 踏破したマスと今いる所を runs/<id>/explored/ に書き出す (分析用。shareEvery 判断ごと。src/explored.js)。scope: self (既定。2026-11-06 ユーザー決定) では書き出すだけで読まず、「まだ行っていない」「行ったか」は自分の踏破だけで決める (場所の共有は【発見】・近くの声・聞いて答える の会話だけで起きる)。all で全員の踏破を読んで決める。extra: 近さだけで選ばない候補 (拠点から離れる方・踏破したマスが少ない方・人の少ない方。行き先は far m 先) を足す。sectorRing: 方角ごとに数えるマスの範囲",
       "shared": true,
       "shareEvery": 5,
-      "scope": "all",
+      "scope": "self",
       "extra": true,
       "sectorRing": 12
     },

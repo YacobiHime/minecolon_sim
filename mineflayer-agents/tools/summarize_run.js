@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { JEV_USD_PER_MTOK } = require('../src/usage');
 const scale = require('./scale_stats');
+const { parsePlaces } = require('../src/places');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -625,13 +626,14 @@ function voiceStats(all, { hearRadius = 24, replySec = 60 } = {}) {
   const posAt = (name, ts) => { const l = posBy[name] || []; let p = null; for (const x of l) { if (x.ts > ts) break; p = x.pos; } return p; };
   const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
   const nearSorted = near.slice().sort((a, b) => a.ts - b.ts);
-  let withListener = 0; let replied = 0;
+  let withListener = 0; let replied = 0; let listenerSum = 0;
   const per = {};
   const P = (n) => (per[n] = per[n] || { near: 0, global: 0, nearWithListener: 0, nearReplied: 0 });
   for (const u of nearSorted) {
     P(u.who).near += 1;
     const me = posAt(u.who, u.ts);
     const listeners = me ? Object.keys(posBy).filter((n) => n !== u.who && (() => { const p = posAt(n, u.ts); return p && d(p, me) <= hearRadius; })()) : [];
+    listenerSum += listeners.length;
     if (!listeners.length && !u.to) continue;
     withListener += 1; P(u.who).nearWithListener += 1;
     const ls = new Set(u.to ? [...listeners, u.to] : listeners);
@@ -640,7 +642,46 @@ function voiceStats(all, { hearRadius = 24, replySec = 60 } = {}) {
   for (const g of glob) P(g.who).global += 1;
   const ratio = (a, b) => (a + b ? Math.round((b / (a + b)) * 100) / 100 : null);
   for (const v of Object.values(per)) v.globalShare = ratio(v.near, v.global);
-  return { near: near.length, global: glob.length, globalShare: ratio(near.length, glob.length), votes, nearWithListener: withListener, nearReplied: replied, replySec, hearRadius, perAgent: per };
+  return { near: near.length, global: glob.length, globalShare: ratio(near.length, glob.length), votes, nearWithListener: withListener, nearReplied: replied, listeners: listenerSum, listenersAvg: near.length ? Math.round((listenerSum / near.length) * 100) / 100 : null, replySec, hearRadius, perAgent: per };
+}
+
+// 場所の共有 (2026-11-06 ユーザー決定: 共有は【発見】・近くの声・聞いて答える の会話だけで起きる。踏破のファイルは読まない)
+//   finds: 【発見】の行 (board report_find で言えた数・そのうち場所 (共通の呼び方・座標) が入っていた数)
+//   nearWithPlace: 近くの声 (talk の発言・say・call・answer) のうち場所が入っていた数 (種類ごと)
+//   learned: 聞いた場所を覚えた数 (heard_place。via: board = 【発見】 / near = 近くの声。古い記録は via なし → board)
+//   goTo: 聞いた場所 (人から聞いて覚えた所) へ go_to した数 (判断の記録の heardPlace。古い記録には無い)・着いた数
+const ORIGIN0 = { x: 0, y: 64, z: 0 };
+const hasPlace = (text) => { try { return !!text && parsePlaces(String(text), ORIGIN0).length > 0; } catch (_) { return false; } };
+function placeShareStats(all) {
+  const finds = all.filter((r) => r.event === 'board' && r.kind === 'report_find');
+  const said = finds.filter((r) => r.say);
+  const near = [];
+  for (const r of all) {
+    if (r.event === 'talk' && r.say) near.push({ kind: 'talk', text: r.say });
+    else if (r.event === 'answer' && r.answer) near.push({ kind: 'answer', text: r.answer });
+    else if (isStep(r) && r.action === 'say' && r.say) near.push({ kind: 'say', text: r.say });
+    else if (isStep(r) && r.action === 'call' && r.result && r.result.said) near.push({ kind: 'call', text: r.result.said });
+  }
+  const nearP = near.filter((x) => hasPlace(x.text));
+  const learned = all.filter((r) => r.event === 'heard_place');
+  const via = (r) => r.via || 'board';
+  const gos = all.filter((r) => isStep(r) && r.action === 'go_to' && r.heardPlace);
+  const hasHeardField = all.some((r) => isStep(r) && 'heardPlace' in r);
+  const pairs = {};
+  for (const r of learned) { const k = `${r.from}→${r.to || r._name}`; pairs[k] = (pairs[k] || 0) + 1; }
+  return {
+    finds: { chosen: finds.length, said: said.length, withPlace: said.filter((r) => hasPlace(r.say)).length },
+    nearVoices: near.length, nearWithPlace: nearP.length, nearWithPlaceByKind: countBy(nearP, (x) => x.kind),
+    learned: learned.length, learnedPlaces: sum(learned.map((r) => (r.places || []).length)), learnedByVia: countBy(learned, via),
+    learnedPairs: Object.entries(pairs).sort((a, b) => b[1] - a[1]).slice(0, 10),
+    goTo: hasHeardField ? { n: gos.length, arrived: gos.filter((r) => r.result && r.result.ok).length, byPair: countBy(gos, (r) => `${r._name}←${r.heardPlace.from}`) } : null,
+    examples: [...said.filter((r) => hasPlace(r.say)).map((r) => `${r._name} 【発見】${r.say}`), ...learned.filter((r) => r.via === 'near').map((r) => `${r.to || r._name} ← ${r.from}「${r.text}」`)].slice(0, 8),
+  };
+}
+
+// 近くの声が届く人数を、声の届く距離ごとに見積もる (判断の記録の位置で。voiceStats と同じ数え方)
+function voiceReach(all, radii = [24, 48]) {
+  return Object.fromEntries(radii.map((h) => { const v = voiceStats(all, { hearRadius: h }); return [h, { near: v.near, nearWithListener: v.nearWithListener, listeners: v.listeners, listenersAvg: v.listenersAvg, nearReplied: v.nearReplied }]; }));
 }
 
 // 動けない (unstuck.js): 回復の回数と結果・移動の打ち切り・押し戻し・path_reset の理由・returningPos
@@ -661,6 +702,12 @@ function stuckStats(all, loops) {
     resets, returningSeen: mv.filter((m) => m.returning > 0).length, returningCleared: sum(mv.map((m) => m.returningCleared || 0)),
     list: ev.slice(0, 20).map((r) => `${r._name} #${r.loop} ${r.action}${r.arg ? `(${r.arg})` : ''} → ${r.ok ? '回復' : '回復できず'}: ${r.how}${r.reconnect ? ` [入り直し ${r.reconnect.ok ? 'OK' : 'NG'}]` : ''}`),
   };
+}
+
+// 実行の声の届く距離 (start の記録の cfg に入っていれば。無ければ 24 = 2026-11-06 より前の既定)
+function hearOf(all) {
+  const st = all.find((r) => r.event === 'start' && r.perception && r.perception.hearRadius);
+  return st ? st.perception.hearRadius : 24;
 }
 
 function main() {
@@ -742,7 +789,9 @@ function main() {
     cooperation: cooperationStats(all),
     board: boardStats(all),
     stuck: stuckStats(all, loops),
-    voices: voiceStats(all),
+    voices: voiceStats(all, { hearRadius: hearOf(all) }),
+    voiceReach: voiceReach(all),
+    placeShare: placeShareStats(all),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
@@ -851,6 +900,10 @@ function main() {
     const vs = out.voices;
     console.log(`近くの声 ${vs.near} 回・全体チャット ${vs.global} 回 (全体の割合 ${vs.globalShare ?? '-'}、賛成/反対の印 ${vs.votes})、近くの声のうち近くに人がいた ${vs.nearWithListener}・会話になった (${vs.replySec}秒以内に近くの人が返した) ${vs.nearReplied}`);
     console.log(`  人ごと (近く/全体/会話になった): ${Object.entries(vs.perAgent).map(([k, v]) => `${k} ${v.near}/${v.global}/${v.nearReplied}`).join('・')}`);
+    console.log(`  届く距離ごと (近くの声のうち聞き手がいた / 聞き手の延べ人数・1発言あたり / 会話になった): ${Object.entries(out.voiceReach).map(([h, v]) => `${h}m ${v.nearWithListener}/${v.near}・${v.listeners}人 (${v.listenersAvg})・${v.nearReplied}`).join(' | ')}`);
+    const ps = out.placeShare;
+    console.log(`場所の共有: 【発見】 ${ps.finds.said} 回 (場所入り ${ps.finds.withPlace}、選んだ ${ps.finds.chosen})、近くの声に場所 ${ps.nearWithPlace}/${ps.nearVoices} ${JSON.stringify(ps.nearWithPlaceByKind)}、聞いた場所を覚えた ${ps.learned} 回 (${ps.learnedPlaces} か所、${JSON.stringify(ps.learnedByVia)})、聞いた場所へ go_to ${ps.goTo ? `${ps.goTo.n} 回 (着いた ${ps.goTo.arrived}) ${JSON.stringify(ps.goTo.byPair)}` : '- (記録に heardPlace なし)'}`);
+    for (const l of ps.examples) console.log(`  ${l}`);
     const bd = out.board;
     if (bd) {
       console.log(`全体チャット ${bd.broadcasts.said} 回 (選んだ ${bd.broadcasts.asked}、人ごと ${JSON.stringify(bd.broadcasts.byFrom)})、state に出た ${bd.seen.n} 回 (理由 ${JSON.stringify(bd.seen.byWhy)}、1発言が届いた人数 p50 ${bd.seen.reachP50}・最大 ${bd.seen.reachMax})`);

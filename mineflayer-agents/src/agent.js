@@ -25,6 +25,7 @@ const { GoalPlan } = require('./goalplan');
 const { GoalPath } = require('./goalpath');
 const { farmStatus } = require('./states');
 const { SharedExplore } = require('./explored');
+const { PlayerCache, playerDistance, peopleOf } = require('./people');
 const { Reflect } = require('./reflect');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
 const { isPlaceableBlockItem, Planner, effortWord, EFFORT_EN } = require('./planner');
@@ -124,7 +125,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
   const actions = listActions(raw, {
     memPlaces, foods: extra.foods, placeable: extra.placeable, blocked, maxReachUp: cfg.act.maxReachUp,
     goalItems: new Set(Object.keys((cfg.goal.success && cfg.goal.success.inventory) || {})),
-    base: extra.base || null, hut: raw.hut || null, troubles, hearRadius: cfg.perception.hearRadius,
+    base: extra.base || null, hut: raw.hut || null, troubles, hearRadius: cfg.perception.hearRadius, peopleRadius: cfg.perception.peopleRadius ?? cfg.perception.hearRadius,
     disabled: new Set((cfg.act && cfg.act.disabled) || []), enable: new Set((cfg.act && cfg.act.enable) || []),
     selfBase: !!(cfg.world && cfg.world.base === 'self'), fleeRadius: cfg.act.fleeRadius,
     // 入れ物の中身・村人の取引 (開けて見たときに覚えたもの。act_more.js)。use_on などの候補の絞り方 (cfg.act)
@@ -194,7 +195,13 @@ function updateMemoryFromObservation(memory, raw) {
   for (const b of raw.blocks) if (b.notable) memory.notePlace(b.name, b.nearest);
   memory.noteVisit(raw.self.pos);
   memory.noteCell(raw.self.pos);
-  for (const h of raw.heard) memory.noteHeard(h.from, h.text);
+  // 返り値: 近くの声から覚えた場所 [{ from, text, places }] (heard_place の記録用)
+  const learned = [];
+  for (const h of raw.heard) {
+    const e = memory.noteHeard(h.from, h.text);
+    if (e && e.places && e.places.length) learned.push({ from: h.from, text: h.text, places: e.places, d: h.d ?? null });
+  }
+  return learned;
 }
 
 function goalMet(goal, inventory, raw = null) {
@@ -226,6 +233,9 @@ class Agent {
     this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona) });
     this.recorder = new Recorder(recordDir || cfg.record.dir, cfg.persona.name, recordStamp);
     this.heardBuf = [];
+    // 近くの人の位置 (people.js)。entity が一時的に無いときに最後の位置を staleMs まで使う。onChat の距離・raw.people に使う
+    this.playerCache = new PlayerCache({ staleMs: (cfg.perception && cfg.perception.positionStaleMs) ?? 15000 });
+    this.chatCount = { heard: 0, far: 0, unknown: 0, cache: 0 }; // 近くの声: 拾った・遠くて捨てた・位置が分からず捨てた・最後の位置で判定した (判断ごとに記録して0に戻す)
     this.stopped = false;
     this.lastChat = { t: 0, text: '' };
     this.isNotable = notableMatcher(cfg.perception.notable || undefined);
@@ -248,7 +258,7 @@ class Agent {
       ? new SelfGoal({ cfg: cfg.selfGoal || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.selfGoal && cfg.selfGoal.llm) || {}) }, meter })
       : null;
     this.lastGoalDoneP = null;
-    // 踏破したマスを同じ実行の全員で分け合う (cfg.act.explore.shared。explored.js)。scope: 'all' で explore の「行ったか」を全員の踏破で決める
+    // 踏破したマスを runs/<id>/explored/ に書き出す (cfg.act.explore.shared。explored.js)。読んで判断に使うのは scope: 'all' のときだけ (exploreShare。既定 self)
     const exc = (cfg.act && cfg.act.explore) || {};
     this.sharedExplore = exc.shared && recordDir ? new SharedExplore({ dir: require('path').join(recordDir, 'explored'), name: cfg.persona.name, writeEvery: exc.shareEvery ?? 5, readEvery: exc.shareEvery ?? 5 }) : null;
     this.deaths = [];
@@ -291,6 +301,22 @@ class Agent {
     this.lastProposeTick = -1e9;
   }
 
+  // 踏破の共有 (explored.js)。書き出し (runs/<id>/explored/) は分析のためにいつもする (shared のとき)。
+  //   読む (ほかの人の踏破・今いる所を判断に使う) のは scope: 'all' のときだけ。既定の scope: 'self' では読まない
+  //   (2026-11-06 ユーザー決定: 場所の共有は【発見】・近くの声・聞いて答える の会話だけで起きるようにする)。
+  //   人の少ない方 (explore の few_people) は、self では近くの人 (raw.people: 距離だけで分かる peopleRadius 以内の人) で数える
+  exploreShare(tick, raw) {
+    const exc = (this.cfg.act && this.cfg.act.explore) || {};
+    const readOthers = exc.scope === 'all';
+    if (this.sharedExplore) this.sharedExplore.publish(tick, this.memory.cells, raw.self.pos);
+    if (this.sharedExplore && readOthers) {
+      this.sharedExplore.load(tick);
+      return { allCells: this.sharedExplore.merge(this.memory.cells), others: this.sharedExplore.positions() };
+    }
+    const near = peopleOf(raw).map((p) => ({ name: p.name, pos: p.pos }));
+    return { allCells: null, others: near.length ? near : null };
+  }
+
   // ---- 全体チャット (board.js) ----
   // 生きている (つながっている) 人の数: 実行の名簿 (run.js が cfg.roster に入れる) のうち、サーバーにいる人。名簿が無ければサーバーの人数
   aliveCount() {
@@ -319,7 +345,7 @@ class Agent {
     // 【発見】の行は、state に出るかに関係なく、文の中の場所を覚える (聞いた場所。go_to の候補)
     if (m.find && from !== me) {
       const got = this.memory.learnPlaces(from, m.text);
-      if (got.length) this.recorder.write({ event: 'heard_place', from, to: me, text: m.text, places: got, loop: tick });
+      if (got.length) this.recorder.write({ event: 'heard_place', via: 'board', from, to: me, text: m.text, places: got, loop: tick });
     }
     for (const ev of evs) {
       if (ev.type === 'agreed') {
@@ -426,7 +452,7 @@ class Agent {
 
   // talker に渡す材料 (近くの声の talk と同じ + 全体の話)
   talkCtx(ctx, plannedText = '') {
-    const players = ctx.raw.entities.filter((e) => e.kind === 'player');
+    const players = peopleOf(ctx.raw);
     return {
       persona: this.cfg.persona, goal: ctx.goal, plan: ctx.progress || '', socialText: ctx.socialText,
       nearText: players.map((e) => `${e.name} ${relDir(ctx.raw.self.pos, e.pos)}`).join(', '),
@@ -596,10 +622,10 @@ class Agent {
   peopleList(raw) {
     const me = this.cfg.persona.name;
     const names = new Set(Object.keys(this.social.relations));
-    for (const e of raw.entities.filter((x) => x.kind === 'player')) names.add(e.name);
+    for (const e of peopleOf(raw)) names.add(e.name);
     for (const h of this.memory.heard) if (h.from !== '自分' && h.from !== me) names.add(h.from);
     return [...names].filter((n) => n && n !== me).map((name) => {
-      const e = raw.entities.find((x) => x.kind === 'player' && x.name === name);
+      const e = peopleOf(raw).find((x) => x.name === name);
       const r = this.social.relations[name] || null;
       // affinity・talks・d はゴール選びの候補を上位 N 人に絞る並べ方だけに使う (2B には見せない)
       return { name, relation: this.social.relationWord(name), relationEn: this.social.relationWord(name, { lang: 'en' }), seen: e ? relDir(raw.self.pos, e.pos) : null, seenEn: e ? en.whereEn(raw.self.pos, e.pos) : null,
@@ -726,16 +752,19 @@ class Agent {
     this.memory.notePlace(BASE_KIND, p, { keep: true, imp: 1 });
   }
 
-  // 聞こえる範囲 (hearRadius) の中にいる相手の発言だけを拾う。
+  // 聞こえる範囲 (hearRadius) の中にいる相手の発言だけを拾う (相手が見えているかは問わない。距離だけ)。
   onChat(username, message) {
     const bot = this.bot;
     if (!bot || username === bot.username) return;
     // 全体チャットの印のある行は、距離に関係なく全員が受け取る (近くの声には入れない)
     if (this.board) { const m = parseLine(message); if (m) { this.onBoardLine(username, m); return; } }
-    const e = bot.players[username] && bot.players[username].entity;
-    if (!e || !bot.entity) return;
-    const d = dist3(e.position, bot.entity.position);
-    if (d > this.cfg.perception.hearRadius) return;
+    // 距離だけで決める (視線・見えているかは見ない)。位置は bot.players の entity、無ければ最後に分かった位置 (people.js)
+    const r = playerDistance(bot, username, this.playerCache);
+    if (!r) { this.chatCount.unknown += 1; return; }
+    const d = r.d;
+    if (d > (this.cfg.perception.hearRadius ?? 48)) { this.chatCount.far += 1; return; }
+    this.chatCount.heard += 1;
+    if (r.how === 'cache') this.chatCount.cache += 1;
     const text = String(message).slice(0, 120);
     this.heardBuf.push({ from: username, text, d: Math.round(d) });
     if (this.heardBuf.length > 10) this.heardBuf.shift();
@@ -749,6 +778,13 @@ class Agent {
     if (a && a.to === me && this.pendingAsk && this.pendingAsk.to === username && !this.pendingAsk.reply) {
       this.pendingAsk.reply = { text: a.text, t: Date.now() };
     }
+  }
+
+  takeChatCount() {
+    const c = this.chatCount;
+    if (!c || !(c.heard || c.far || c.unknown)) return null;
+    this.chatCount = { heard: 0, far: 0, unknown: 0, cache: 0 };
+    return c;
   }
 
   chat(text, { force = false } = {}) {
@@ -912,14 +948,14 @@ class Agent {
   peopleText(raw, { maxPeople = 5, heardPer = 2 } = {}) {
     const me = this.cfg.persona.name;
     const names = new Set(Object.keys(this.social.relations));
-    for (const e of raw.entities.filter((x) => x.kind === 'player')) names.add(e.name);
+    for (const e of peopleOf(raw)) names.add(e.name);
     for (const h of this.memory.heard) if (h.from !== '自分' && h.from !== me) names.add(h.from);
     const ev = this.others ? this.others.events : [];
     for (const e of ev) names.add(e.who);
     const lines = [];
     for (const name of [...names].filter((n) => n && n !== me).slice(0, maxPeople)) {
       const parts = [`${name}: ${this.social.relationWord(name)}`];
-      const seen = raw.entities.find((x) => x.kind === 'player' && x.name === name);
+      const seen = peopleOf(raw).find((x) => x.name === name);
       parts.push(seen ? `今は${relDir(raw.self.pos, seen.pos)}にいる` : '今は見えない');
       const said = this.memory.heard.filter((h) => h.from === name).slice(-heardPer).map((h) => `「${h.text}」`);
       if (said.length) parts.push(`最近の発言 ${said.join(' ')}`);
@@ -959,13 +995,15 @@ class Agent {
     const tObs = Date.now();
     const heard = this.heardBuf.splice(0);
     const hutKeys = this.base && this.help.hut !== false ? new Set(hutSlots(this.base, (cfg.world && cfg.world.hut) || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
-    const raw = collectRaw(bot, { ...cfg.perception, isNotable: this.isNotable, heard, craft: this.craftInfo(), exclude: hutKeys });
+    const raw = collectRaw(bot, { ...cfg.perception, playerCache: this.playerCache, isNotable: this.isNotable, heard, craft: this.craftInfo(), exclude: hutKeys });
     raw.hut = this.hutView();
     const ex = this.extras();
     raw.foodCount = raw.inventory.filter((i) => ex.foods.has(i.name)).reduce((s, i) => s + i.count, 0);
     const cell0 = this.memory.cellOf(raw.self.pos);
     const knownCell = this.memory.cellAt(cell0.cx, cell0.cz);
-    updateMemoryFromObservation(this.memory, raw);
+    const learnedNear = updateMemoryFromObservation(this.memory, raw);
+    // 近くの声 (発言・答え) の中の場所を覚えた (共有の分析用。【発見】は onBoardLine で via: 'board')
+    for (const l of learnedNear) this.recorder.write({ event: 'heard_place', via: 'near', from: l.from, to: cfg.persona.name, text: l.text, places: l.places, d: l.d, loop: tick });
     for (const h of raw.heard) this.social.onHeard(h.from, tick, h.text);
     const steps = this.help.steps ? cfg.goal.steps : null;
     this.social.tick({ tick, raw, sense: this.senseNeeds(raw, { newCell: !knownCell, cell: knownCell }) });
@@ -996,13 +1034,7 @@ class Agent {
     // 近くの畑 (空いている耕地・植わっている作物)。use_on の対象・planner の world.farm に使う
     let farm = null;
     try { farm = bot && typeof bot.blockAt === 'function' ? farmStatus((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos) : null; } catch (_) { farm = null; }
-    let allCells = null; let others = null;
-    if (this.sharedExplore) {
-      this.sharedExplore.publish(tick, this.memory.cells, raw.self.pos);
-      this.sharedExplore.load(tick);
-      allCells = this.sharedExplore.merge(this.memory.cells);
-      others = this.sharedExplore.positions();
-    }
+    const { allCells, others } = this.exploreShare(tick, raw);
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
       boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null,
@@ -1153,7 +1185,7 @@ class Agent {
     ev.en = this.lastResultEn;
     if (this.reflect) {
       const g = this.goalPath && this.goalPath.goal;
-      const near = raw.entities.filter((e) => e.kind === 'player' && e.d <= this.reflect.cfg.nearDist).map((e) => e.name);
+      const near = peopleOf(raw).filter((e) => e.d <= this.reflect.cfg.nearDist).map((e) => e.name);
       this.reflect.note({ tick, day: raw.self.day, timeOfDay: raw.self.timeOfDay, pos: raw.self.pos, action: resolved.action, arg: resolved.arg, ok: !!result.ok,
         goal: g ? (g.kind === 'item' ? g.target : g.kind === 'state' ? g.target : g.target) : null, need: g ? g.need : null, near });
       if (result.ok && resolved.action === 'give' && result.gave) this.reflect.noteEvent({ kind: 'gave', tick, to: result.gave.to, item: result.gave.item, count: result.gave.n });
@@ -1216,6 +1248,10 @@ class Agent {
       argFixed: !!resolved.fixed,
       action: resolved.action,
       arg: resolved.arg,
+      // 聞いた場所 (人から聞いて覚えた所) への go_to: 誰から聞いたか・どこか (summarize_run の場所の共有)
+      heardPlace: resolved.choice && resolved.choice.heardFrom ? { from: resolved.choice.heardFrom, kind: resolved.choice.kind || null, pos: resolved.choice.pos || null } : null,
+      // 近くの声: この判断までに拾った・遠くて捨てた・位置が分からず捨てた・最後の位置で判定した数
+      chatHeard: this.takeChatCount(),
       say: said,
       result,
       obsMs,

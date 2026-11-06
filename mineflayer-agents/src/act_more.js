@@ -681,14 +681,14 @@ function moreHandlers(lib) {
       return { ok: left != null && left <= 6, msg: `${ch.player}に${Math.round((Date.now() - t0) / 1000)}秒ついて行った (${moved}m動いた、今${left}m離れている)` };
     },
 
-    // give: 人の近くへ行って投げ渡す
+    // give: 人の近くへ行って投げ渡す (近くの人は peopleRadius 48m まで。歩いて近づくのに giveApproachMs まで待つ)
     async give(bot, ch, ctx) {
       const e = playerEntity(bot, ch.player);
       if (!e) return { ok: false, msg: `${ch.player}が見えない` };
       const type = bot.registry.itemsByName[ch.item];
       const have = lib.invCount(bot, ch.item);
       if (!type || !have) return { ok: false, msg: `${ch.item}を持っていない` };
-      if (!(await approach(lib, bot, e, ctx.giveRange ?? 2, 15000, ctx))) return { ok: false, msg: `${ch.player}に近づけなかった` };
+      if (!(await approach(lib, bot, e, ctx.giveRange ?? 2, ctx.giveApproachMs ?? 25000, ctx))) return { ok: false, msg: `${ch.player}に近づけなかった` };
       const n = Math.min(have, ch.count || 1);
       try {
         // 相手の足元へ向けて投げる (投げた物は2秒たつと拾える。足元に落ちれば相手が拾う)
@@ -745,6 +745,6 @@ function noteTrades(ctx, id, trades) {
   ex.trades[id] = { trades, tick: ctx.memory.tick ?? null };
 }
 
-const MORE_TIMEOUTS = { use_on: 45000, use_item: 40000, dismount: 5000, chest_put: 25000, chest_take: 25000, furnace_take: 25000, trade: 35000, enchant: 30000, brew: 60000, anvil: 25000, follow: 45000, give: 30000, call: 3000 };
+const MORE_TIMEOUTS = { use_on: 45000, use_item: 40000, dismount: 5000, chest_put: 25000, chest_take: 25000, furnace_take: 25000, trade: 35000, enchant: 30000, brew: 60000, anvil: 25000, follow: 45000, give: 40000, call: 3000 };
 
 module.exports = { moreHandlers, MORE_TIMEOUTS, changeText, invDiff, noteContainer, furnaceItems, potionName, PROJECTILE };

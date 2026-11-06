@@ -2,7 +2,8 @@
 // 誰がどこへ行ったか (踏破したマス) を、同じ実行の全員で分け合う (run.js の記録の場所 runs/<id>/explored/<名前>.json)。
 //   プロセスをまたいでも同じ記録の場所を使う。publish: 自分のマス (memory.cells) と今いる所を書く (writeEvery 判断ごと)。
 //   load: ほかの人のファイルを読む (readEvery 判断ごと)。merged(): 全員のマスを合わせた [{ cx, cz, n, who: [名前], at }]
-//   cfg.act.explore.scope が 'all' のとき、explore の「まだ行っていない」「行ったか」を全員の踏破で決める (explore.js)。
+//   cfg.act.explore.scope が 'all' のときだけ load して、explore の「まだ行っていない」「行ったか」を全員の踏破で決める (explore.js)。
+//   既定の scope: 'self' では publish (分析のための書き出し) だけで、読まない (agent.js の exploreShare。2026-11-06 ユーザー決定)。
 const fs = require('fs');
 const path = require('path');
 

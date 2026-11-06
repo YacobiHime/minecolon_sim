@@ -3,10 +3,12 @@
 // - 自分の状態 (位置・体力・空腹・持ち物・昼夜)
 // - 視界: 半径 visionRadius 以内で、目から視線が通る (raycast で最初に当たる) ブロックとエンティティ
 // - 近くで聞こえたチャット (hearRadius 以内の相手の発言だけ。届かない発言は agent 側で捨てる)
+// - 近くの人 (people): 半径 peopleRadius (既定 hearRadius) 以内の人。視線は見ず、サーバーが送ってくる位置からの距離だけで決める (people.js)
 // サーバー全体の情報 (プレイヤー一覧・ワールドの座標一覧など) は使わない。
 const { Vec3 } = require('vec3');
 const { relDir, dist3, timePhase, round1 } = require('./util');
 const en = require('./en');
+const { nearPlayers } = require('./people');
 
 const IGNORE = new Set(['air', 'cave_air', 'void_air']);
 // 敵 (夜や暗い所に出る、こちらを襲うもの)。観測では kind: 'hostile' にして「敵」と書く
@@ -140,6 +142,11 @@ function collectRaw(bot, opts = {}) {
     entities.push({ kind, name, id: e.id, pos: { x: round1(e.position.x), y: round1(e.position.y), z: round1(e.position.z) }, d: round1(d) });
   }
   entities.sort((a, b) => a.d - b.d);
+  // 近くの人 (follow・give・call・ask・go_to の対象): 見えなくても距離だけで決める (people.js)。半径は peopleRadius (既定は hearRadius)
+  const seenNames = new Set(entities.filter((e) => e.kind === 'player').map((e) => e.name));
+  //   半径は peopleRadius と hearRadius の大きい方 (call・ask は hearRadius、follow・give・go_to は peopleRadius で actions が絞る)
+  const peopleRadius = Math.max(opts.peopleRadius ?? 0, opts.hearRadius ?? 0) || radius;
+  const people = nearPlayers(bot, peopleRadius, { cache: opts.playerCache || null, seenNames });
 
   const table = blocks.find((b) => b.name === 'crafting_table');
   return {
@@ -159,6 +166,7 @@ function collectRaw(bot, opts = {}) {
     inventory: summarizeInventory(items),
     blocks,
     entities,
+    people,
     heard: opts.heard || [],
     craft: opts.craft || { now: [], withTable: [] },
     tableNearby: table ? table.nearest : null,

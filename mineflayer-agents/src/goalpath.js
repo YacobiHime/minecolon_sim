@@ -11,6 +11,7 @@
 //   詰まった: 困りごとが troubleTicks 判断続く・道筋の残り (または人・場所までの距離) が patience 判断縮まない → 選び直し (同じゴールでもよい)。
 //   たどれない物 (レシピも入手元も分からない) は、その旨を添えて 2B に選び直させる (maxTries 回まで)。
 // 研究方針: 仕様・事実は見せるが、どう使うかは書かない。評価語を指示に入れない。数値はここで持ち、モデルには言葉だけ。
+const { peopleOf } = require('./people');
 const { LLMDecider } = require('./deciders/llm');
 const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn, FARM_CROPS, effortWord, EFFORT_EN } = require('./planner');
 const states = require('./states');
@@ -224,7 +225,7 @@ class GoalPath {
       const here = raw.self.pos;
       c.places = c.places.filter((pl) => !(pl.pos && pl.type !== 'dir' && dist3(here, pl.pos) <= this.cfg.arriveDist));
       for (const pc of c.people) {
-        const e = (raw.entities || []).find((x) => x.kind === 'player' && x.name === pc.name);
+        const e = peopleOf(raw).find((x) => x.name === pc.name);
         if (e && e.d <= this.cfg.nearDist) { pc.near = true; pc.desc = `${pc.desc}・もう近くにいる`; pc.descEn = `${pc.descEn || ''}; already near`; }
       }
     }
@@ -439,7 +440,7 @@ class GoalPath {
       return { met, d, have: st ? st.have : 0, known: !!(st && st.known) };
     }
     if (g.kind === 'person') {
-      const e = raw.entities.find((x) => x.kind === 'player' && x.name === g.target);
+      const e = peopleOf(raw).find((x) => x.name === g.target);
       const near = !!e && e.d <= this.cfg.nearDist;
       const gave = !!(ctx.gave || []).find((x) => x.to === g.target && (!g.give || x.item === g.give));
       const met = g.give ? gave : near;
@@ -475,7 +476,7 @@ class GoalPath {
     }
     if (pg.kind === 'person') {
       if (pg.give) return { met: false };
-      const e = raw.entities.find((x) => x.kind === 'player' && x.name === pg.target);
+      const e = peopleOf(raw).find((x) => x.name === pg.target);
       return e && e.d <= this.cfg.nearDist ? { met: true, why: 'もう近くにいる' } : { met: false };
     }
     const pl = pg.place;
@@ -602,7 +603,7 @@ class GoalPath {
     const raw = ctx.raw;
     if (!raw) return null;
     if (pg.kind === 'person') {
-      const e = (raw.entities || []).find((x) => x.kind === 'player' && x.name === pg.target);
+      const e = peopleOf(raw).find((x) => x.name === pg.target);
       return e ? e.d * per : (ef.unseenPerson ?? 6);
     }
     const pl = pg.place || {};

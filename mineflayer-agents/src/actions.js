@@ -2,6 +2,7 @@
 // その瞬間にできる行動の一覧を作る (純粋な関数) と、選ばれた引数の解決。
 // 実行は act.js。LLM / Jev などの decider は、この一覧から1つ選んで arg を埋めるだけ。
 const { relDir } = require('./util');
+const { peopleOf } = require('./people');
 const { whereEn } = require('./en');
 // 英語の文 (Jev 用): 行動ごとに descEn、選択肢ごとに labelEn を、日本語と同じ所で同じ値から作る
 const kindEn = (k) => (k === '拠点' ? 'base' : /^共有のチェスト /.test(k) ? `shared chest ${k.slice(8)}` : k);
@@ -72,7 +73,7 @@ function listActions(raw, ctx = {}) {
     .map(({ b, reach }) => ({ id: b.name, label: `${b.name} ${relDir(here, reach[0])}`, labelEn: `${b.name} (${whereEn(here, reach[0])})`, block: b.name }));
   if (coll.length) out.push({ name: 'collect', desc: '見えているブロックを掘って拾う (近いものから数個)', descEn: 'dig a visible block and pick it up (several, nearest first)', argType: 'choice', choices: coll });
 
-  // go_to: 見えている目印・覚えている場所・見えている人
+  // go_to: 見えている目印・覚えている場所・近くの人 (見えていなくてもよい。peopleRadius 以内)
   // いま collect できる種類のブロックへの go_to は出さない (collect が自分で歩いて行く。
   // 出すと「go_to(原木)」「go_to(M2=原木)」を交互に選び続けて何も掘らないことがあった)
   // 手の届く高さ (maxReachUp) より上のブロックは go_to にも出さない (着いても掘れない。行っても動かずに「着いた」になっていた)
@@ -92,9 +93,10 @@ function listActions(raw, ctx = {}) {
   for (const p of memPlaces) {
     if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`) || (collectable.has(p.kind) && !p.from)) continue; // 聞いた場所は遠くても出す
     if (p.pos && !reachable(p.pos)) continue;
-    go.push({ id: p.id, label: p.label, labelEn: `${p.id}=${kindEn(p.kind)} (${p.pos ? whereEn(here, p.pos) : 'location unknown'}${p.from ? `; ${p.from} said so` : ''})`, pos: p.pos, kind: p.kind, fromMemory: true });
+    go.push({ id: p.id, label: p.label, labelEn: `${p.id}=${kindEn(p.kind)} (${p.pos ? whereEn(here, p.pos) : 'location unknown'}${p.from ? `; ${p.from} said so` : ''})`, pos: p.pos, kind: p.kind, fromMemory: true, ...(p.from ? { heardFrom: p.from } : {}) });
   }
-  for (const e of raw.entities.filter((x) => x.kind === 'player')) {
+  // 人: 見えていなくても近く (peopleRadius 以内。raw.people) の人
+  for (const e of peopleOf(raw).filter((x) => x.d <= (ctx.peopleRadius ?? Infinity))) {
     go.push({ id: e.name, label: `プレイヤー${e.name} ${relDir(here, e.pos)}`, labelEn: `player ${e.name} (${whereEn(here, e.pos)})`, pos: e.pos, player: e.name });
   }
   if (go.length) out.push({ name: 'go_to', desc: '見えている物・覚えている場所(M番号)・人のところへ歩く', descEn: 'walk to a visible thing, a remembered place (M number) or a person', argType: 'choice', choices: go });
@@ -229,10 +231,10 @@ function listActions(raw, ctx = {}) {
     if (far) out.push({ name: 'set_base', desc: ctx.base ? `ここを新しい拠点にする (今の拠点は ${relDir(here, ctx.base)})` : 'ここを拠点にする', descEn: ctx.base ? `make this spot the new base (current base: ${whereEn(here, ctx.base)})` : 'make this spot the base', argType: 'choice', choices: [{ id: 'here', label: 'ここ', labelEn: 'here' }] });
   }
 
-  // ask: 困っているとき (同じ行動が続けて失敗した) だけ。聞こえる範囲に見えている人に聞く
+  // ask: 困っているとき (同じ行動が続けて失敗した) だけ。声の届く範囲 (hearRadius) の人に聞く (見えていなくてもよい)
   const troubles = ctx.troubles || [];
   if (troubles.length) {
-    const near = raw.entities.filter((x) => x.kind === 'player' && x.d <= (ctx.hearRadius ?? 24));
+    const near = peopleOf(raw).filter((x) => x.d <= (ctx.hearRadius ?? 48));
     if (near.length) {
       out.push({ name: 'ask', desc: `近くの人に「${troubles[0].about}」を聞く (答えを待つ)`, descEn: `ask a nearby person how to do ${troubles[0].key} (waits for the answer)`, argType: 'choice',
         choices: near.map((e) => ({ id: e.name, label: `${e.name} ${relDir(here, e.pos)}`, labelEn: `${e.name} (${whereEn(here, e.pos)})`, player: e.name, trouble: troubles[0] })) });

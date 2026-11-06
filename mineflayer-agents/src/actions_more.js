@@ -14,6 +14,7 @@
 // 持ち物の側は、マイクラで右クリックに意味がある物だけ (usable.js の一覧。モデルには見せず、選択肢から外れるだけ)。
 // 候補は「近いもの数個」に絞るだけにする。1つの行動の choices は MAX_CHOICES (255) を超えない
 const { relDir } = require('./util');
+const { peopleOf } = require('./people');
 const { whereEn } = require('./en');
 const { usefulOn, usefulItem } = require('./usable');
 const { BREED_FOOD } = require('./animals');
@@ -102,7 +103,8 @@ function moreActions(raw, ctx = {}, on = () => true) {
   const here = raw.self.pos;
   const ok = (a, id) => !blocked.has(`${a}:${id}`);
   const inv = raw.inventory;
-  const players = raw.entities.filter((e) => e.kind === 'player');
+  // 近くの人 (follow・give・call の対象): 見えていなくても peopleRadius 以内 (raw.people。people.js)
+  const players = peopleOf(raw).filter((p) => p.d <= (ctx.peopleRadius ?? Infinity));
 
   // use_on: 持ち物 (と素手) × 見えている対象。maxUseChoices を超えるときは、近い対象・数の多い持ち物の組から
   //   (対象の近さの順位 + 持ち物の数の順位 の小さい順) 上限まで。組み合わせに意味があるかは判断しない
@@ -223,13 +225,13 @@ function moreActions(raw, ctx = {}, on = () => true) {
     if (ch2.length) out.push({ name: 'anvil', desc: `金床 ${relDir(here, anv.nearest)} で2つの物を合わせる (経験値レベルを使う)`, descEn: `combine two items at the anvil (${whereEn(here, anv.nearest)}; uses experience levels)`, argType: 'choice', choices: cap(ch2) });
   }
 
-  // follow: 見えている人について行く (followMs まで)
+  // follow: 近くの人について行く (followMs まで)
   if (on('follow') && players.length) {
     const ch = players.filter((p) => ok('follow', p.name)).map((p) => ({ id: p.name, label: `${p.name} ${relDir(here, p.pos)}`, labelEn: `${p.name} (${whereEn(here, p.pos)})`, player: p.name }));
     if (ch.length) out.push({ name: 'follow', desc: `人について行く (${Math.round((ctx.followMs ?? 30000) / 1000)}秒ほど)`, descEn: 'follow a person for a while', argType: 'choice', choices: ch });
   }
 
-  // give: 見えている人に持ち物を投げ渡す (1個か、その種類を全部)。maxGiveChoices を超えるときは、
+  // give: 近くの人に持ち物を投げ渡す (1個か、その種類を全部)。maxGiveChoices を超えるときは、
   //   近い人・数の多い持ち物の組から (順位の和の小さい順) 上限まで
   if (on('give') && players.length && inv.length) {
     const ps = [...players].sort((a, b) => a.d - b.d);
@@ -247,9 +249,9 @@ function moreActions(raw, ctx = {}, on = () => true) {
     if (ch.length) out.push({ name: 'give', desc: '人の近くへ行って持ち物を投げ渡す', descEn: 'walk close to a person and toss them an item', argType: 'choice', choices: ch });
   }
 
-  // call: 聞こえる範囲に見えている人を呼ぶ (「来て」と言う。相手の「今聞こえた話」に入る)
+  // call: 声の届く範囲 (hearRadius) の人を呼ぶ (見えていなくてもよい) (「来て」と言う。相手の「今聞こえた話」に入る)
   if (on('call')) {
-    const ch = players.filter((p) => p.d <= (ctx.hearRadius ?? 24) && ok('call', p.name)).map((p) => ({ id: p.name, label: `${p.name} ${relDir(here, p.pos)}`, labelEn: `${p.name} (${whereEn(here, p.pos)})`, player: p.name }));
+    const ch = peopleOf(raw).filter((p) => p.d <= (ctx.hearRadius ?? 48) && ok('call', p.name)).map((p) => ({ id: p.name, label: `${p.name} ${relDir(here, p.pos)}`, labelEn: `${p.name} (${whereEn(here, p.pos)})`, player: p.name }));
     if (ch.length) out.push({ name: 'call', desc: '人を呼ぶ (「来て」と自分の場所を言う)', descEn: 'call a person over (says "come here" and where you are)', argType: 'choice', choices: ch });
   }
   // lure: 見えている動物 (餌の分かる物) × 持っている餌 × 行き先 (拠点・覚えている場所)

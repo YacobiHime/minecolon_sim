@@ -74,6 +74,18 @@ test('collectRaw: 遠いエンティティ・壁の向こうのプレイヤー�
   assert.deepStrictEqual(raw.entities.map((e) => e.name), ['Near']);
 });
 
+test('collectRaw: 近くの人 (people) は視線を見ず距離だけ。壁の向こうも入り、hearRadius・peopleRadius の外は入らない', () => {
+  const blocks = new Map([['2,65,0', 'stone'], ['2,64,0', 'stone']]);
+  const mk = (x, z, username) => ({ type: 'player', username, position: new Vec3(x, 64, z), height: 1.8 });
+  const ents = { 1: mk(5.5, 0.5, 'Behind'), 2: mk(-5, 0.5, 'Near'), 3: mk(-30, 0.5, 'Far'), 4: mk(60, 0.5, 'TooFar') };
+  const bot = mockBot({ blocks, entities: ents });
+  bot.players = Object.fromEntries(Object.values(ents).map((e) => [e.username, { username: e.username, entity: e }]));
+  const raw = collectRaw(bot, { visionRadius: 16, hearRadius: 48 });
+  assert.deepStrictEqual(raw.entities.map((e) => e.name), ['Near']);
+  assert.deepStrictEqual(raw.people.map((p) => [p.name, p.seen]), [['Behind', false], ['Near', true], ['Far', false]]);
+  assert.deepStrictEqual(collectRaw(bot, { visionRadius: 16, hearRadius: 24, peopleRadius: 10 }).people.map((p) => p.name), ['Behind', 'Near']);
+});
+
 test('summarizeObservation: 敵は「敵」と書き、showDay で何日目かを書く', () => {
   const raw = mockRaw({ entities: [{ kind: 'hostile', name: 'zombie', pos: { x: 5, y: 64, z: 0 }, d: 5 }] });
   raw.self = { ...raw.self, phase: '夜', day: 1 };
