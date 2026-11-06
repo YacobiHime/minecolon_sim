@@ -473,6 +473,15 @@
     "farDist": 48,
     "maxShown": 5,
     "maxTokens": 120,
+    "prompt": {
+      "_comment": "ゴール選びのプロンプトの大きさ (src/promptfit.js。2026-11-06): 人の候補は付き合い・話した回数・近さで上位 maxPeople 人、覚えている場所は maxMemPlaces、知っていることは maxFacts、全体チャットは欄ごとに maxBoardLines 行。入力の見積もり (文字数 ÷ 1トークンあたりの文字数。実測で学ぶ) が ctxTokens (llama-server の -c ÷ -np) − 出力の上限 − margin を超えたら、steps の順 (これまでのゴール → 全体チャット → 記憶 → 知っていること → 周りの人 → 人の候補 → 場所 → 物の候補 …) に削る。あふれた (HTTP 400) ら1回作り直す。毎回の入力のトークン・見積もり・削った欄・出力が切れたか (finishReason) は goal / proposals の記録に入る",
+      "maxPeople": 8,
+      "maxMemPlaces": 4,
+      "maxFacts": 8,
+      "maxBoardLines": 4,
+      "ctxTokens": 8192,
+      "margin": 256
+    },
     "_comment_states": "states: 状態のゴール (kind: state。src/states.js) を候補に出す: 囲いの中の動物 (pen_cow 等)・水の近くの耕地 (farmland)・拠点の明かり (lit_base)・拠点が囲われている (walled_base)・拠点のチェストの物 (chest_<物>)。済んだかはプログラムが確かめる。物の候補には先にたどった道筋の事実 (入手元が見えるか・要る物・手間 小/中/大) を添える (annotate)",
     "states": true,
     "annotate": true,

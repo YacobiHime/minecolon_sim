@@ -102,6 +102,7 @@ class LLMDecider {
       stat = { ms, serverMs, waitMs: serverMs == null ? null : Math.max(0, ms - serverMs), error: false };
       return {
         text: d.choices?.[0]?.message?.content ?? '',
+        finishReason: d.choices?.[0]?.finish_reason ?? null, // 'length' = 出力が max_tokens か文脈の上限で切れた
         promptTokens: d.usage?.prompt_tokens ?? null,
         completionTokens: d.usage?.completion_tokens ?? null,
         cachedTokens: d.timings?.cache_n ?? d.usage?.prompt_tokens_details?.cached_tokens ?? null,

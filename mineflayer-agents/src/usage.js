@@ -83,6 +83,10 @@ class UsageMeter {
     k.promptChars += r.promptChars || 0;
     k.promptTokens += r.promptTokens || 0;
     k.ms += r.ms || 0;
+    // 出力が切れた (finish_reason length)・文脈あふれ (HTTP 400)・欄を削った (promptfit) の回数と、入力の最大
+    for (const f of ['truncated', 'overflow', 'trimmed']) if (r[f]) k[f] = (k[f] || 0) + 1;
+    if (r.error) k.errors = (k.errors || 0) + 1;
+    if (r.promptTokens && r.promptTokens > (k.maxPromptTokens || 0)) k.maxPromptTokens = r.promptTokens;
   }
 
   summary() {
@@ -109,7 +113,13 @@ function mergeUsageSummaries(list, { maxInputTokens = null } = {}) {
     exceeded = exceeded || !!j.exceeded;
     const t = u.twoB || {};
     addInto(twoB, t);
-    for (const [k, v] of Object.entries(t.byKind || {})) addInto((twoB.byKind[k] = twoB.byKind[k] || { calls: 0, promptChars: 0, promptTokens: 0, ms: 0 }), v);
+    for (const [k, v] of Object.entries(t.byKind || {})) {
+      const dst = (twoB.byKind[k] = twoB.byKind[k] || { calls: 0, promptChars: 0, promptTokens: 0, ms: 0 });
+      for (const [f, x] of Object.entries(v)) if (typeof x === 'number' && dst[f] === undefined) dst[f] = 0;
+      const mx = Math.max(dst.maxPromptTokens || 0, v.maxPromptTokens || 0);
+      addInto(dst, v);
+      if (mx) dst.maxPromptTokens = mx;
+    }
   }
   const m = new UsageMeter({ maxJevInputTokens: maxInputTokens ?? Math.max(0, ...list.filter(Boolean).map((u) => (u.jev && u.jev.maxInputTokens) || 0)) });
   m.jev = jev;

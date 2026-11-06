@@ -10,7 +10,7 @@ MODEL="${MODEL:-$LLAMA_DIR/models/google_gemma-4-E2B-it-Q4_K_M.gguf}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-18081}"
 PARALLEL="${PARALLEL:-8}"
-CTX="${CTX:-32768}"   # 全スロット合計 (1スロット 4096 x 8)
+CTX="${CTX:-65536}"   # 全スロット合計 (1スロット 8192 x 8)。2026-11-06: 4096 ではゴール案 (入力 約4000 + 出力 480) があふれたので倍にした。VRAM は約 +0.2GB
 NGL="${NGL:-99}"
 
 if pgrep -f 'llama-serve[r].*--port '"$PORT" > /dev/null; then

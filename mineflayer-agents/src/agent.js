@@ -528,7 +528,10 @@ class Agent {
     for (const h of this.memory.heard) if (h.from !== '自分' && h.from !== me) names.add(h.from);
     return [...names].filter((n) => n && n !== me).map((name) => {
       const e = raw.entities.find((x) => x.kind === 'player' && x.name === name);
-      return { name, relation: this.social.relationWord(name), relationEn: this.social.relationWord(name, { lang: 'en' }), seen: e ? relDir(raw.self.pos, e.pos) : null, seenEn: e ? en.whereEn(raw.self.pos, e.pos) : null };
+      const r = this.social.relations[name] || null;
+      // affinity・talks・d はゴール選びの候補を上位 N 人に絞る並べ方だけに使う (2B には見せない)
+      return { name, relation: this.social.relationWord(name), relationEn: this.social.relationWord(name, { lang: 'en' }), seen: e ? relDir(raw.self.pos, e.pos) : null, seenEn: e ? en.whereEn(raw.self.pos, e.pos) : null,
+        affinity: r ? r.affinity : null, talks: r ? r.talks || 0 : 0, helped: r ? (r.helpedMe || 0) + (r.iHelped || 0) : 0, d: e ? e.d : null };
     });
   }
 

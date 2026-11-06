@@ -20,6 +20,7 @@ const { timeText } = require('./goalplan');
 const { NEED_LABEL, LABEL_TO_NEED, NEED_EN } = require('./needs');
 const { whereEn } = require('./en');
 const { relDir, dist3 } = require('./util');
+const promptfit = require('./promptfit');
 
 const DEFAULTS = {
   maxItems: 40,
@@ -41,6 +42,15 @@ const DEFAULTS = {
   states: true, // 状態のゴール (kind: state。states.js) を候補に出す
   stateOpts: {}, // states.js の DEFAULTS を上書き (penSize・counts など)
   policyMax: 120, // 方針 (reflect.js) を 2B に見せる長さ
+  // ゴール選びのプロンプトの大きさ (2026-11-06。1スロット 4096 で入力 約4000 + 出力 480 があふれた)。
+  //   maxPeople: 人の候補 (付き合い・話した回数・近さの順で上位)。maxMemPlaces: 覚えている場所の候補。maxFacts: 知っていること。maxBoardLines: 全体チャットの欄ごとの行
+  //   ctxTokens: llama-server の1スロットの文脈 (-c ÷ -np)。budget = ctxTokens − 出力の上限 − margin を超えそうなら steps の順に欄を削る (promptfit.js)
+  //   charsPerToken: 文字数 → トークンの見積もりの初期値 (呼び出しの実測で学ぶ)
+  prompt: {
+    maxPeople: 8, maxMemPlaces: 4, maxFacts: 8, maxBoardLines: 4, ctxTokens: 8192, margin: 256, charsPerToken: 1.6, retryOnOverflow: true,
+    steps: [['history', 2], ['board', 2], ['memChars', 300], ['facts', 4], ['peopleText', 2], ['people', 4], ['memPlaces', 2], ['items', 24],
+      ['board', 0], ['memChars', 120], ['facts', 2], ['history', 0], ['peopleText', 0], ['policy', 0], ['people', 2], ['items', 16], ['facts', 0], ['memPlaces', 0], ['items', 10]],
+  },
   // ゴールの選び方 (サーベイ R1、D2A の形): 2B が案を k 個 → Jev が 案 × 欲求 の noul (1回) → コードが Σ つらさ^power × P の最大を選ぶ。
   //   needs: 今つらい欲求の上位いくつを聞くか。minRatio: しきい値に対する割合がこれ未満の欲求は入れない
   //   tieEps: 最大との差がこれ以内の案は同点 → 2B が先に書いた案。lowP: どの案・欲求の P もこれ未満なら「全部低い」(onAllLow: best | first)
@@ -168,12 +178,20 @@ function statePathEn(p, { maxShown = 5 } = {}) {
   return o;
 }
 
+// 人の候補の並べ方 (上位 maxPeople 人に絞る前): 話した回数・助け合った回数・好き嫌いの強さ・近さ。同点は元の順
+function rankPeople(people) {
+  const score = (p) => (p.talks || 0) + 2 * (p.helped || 0) + (p.affinity != null ? Math.abs(p.affinity - 50) / 10 : 0) + (p.d != null ? 3 / (1 + p.d / 8) : 0);
+  return people.map((p, i) => ({ p, i, s: score(p) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.p);
+}
+
 function invCount(raw, name) { return (raw.inventory || []).filter((i) => i.name === name).reduce((t, i) => t + i.count, 0); }
 
 class GoalPath {
   constructor(opts = {}) {
     this.cfg = { ...DEFAULTS, ...(opts.cfg || {}) };
     this.cfg.select = { ...DEFAULTS.select, ...((opts.cfg && opts.cfg.select) || {}) };
+    this.cfg.prompt = { ...DEFAULTS.prompt, ...((opts.cfg && opts.cfg.prompt) || {}) };
+    this.ratio = new promptfit.TokenRatio({ initial: this.cfg.prompt.charsPerToken });
     this.jev = opts.jev || null; // JevDecider (call(state, questions, stage) を使う)。select.enabled のときに要る
     this.order = opts.order || null; // Order (order.js)。候補の並べ方を毎回変える
     this.llm = opts.llm || new LLMDecider({ ...(opts.llmOpts || {}), mode: 'talk', maxTokens: this.cfg.maxTokens, temperature: this.cfg.temperature });
@@ -212,8 +230,8 @@ class GoalPath {
     const bd = ctx.board || null; // 共有のチェスト・取り決め・共同の目標 (board.js。agent が渡す)
     return {
       items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.cfg.maxItems, world: raw ? this.world(ctx) : null, annotate: this.cfg.annotate !== false }),
-      people: personCandidates(ctx.people || []),
-      places: placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist }),
+      people: personCandidates(rankPeople(ctx.people || []).slice(0, this.cfg.prompt.maxPeople)),
+      places: placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist, maxPlaces: this.cfg.prompt.maxMemPlaces }),
       states: this.cfg.states && raw ? states.stateCandidates({ world: this.world(ctx), sense: this.senseOf(ctx), raw, cfg: this.cfg.stateOpts, version: this.cfg.version, dir: (pos) => dir8(raw.self.pos, pos), shared: bd ? bd.shared || [] : [] }) : [],
     };
   }
@@ -225,9 +243,9 @@ class GoalPath {
       shared: ctx.board ? ctx.board.chests || [] : [] };
   }
 
-  historyText() {
+  historyText(n = 5) {
     if (!this.history.length) return 'まだない';
-    return this.history.slice(-5).map((h) => `${goalText(h)}${h.why ? ` (何のため: ${h.why})` : ''}: ${h.resultText}`).join('\n');
+    return this.history.slice(-n).map((h) => `${goalText(h)}${h.why ? ` (何のため: ${h.why})` : ''}: ${h.resultText}`).join('\n');
   }
 
   // 候補の一覧を並べ替える (R5)。記録は this.lastOrder
@@ -244,11 +262,41 @@ class GoalPath {
     return out;
   }
 
-  messages(ctx, candsIn, feedback = [], { k = 1 } = {}) {
-    const cands = this.shuffled(candsIn);
+  // プロンプトを作る。文脈に収まらなければ欄を削る (promptfit)。返り値 { messages, cands (見せた候補。schema もこれで作る), fit }
+  //   budgetCut: 前の呼び出しがあふれたとき、予算から引くトークン
+  buildPrompt(ctx, candsIn, feedback = [], { k = 1, maxTokens = this.cfg.maxTokens, budgetCut = 0 } = {}) {
+    const pc = this.cfg.prompt;
+    const rankOf = (arr) => (arr || []).map((c, i) => ({ ...c, _rank: i }));
+    const shuffled = this.shuffled({ ...candsIn, items: rankOf(candsIn.items), people: rankOf(candsIn.people), places: rankOf(candsIn.places), states: rankOf(candsIn.states) });
+    const facts = ctx.facts ? ctx.facts('') : [];
+    const lim = { items: Infinity, people: Infinity, memPlaces: Infinity, facts: pc.maxFacts, board: pc.maxBoardLines, memChars: Infinity, history: 5, peopleText: Infinity, policy: 1 };
+    let shown = null;
+    const build = (L) => {
+      let memSeen = 0;
+      const cands = {
+        ...shuffled,
+        items: shuffled.items.filter((c) => c._rank < L.items),
+        people: shuffled.people.filter((c) => c._rank < L.people),
+        places: shuffled.places.filter((c) => c.type !== 'memory' || (memSeen++ < L.memPlaces)),
+      };
+      shown = cands;
+      return this.messagesWith(ctx, cands, feedback, { k, facts: facts.slice(0, L.facts), lim: L });
+    };
+    const budget = pc.ctxTokens - maxTokens - pc.margin - budgetCut;
+    const r = promptfit.fit(build, { lim, steps: pc.steps, budget, ratio: this.ratio });
+    const m = build(r.lim); // shown を最後の lim に合わせる
+    const sections = {};
+    for (const line of m[1].content.split('\n## ')) { const h = line.split('\n')[0].replace(/^## /, ''); if (h.length < 20) sections[h] = line.length; }
+    return { messages: m, cands: shown, fit: { est: r.est, budget, applied: r.applied, over: r.over, ratio: Math.round(this.ratio.value * 1000) / 1000, sections } };
+  }
+
+  messagesWith(ctx, cands, feedback = [], { k = 1, facts = [], lim = {} } = {}) {
     const p = ctx.persona || {};
     const self = ctx.raw && ctx.raw.self;
-    const facts = ctx.facts ? ctx.facts('') : [];
+    const L = { board: Infinity, memChars: Infinity, history: 5, peopleText: Infinity, policy: 1, ...lim };
+    const board = ctx.board && ctx.board.text ? (L.board === Infinity ? ctx.board.text : promptfit.capSectionLines(ctx.board.text, L.board)) : '';
+    const mem = L.memChars === Infinity ? ctx.memText : promptfit.capLineChars(ctx.memText, L.memChars);
+    const peopleText = ctx.peopleText && L.peopleText > 0 ? (L.peopleText === Infinity ? ctx.peopleText : ctx.peopleText.split('\n').slice(0, L.peopleText).join('\n')) : '';
     const inv = ((ctx.raw && ctx.raw.inventory) || []).map((i) => i.name);
     const sys = [
       `あなたは Minecraft の世界にいる「${p.name}」。${p.personality || ''}`,
@@ -267,13 +315,13 @@ class GoalPath {
       ctx.baseText ? `## 拠点の様子\n${ctx.baseText}` : '',
       ctx.socialText ? `## 体と心\n${ctx.socialText}` : '',
       ctx.worst ? `## いちばんつらいこと\n${ctx.worst.text}` : '',
-      ctx.policy ? `## 自分の方針 (前に自分で決めたこと)\n${String(ctx.policy).slice(0, this.cfg.policyMax)}` : '',
+      ctx.policy && L.policy ? `## 自分の方針 (前に自分で決めたこと)\n${String(ctx.policy).slice(0, this.cfg.policyMax)}` : '',
       (ctx.troubles || []).some((t) => t.kind === 'stuck') ? `## 困っていること\n${ctx.troubles.filter((t) => t.kind === 'stuck').map((t) => `${t.about} (${t.lastMsg})`).join('\n')}` : '',
-      ctx.peopleText ? `## 周りの人\n${ctx.peopleText}` : '',
-      ctx.board && ctx.board.text ? ctx.board.text : '', // 全体に届いた話・取り決め・共同の目標・共有のチェスト (board.js)
+      peopleText ? `## 周りの人\n${peopleText}` : '',
+      board || '', // 全体に届いた話・取り決め・共同の目標・共有のチェスト (board.js)
       facts.length ? `## 知っていること\n${facts.join('\n')}` : '',
-      '## 覚えていること', ctx.memText || 'なし',
-      `## これまでのゴール\n${this.historyText()}`,
+      '## 覚えていること', mem || 'なし',
+      L.history > 0 ? `## これまでのゴール\n${this.historyText(L.history)}` : '',
       `## めざせる物\n${cands.items.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
       cands.states && cands.states.length ? `## めざせる状態\n${cands.states.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
       cands.people.length ? `## 人\n${cands.people.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
@@ -289,13 +337,37 @@ class GoalPath {
     const t0 = Date.now();
     let r = null; let error = null;
     try { r = await (opts ? this.llm.complete(messages, schema, opts) : this.llm.complete(messages, schema)); } catch (e) { error = e.message; }
-    const rec = { promptChars, promptTokens: r ? r.promptTokens : null, completionTokens: r ? r.completionTokens : null, ms: Date.now() - t0, error, rawOutput: r ? r.text : null };
+    const ov = error ? promptfit.overflowTokens(error) : null;
+    const rec = { promptChars, promptTokens: r ? r.promptTokens : ov ? ov.request : null, completionTokens: r ? r.completionTokens : null, ms: Date.now() - t0, error, rawOutput: r ? r.text : null,
+      finishReason: r ? r.finishReason || null : null, truncated: !!(r && r.finishReason === 'length'), overflow: !!ov };
+    if (rec.promptTokens) this.ratio.observe(promptChars, rec.promptTokens);
     if (!this.loggedPrompt) { rec.prompt = messages; this.loggedPrompt = true; }
     return rec;
   }
 
+  // buildPrompt → 2B。あふれた (exceed_context) ら、あふれた分だけ予算を減らして1回作り直す。返り値 { rec, cands }
+  async askFit(ctx, candsIn, feedback, { k = 1, maxTokens = this.cfg.maxTokens, temperature, schemaOf, giveItems = [] }) {
+    let cut = 0; let out = null;
+    for (let i = 0; i < (this.cfg.prompt.retryOnOverflow ? 2 : 1); i++) {
+      const bp = this.buildPrompt(ctx, candsIn, feedback, { k, maxTokens, budgetCut: cut });
+      const schema = schemaOf(bp.cands, { giveItems });
+      const opts = k > 1 || temperature != null ? { maxTokens, temperature } : undefined;
+      const rec = await this.ask2B(bp.messages, schema, opts);
+      rec.fit = { ...bp.fit, try: i };
+      rec.promptEst = bp.fit.est;
+      out = { rec, cands: bp.cands };
+      if (!rec.overflow) break;
+      this.addMeter(rec, false);
+      this.log({ kind: 'prompt_overflow', ok: false, promptTokens: rec.promptTokens, promptChars: rec.promptChars, fit: rec.fit, error: rec.error });
+      const ov = promptfit.overflowTokens(rec.error);
+      cut += Math.max(64, ov.request + maxTokens - ov.ctx + 64);
+    }
+    return out;
+  }
+
   addMeter(rec, ok) {
-    if (this.meter) this.meter.addTwoB({ kind: 'goal_path', promptChars: rec.promptChars, promptTokens: rec.promptTokens, completionTokens: rec.completionTokens, ms: rec.ms, error: rec.error || (ok ? null : 'parse') });
+    if (this.meter) this.meter.addTwoB({ kind: 'goal_path', promptChars: rec.promptChars, promptTokens: rec.promptTokens, completionTokens: rec.completionTokens, ms: rec.ms, error: rec.error || (ok ? null : 'parse'),
+      truncated: !!rec.truncated, overflow: !!rec.overflow, trimmed: !!(rec.fit && rec.fit.applied && rec.fit.applied.length) });
   }
 
   // ---- 道筋 ----
@@ -425,11 +497,11 @@ class GoalPath {
   // ---- ゴールを決める ----
   async newGoal(ctx, tick, reason = 'start') {
     if (this.cfg.select.enabled && this.jev && (this.cfg.select.k || 1) > 1) return this.newGoalSelect(ctx, tick, reason);
-    const cands = this.candidates(ctx);
+    const allCands = this.candidates(ctx);
     const feedback = [];
     const giveItems = [...new Set(((ctx.raw && ctx.raw.inventory) || []).map((i) => i.name))];
     for (let tryN = 0; tryN < this.cfg.maxTries; tryN++) {
-      const rec = await this.ask2B(this.messages(ctx, cands, feedback), goalSchema(cands, { giveItems }));
+      const { rec, cands } = await this.askFit(ctx, allCands, feedback, { schemaOf: goalSchema, giveItems });
       const pg = rec.rawOutput ? parseGoal(rec.rawOutput, cands, { whyMax: this.cfg.whyMax }) : null;
       this.addMeter(rec, !!pg);
       const needAt = pg && pg.need && ctx.needNow ? Math.round(ctx.needNow(pg.need) * 1000) / 1000 : null;
@@ -514,11 +586,11 @@ class GoalPath {
   async newGoalSelect(ctx, tick, reason) {
     const sc = this.cfg.select;
     const k = sc.k;
-    const cands = this.candidates(ctx);
+    const allCands = this.candidates(ctx);
     const feedback = [];
     const giveItems = [...new Set(((ctx.raw && ctx.raw.inventory) || []).map((i) => i.name))];
     for (let tryN = 0; tryN < this.cfg.maxTries; tryN++) {
-      const rec = await this.ask2B(this.messages(ctx, cands, feedback, { k }), proposalsSchema(cands, k, { giveItems }), { maxTokens: sc.maxTokens, temperature: sc.temperature });
+      const { rec, cands } = await this.askFit(ctx, allCands, feedback, { k, maxTokens: sc.maxTokens, temperature: sc.temperature, schemaOf: (c, o) => proposalsSchema(c, k, o), giveItems });
       const o = rec.rawOutput ? parseJson(rec.rawOutput) : null;
       const list = o && Array.isArray(o.goals) ? o.goals : [];
       const seen = new Set();
@@ -704,4 +776,4 @@ class GoalPath {
   }
 }
 
-module.exports = { goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
+module.exports = { rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
