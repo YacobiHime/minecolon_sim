@@ -13,7 +13,29 @@ const farmwater = require('./farmwater');
 const DEFAULT_VERSION = '1.20.1';
 // rebreak / rekill: 落ちる確率が低い物を、同じ所でもう1回壊す・もう1匹倒す手間 (1回目は探して歩く手間を含むので、2回目からは小さい)
 const COST = { visible: 1, known: 2, unseen: 6, unseenRare: 12, mobVisible: 2, mobUnseen: 6, mobRare: Infinity, craft: 0.3, smelt: 0.6, toolShare: 0.5, stationShare: 0.5,
-  rebreak: 0.25, rekill: 1, farmPlant: 0.3, farmWait: 3, farmGrowing: 1.5 };
+  rebreak: 0.25, rekill: 1, farmPlant: 0.3, farmWait: 3, farmGrowing: 1.5,
+  treePlant: 0.3, treeWait: 6, treeGrowing: 2, treeCut: 1, treeGround: { visible: 0, known: 0.5, unknown: 1 } };
+// 木を育てる (仕様、1.20.1): 苗木を土・草の生えた土など (TREE_GROUND) に植える (use_on) → 明るい所 (明るさ 9 以上) で上に空きがあれば
+//   育って木になる (sapling_time の事実: およそ10〜20分) → 原木を切る (掘る)。苗木は葉を壊すとときどき落ちる (dropFix: 5%、ジャングル 2.5%)。
+//   logs: 苗木から育つふつうの大きさの木1本の原木の数の目安 (幹の高さ。オーク 4〜6、シラカバ 5〜7 など。大きく育つ枝分かれの木は数えない)。
+//   k: 1本の木に要る苗木の数。ダークオークは 2x2 に4本植えたときだけ育つ (1本では育たない)。
+//   トウヒ・ジャングルも 2x2 に植えると大きい木になるが、1本でも小さい木に育つので、ここでは1本で植える。
+//   手間 (1個あたり): (苗木の手間 × k + 植える × k + 待つ + 植える場所) / logs + 切る。待つ (treeWait) は1本の木で1回なので、原木の数で分ける。
+//   見えている木 (1)・前に見た木 (2) より大きく、まだ見ていない木 (6) より小さいことが多い = 見えている木・覚えている木が無いときに選ばれうる。
+//   苗木の入手元が「まだ見ていない葉」だけのときは選ばない (葉を探しに行けば木も見つかる)
+const TREE = {
+  oak_log: { sapling: 'oak_sapling', logs: 5, k: 1 },
+  birch_log: { sapling: 'birch_sapling', logs: 6, k: 1 },
+  spruce_log: { sapling: 'spruce_sapling', logs: 7, k: 1 },
+  jungle_log: { sapling: 'jungle_sapling', logs: 6, k: 1 },
+  acacia_log: { sapling: 'acacia_sapling', logs: 5, k: 1 },
+  cherry_log: { sapling: 'cherry_sapling', logs: 7, k: 1 },
+  dark_oak_log: { sapling: 'dark_oak_sapling', logs: 24, k: 4 },
+};
+const SAPLING_LOG = Object.fromEntries(Object.entries(TREE).map(([log, t]) => [t.sapling, log]));
+// 苗木を植えられる地面 (1.20.1。耕地にも植わるが、畑と混ざるので道筋には出さない)
+const TREE_GROUND = ['grass_block', 'dirt', 'podzol', 'coarse_dirt', 'rooted_dirt', 'mud', 'moss_block'];
+const TREE_WAIT_MIN = [10, 20]; // sapling_time の事実 (分)
 // 畑 (仕様、1.20.1): 種を耕地に使う (use_on) と植わる → 明るい所で育つ (crop_time の事実: 湿った耕地でおよそ20〜30分) → 育ちきった作物を壊すと
 //   収穫物と種が落ちる。yield: 育ちきった1本から落ちる収穫物の平均 (小麦・ビートルート 1、にんじん・じゃがいも 1〜4 の平均)。
 //   にんじん・じゃがいもは収穫物そのものが種なので、持っている (共有のチェストにある) ときだけ畑の道筋にする
@@ -181,6 +203,9 @@ class Planner {
     // 耕す前の水の段 (farmwater.waterInfo)。無ければ見えている・覚えているブロックの名前から (見えていれば済んだとみなす)
     this.water = world.water || (this.vis.has('water') ? { where: 'visible', ready: true } : this.known.has('water') ? { where: 'known', id: null, ready: false } : { where: 'unknown', ready: false });
     this.cropPlaces = world.cropPlaces || {};
+    // 近くに植わっている (育ち途中の) 苗木の数 { oak_sapling: 2 } と、その覚えている場所 { oak_sapling: { id: 'M3' } }
+    this.saplings = { ...(world.saplings || {}) };
+    this.treePlaces = world.treePlaces || {};
     // 育ち途中しか見えていない作物は「見える」から外す (掘っても種しか落ちない)
     for (const c of Object.keys(this.farm.growing)) if (this.vis.has(c) && !(this.farm.ripe[c] > 0)) this.vis.delete(c);
     this.reach = null; this.costCache = null; this.dirty = true;
@@ -221,6 +246,7 @@ class Planner {
       for (const r of this.ix.recipes.get(it) || []) q.push(...Object.keys(r.ings));
       for (const inp of this.ix.smelt.get(it) || []) q.push(inp);
       if (FARM[it]) q.push(FARM[it].seed, ...HOES);
+      if (TREE[it]) q.push(TREE[it].sapling);
     }
     return seen;
   }
@@ -234,6 +260,8 @@ class Planner {
     const consider = (o) => { if (o.c < best.c) best = o; };
     for (const s of this.ix.blocks.get(item) || []) {
       if (this.exclude.test(s.block)) continue;
+      // 植わっている (育てている) 苗木は、壊して苗木を取る入手元にしない
+      if (SAPLING_DROP.test(s.block) && (this.saplings[s.block] || 0) > 0) continue;
       // 植えた苗木 (ブロック) は、自然には生えていないので、見えている・覚えている所だけ
       const where = this.vis.has(s.block) ? 'visible' : this.known.has(s.block) ? 'known' : (this.natural(s.block) && !SAPLING_DROP.test(s.block) ? 'unseen' : null);
       if (!where) continue;
@@ -267,7 +295,54 @@ class Planner {
     }
     const fo = this.farmOption(item, cOf);
     if (fo) consider(fo);
+    const to = this.treeOption(item, cOf, costs);
+    if (to) consider(to);
     return best;
+  }
+
+  // 苗木を植えて育てて切る (1個あたりの手間)。植わっている苗木があれば待って切るだけ
+  treeOption(item, cOf, costs) {
+    const t = TREE[item];
+    if (!t) return null;
+    if ((this.saplings[t.sapling] || 0) >= t.k) return { c: COST.treeGrowing / t.logs + COST.treeCut, how: 'tree', sapling: t.sapling, where: 'growing' };
+    const sc = cOf(t.sapling);
+    if (!Number.isFinite(sc)) return null;
+    const so = costs.get(t.sapling);
+    if (so && so.how === 'collect' && so.where === 'unseen') return null;
+    // 2x2 の木 (k = 4) は、持っている・チェストの数で足りない分を、葉から取る手間で数える
+    let sapC = sc * t.k;
+    if (t.k > 1) {
+      const ch = this.chestFor(t.sapling);
+      const have = (this.curInv()[t.sapling] || 0) + (ch ? ch.n : 0);
+      if (have < t.k) {
+        const leaf = this.leafSaplingCost(t.sapling);
+        if (!Number.isFinite(leaf)) return null;
+        sapC = (have > 0 ? sc : 0) + leaf * (t.k - have);
+      } else sapC = sc;
+    }
+    const g = this.treeGround();
+    const c = (sapC + COST.treePlant * t.k + COST.treeWait + COST.treeGround[g.where]) / t.logs + COST.treeCut;
+    return { c, how: 'tree', sapling: t.sapling, where: 'plant' };
+  }
+
+  // 見えている・覚えている葉から苗木を1本取る手間 (持ち物を数えない)
+  leafSaplingCost(sapling) {
+    let best = Infinity;
+    for (const s of this.ix.blocks.get(sapling) || []) {
+      if (!/_leaves$/.test(s.block)) continue;
+      const where = this.vis.has(s.block) ? 'visible' : this.known.has(s.block) ? 'known' : null;
+      if (where) best = Math.min(best, chanceCost(COST[where], s.expect, COST.rebreak));
+    }
+    return best;
+  }
+
+  // 苗木を植える地面: 見えている → 覚えている → 知らない (草の生えた土とする)
+  treeGround() {
+    const v = TREE_GROUND.find((g) => this.vis.has(g));
+    if (v) return { where: 'visible', block: v };
+    const k = TREE_GROUND.find((g) => this.known.has(g));
+    if (k) return { where: 'known', block: k };
+    return { where: 'unknown', block: 'grass_block' };
   }
 
   // 畑で育てる (1個あたりの手間): 育ち途中の作物があれば待つだけ。なければ 種 + 耕す (クワ) + 植える + 待つ
@@ -361,6 +436,7 @@ class Planner {
       return true;
     }
     if (best.how === 'farm') return this.expandFarm(item, n, sim, st);
+    if (best.how === 'tree') return this.expandTree(item, n, sim, st);
     if (best.how === 'kill') { sim.out.push({ item, count: n, how: 'kill', from: best.from, where: best.where, tries: Math.ceil(n / (best.expect || 1)) }); return true; }
     if (best.how === 'craft') {
       const r = best.recipe;
@@ -432,9 +508,24 @@ class Planner {
     return true;
   }
 
+  // 木の手順: 苗木を先に手に入れ、最後に { how: 'tree', sapling, plants (これから植える本数), growing (もう植わっている本数), k, trees, ground, wait, at }
+  expandTree(item, n, sim, st) {
+    const t = TREE[item];
+    const trees = Math.ceil(n / t.logs);
+    const growTrees = Math.min(trees, Math.floor((sim.saplings[t.sapling] || 0) / t.k));
+    sim.saplings[t.sapling] = (sim.saplings[t.sapling] || 0) - growTrees * t.k;
+    const plants = (trees - growTrees) * t.k;
+    if (plants > 0 && !this.expand(t.sapling, plants, sim, st)) return false;
+    const g = this.treeGround();
+    const at = this.treePlaces[t.sapling] ? this.treePlaces[t.sapling].id : null;
+    sim.out.push({ item, count: n, how: 'tree', sapling: t.sapling, plants, growing: growTrees * t.k, k: t.k, trees, ground: g.block, groundWhere: g.where,
+      waitMin: TREE_WAIT_MIN, ...(at ? { at } : {}) });
+    return true;
+  }
+
   newSim() {
     return { inv: { ...this.inv0 }, out: [], stations: { ...this.stations0 }, tools: new Set(Object.keys(this.inv0).filter((k) => this.inv0[k] > 0)),
-      farmEmpty: this.farm.empty, farmGrowing: { ...this.farm.growing },
+      farmEmpty: this.farm.empty, farmGrowing: { ...this.farm.growing }, saplings: { ...this.saplings },
       chests: this.chests0.map((c) => ({ id: c.id, items: { ...c.items } })) };
   }
 
@@ -478,6 +569,11 @@ class Planner {
       if (o.how === 'smelt') {
         if (!this.stationAvail('furnace')) { stations.add('furnace'); walk('furnace', depth + 1); }
         walk(o.from, depth + 1);
+      }
+      if (o.how === 'tree') {
+        leaves.push({ item: it, how: 'tree', from: o.sapling, where: o.where, expect: 1, depth });
+        if (o.where !== 'growing') walk(o.sapling, depth + 1);
+        return;
       }
       if (o.how === 'farm') {
         leaves.push({ item: it, how: 'farm', from: o.crop, where: (this.farm.growing[o.crop] || 0) > 0 ? 'growing' : 'plant', expect: 1, depth });
@@ -560,6 +656,7 @@ function mergeSteps(out) {
     if (same) {
       same.count += s.count;
       if (s.tries != null) same.tries = (same.tries || 0) + s.tries;
+      if (s.how === 'tree') for (const k of ['plants', 'growing', 'trees']) same[k] = (same[k] || 0) + (s[k] || 0);
       if (s.ings) for (const [k, v] of Object.entries(s.ings)) same.ings[k] = (same.ings[k] || 0) + v;
     } else res.push({ ...s, ings: s.ings ? { ...s.ings } : undefined });
   }
@@ -577,6 +674,7 @@ function stepText(s) {
   if (s.how === 'craft') return `${n} ← ${Object.entries(s.ings).map(([k, v]) => `${k} ${v}`).join(' + ')}${s.station ? ` (${s.station})` : ''}`;
   if (s.how === 'smelt') return `${n} ← ${s.from} ${s.count} を焼く (furnace・${s.fuel})`;
   if (s.how === 'farm') return `${n} ← ${farmText(s)}`;
+  if (s.how === 'tree') return `${n} ← ${treeText(s)}`;
   return n;
 }
 
@@ -589,6 +687,37 @@ function farmText(s) {
   if (s.growing > 0) parts.push(`植わっている ${s.crop} ${s.growing}${s.at ? ` (${s.at})` : ''}`);
   parts.push(`育ったら ${s.crop} を壊して取る${s.rounds > 1 ? ` (植えて取るのを${s.rounds}回)` : ''}`);
   return parts.join(' → ');
+}
+// 木の手順の文: 植える → 育つ → 切る のうち、残っている所から。
+//   「oak_log 4 ← oak_sapling 1 を植える (grass_block の上・明るい所・上に空き) → 育つ (約15分) → 切る」
+const GROUND_WHERE_JA = { visible: '', known: '前に見た', unknown: '' };
+function waitWord(s) { const [a, b] = s.waitMin || TREE_WAIT_MIN; return `約${Math.round((a + b) / 2)}分`; }
+function treeText(s) {
+  const parts = [];
+  if (s.growing > 0) parts.push(`植わっている ${s.sapling} ${s.growing}${s.at ? ` (${s.at})` : ''}`);
+  if (s.plants > 0) parts.push(`${s.sapling} ${s.plants} を${s.k > 1 ? '2x2 で' : ''}植える (${GROUND_WHERE_JA[s.groundWhere] || ''}${s.ground} の上・明るい所・上に空き)`);
+  parts.push(s.plants > 0 ? `育つ (${waitWord(s)})` : '育つのを待つ');
+  parts.push('切る');
+  return parts.join(' → ');
+}
+function treeNext(s) {
+  if (s.plants > 0) return `${s.sapling} を ${s.ground} に${s.k > 1 ? '2x2 で' : ''}植える (明るい所・上に空き)`;
+  if (s.growing > 0) return `育つのを待つ (植わっている ${s.sapling} ${s.growing}${s.at ? `、${s.at}` : ''})`;
+  return `木に育ったら ${s.item} を切る`;
+}
+function treeTextEn(s) {
+  const parts = [];
+  if (s.growing > 0) parts.push(`${s.growing} ${s.sapling} planted already${s.at ? ` (${s.at})` : ''}`);
+  if (s.plants > 0) parts.push(`plant ${s.plants} ${s.sapling}${s.k > 1 ? ' in a 2x2' : ''} (on ${s.groundWhere === 'known' ? 'seen-before ' : ''}${s.ground}, in light, space above)`);
+  const [a, b] = s.waitMin || TREE_WAIT_MIN;
+  parts.push(s.plants > 0 ? `grows (about ${Math.round((a + b) / 2)} min)` : 'wait for it to grow');
+  parts.push('cut');
+  return parts.join(' -> ');
+}
+function treeNextEn(s) {
+  if (s.plants > 0) return `plant ${s.sapling}${s.k > 1 ? ' in a 2x2' : ''} on ${s.ground} (in light, space above)`;
+  if (s.growing > 0) return `wait for it to grow (${s.growing} ${s.sapling} planted${s.at ? `, ${s.at}` : ''})`;
+  return `when it has grown into a tree, cut it for ${s.item}`;
 }
 function farmNext(s) {
   if (s.till > 0 && s.water) return `${farmwater.waterText(s.water)} → 水から4マス以内の土を ${s.tool} で耕す`;
@@ -620,6 +749,7 @@ function nextText(s) {
   if (s.how === 'chest') return `共有のチェスト ${s.from} から ${s.item} を出す`;
   if (s.how === 'smelt') return `${s.from} を焼いて ${s.item} にする`;
   if (s.how === 'farm') return farmNext(s);
+  if (s.how === 'tree') return treeNext(s);
   if ((s.how === 'kill' || s.how === 'collect') && s.from && s.from !== s.item) return `${s.from} から ${s.item} を手に入れる`;
   return `${s.item} を手に入れる`;
 }
@@ -636,6 +766,7 @@ function stepTextEn(s) {
   if (s.how === 'craft') return `${n} <- ${Object.entries(s.ings).map(([k, v]) => `${k} x${v}`).join(' + ')}${s.station ? ` (at ${s.station})` : ''}`;
   if (s.how === 'smelt') return `${n} <- smelt ${s.from} x${s.count} (furnace, fuel ${s.fuel})`;
   if (s.how === 'farm') return `${n} <- ${farmTextEn(s)}`;
+  if (s.how === 'tree') return `${n} <- ${treeTextEn(s)}`;
   return n;
 }
 function nextTextEn(s) {
@@ -644,6 +775,7 @@ function nextTextEn(s) {
   if (s.how === 'chest') return `take ${s.item} out of ${chestEn(s.from)}`;
   if (s.how === 'smelt') return `smelt ${s.from} into ${s.item}`;
   if (s.how === 'farm') return farmNextEn(s);
+  if (s.how === 'tree') return treeNextEn(s);
   if (s.how === 'kill' && s.from) return `get ${s.item} by killing ${s.from}`;
   if (s.how === 'collect' && s.from && s.from !== s.item) return `get ${s.item} from ${s.from}`;
   return `get ${s.item}`;
@@ -691,4 +823,4 @@ function effortWord(c) {
   return EFFORT_WORDS.find(([lim]) => c < lim)[1];
 }
 
-module.exports = { FARM, FARM_CROPS, HOES, farmText, EFFORT_EN, stepTextEn, nextTextEn, pathEn, WHERE_EN, Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };
+module.exports = { TREE, SAPLING_LOG, TREE_GROUND, TREE_WAIT_MIN, treeText, FARM, FARM_CROPS, HOES, farmText, EFFORT_EN, stepTextEn, nextTextEn, pathEn, WHERE_EN, Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };

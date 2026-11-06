@@ -31,7 +31,7 @@ const { replaceMRefs } = require('./places');
 const { Reflect } = require('./reflect');
 const { llmOptsFor } = require('./llm_provider');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
-const { isPlaceableBlockItem, Planner, effortWord, EFFORT_EN } = require('./planner');
+const { isPlaceableBlockItem, Planner, effortWord, EFFORT_EN, SAPLING_LOG } = require('./planner');
 const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
 const { Board, DEFAULTS: BOARD_DEFAULTS, parseLine, line: boardLine, chestLabelJa } = require('./board');
@@ -1078,6 +1078,7 @@ class Agent {
       const pr = this.memory.prospects;
       const evs = [];
       try { if (bot && typeof bot.blockAt === 'function') evs.push(...pr.observeCrops((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos, gameNow, tick)); } catch (_) { /* 見えない */ }
+      try { if (bot && typeof bot.blockAt === 'function') evs.push(...pr.observeSaplings((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos, gameNow, tick)); } catch (_) { /* 見えない */ }
       evs.push(...pr.tick(gameNow, tick));
       for (const e of evs) this.recorder.write({ event: 'prospect', ...e, gameTime: gameNow });
     }
@@ -1346,6 +1347,8 @@ class Agent {
     const add = (kind, o) => { const r = pr.add(kind, { ...o, now, loop: tick }); if (r) out.push({ op: r.merged ? 'merge' : 'add', id: r.item.id, kind, what: r.item.what, n: o.n, total: r.item.n, pos: r.item.pos, dueMin: r.item.dueMin, dueMax: r.item.dueMax, start: r.item.start, loop: tick }); };
     const fm = result.farm;
     if (result.ok && fm && fm.plant && fm.pos) add('crop', { pos: fm.pos, n: fm.n || 1, what: { crop: fm.plant, ...(fm.wet != null ? { wet: fm.wet } : {}) } });
+    const sp = result.sapling;
+    if (result.ok && sp && sp.pos) add('sapling', { pos: sp.pos, n: 1, what: { sapling: sp.name, ...(SAPLING_LOG[sp.name] ? { log: SAPLING_LOG[sp.name] } : {}) } });
     const sm = result.smelt;
     if (sm && sm.at) {
       if (sm.took > 0) out.push(...pr.furnaceTaken(sm.at, now, tick));

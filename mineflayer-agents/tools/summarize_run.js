@@ -753,6 +753,8 @@ function farmStats(all, loops) {
     tillBlocks: sum(tilled.map((r) => (r.result.farm && r.result.farm.n) || 1)), plantBlocks: sum(planted.map((r) => (r.result.farm && r.result.farm.n) || 1)),
     batched: useOn.filter((r) => r.result.farm && r.result.farm.n > 1).length,
     revertedCause: countBy(reverted, revertCause),
+    // 苗木を植えた (result.sapling。道筋の「植える → 育つ → 切る」)
+    sapling: useOn.filter((r) => r.result.ok && r.result.sapling).length, saplingBy: countBy(useOn.filter((r) => r.result.ok && r.result.sapling), (r) => r.result.sapling.name),
     perAgent: byAgent,
   };
 }
@@ -961,6 +963,7 @@ function main() {
       if (Object.keys(pr.decidedBy).length) console.log(`  ゴールの選び方で決めた点 ${JSON.stringify(pr.decidedBy)}`);
       const fm = out.farm;
       if (fm.till || fm.plant || fm.harvest || fm.bread || fm.reverted) console.log(`畑: 耕した ${fm.till} 回 (水から4マス以内 ${fm.tillNearWater}/${fm.tillNearWaterKnown}${fm.tillNearWaterRate != null ? ` = ${Math.round(fm.tillNearWaterRate * 100)}%` : ''})・植えた ${fm.plant}・耕地が土に戻った ${fm.reverted}・収穫した ${fm.harvest}・パンを作った ${fm.bread}・クワを耕地に ${fm.hoeOnFarmland}・育つのを待った判断 ${fm.growWait}`);
+      if (fm.sapling) console.log(`苗木を植えた ${fm.sapling} 回 ${JSON.stringify(fm.saplingBy)}`);
       if (fm.till || fm.plant) console.log(`  耕したマス ${fm.tillBlocks}・植えた本数 ${fm.plantBlocks} (続けて2マス以上 ${fm.batched} 回)・土に戻った原因の見立て ${JSON.stringify(fm.revertedCause)}`);
       const ps = out.prospects;
       if (ps.added) console.log(`あとでやること: ${ps.added} 件 ${JSON.stringify(ps.byKind)} (まとめた ${ps.merged})・見込みの時刻になった ${ps.due}・育ちきったのを見た ${ps.ripeSeen}・済んだ ${JSON.stringify(ps.done)}・見込みの時刻のあとに取った ${ps.collectedAfterDue}${ps.overdueMin ? ` (見込みから p50 ${ps.overdueMin.p50}分・最大 ${ps.overdueMin.max}分)` : ''}・候補をゴールに選んだ ${ps.laterGoals}`);

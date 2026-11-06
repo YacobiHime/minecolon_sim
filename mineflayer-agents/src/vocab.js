@@ -153,6 +153,7 @@ function pathFacts(ex, raw, { maxFacts = 3, target = null, lang = 'ja' } = {}) {
   const say = (s) => {
     const rare = rareWord(s.expect);
     if (s.how === 'farm') return s.where === 'growing' ? `${s.from} が近くの耕地に植わっている (育ちきったら取れる)` : `${FARM[s.item].seed} を耕地に植えると育つ`;
+    if (s.how === 'tree') return s.where === 'growing' ? `${s.from} が近くに植わっている (木に育ったら切れる)` : `${s.from} を土・草の生えた土に植えると木に育つ`;
     if (s.how === 'kill') return `${s.from} ${s.where === 'visible' ? 'が' : 'は'}${vis(s)}${rare ? ` (${rare}落とす)` : ''}`;
     if (s.from === s.item) return CROP_BLOCKS.test(s.from) ? `育った所が${vis(s)}` : vis(s);
     return `${s.item === target ? '' : `${s.item} は `}${s.from} から${rare}落ちる (${s.from} は${vis(s)})`;
@@ -181,6 +182,7 @@ function pathFactsEn(ex, raw, { maxFacts = 3, target = null } = {}) {
   const say = (s) => {
     const rare = rareWord(s.expect, 'en');
     if (s.how === 'farm') return s.where === 'growing' ? `${s.from} planted on farmland nearby (can be taken when fully grown)` : `grows from ${FARM[s.item].seed} planted on farmland`;
+    if (s.how === 'tree') return s.where === 'growing' ? `${s.from} planted nearby (can be cut when it has grown into a tree)` : `grows from ${s.from} planted on dirt or grass_block`;
     if (s.how === 'kill') return `${s.from} ${vis(s)}${rare ? ` (${rare} drops it)` : ''}`;
     if (s.from === s.item) return CROP_BLOCKS.test(s.from) ? `grown ones ${vis(s)}` : vis(s);
     return `${s.item === target ? 'it' : s.item} ${rare ? `${rare} ` : ''}drops from ${s.from} (${s.from} ${vis(s)})`;

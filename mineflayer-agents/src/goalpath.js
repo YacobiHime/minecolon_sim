@@ -13,7 +13,7 @@
 // 研究方針: 仕様・事実は見せるが、どう使うかは書かない。評価語を指示に入れない。数値はここで持ち、モデルには言葉だけ。
 const { peopleOf } = require('./people');
 const { LLMDecider } = require('./deciders/llm');
-const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn, FARM_CROPS, effortWord, EFFORT_EN } = require('./planner');
+const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn, FARM_CROPS, SAPLING_LOG, effortWord, EFFORT_EN } = require('./planner');
 const states = require('./states');
 const { dir8 } = require('./vocab');
 const { itemCandidates, personCandidates, placeCandidates } = require('./vocab');
@@ -199,7 +199,8 @@ function rankPeople(people) {
 // 道筋の次が「育つのを待つ」だけ (畑の段で、耕す・植えるが残っておらず、植わっている作物がある)
 function waitOnly(p) {
   const n = p && p.ok ? p.next : null;
-  return !!(n && n.how === 'farm' && !(n.till > 0) && !(n.plants > 0) && n.growing > 0);
+  // 畑: 耕す・植えるが残っておらず、植わっている作物がある / 木: 植えるが残っておらず、植わっている苗木がある
+  return !!(n && (n.how === 'farm' || n.how === 'tree') && !(n.till > 0) && !(n.plants > 0) && n.growing > 0);
 }
 
 function invCount(raw, name) { return (raw.inventory || []).filter((i) => i.name === name).reduce((t, i) => t + i.count, 0); }
@@ -436,6 +437,9 @@ class GoalPath {
       water: this.waterOf(ctx),
       // 植えた作物の覚えている場所 (道筋の「育つのを待つ (植わっている n、M2)」)
       cropPlaces: Object.fromEntries((ctx.places || []).filter((p) => FARM_CROPS.test(p.kind)).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).reverse().map((p) => [p.kind, { id: p.id, d: p.d }])),
+      // 近くに植わっている苗木 (見えている苗木のブロックの数) と、植えた苗木の覚えている場所 (道筋の「植わっている oak_sapling 1 (M3)」)
+      saplings: Object.fromEntries((raw.blocks || []).filter((b) => SAPLING_LOG[b.name]).map((b) => [b.name, b.seen || 1])),
+      treePlaces: Object.fromEntries((ctx.places || []).filter((p) => SAPLING_LOG[p.kind]).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).reverse().map((p) => [p.kind, { id: p.id, d: p.d }])),
       inventory: raw.inventory,
       visibleBlocks: raw.blocks.map((b) => b.name),
       visibleMobs: raw.entities.filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name),
@@ -835,7 +839,7 @@ class GoalPath {
     // 植えて、道筋の残りが「育つのを待つ」だけになった → ゴールは済んだ扱いにして、別のゴールを選ぶ (2026-11-06)。
     //   植えた所と育つ見込みは、あとでやること (prospect.js) に残る。育っている頃になったらゴールの候補に出る
     if (g.kind === 'item' && this.cfg.finishOnWait !== false && this.waitingGrowth()) {
-      this.finish('planted', tick, null, { growing: this.path.next.growing, crop: this.path.next.crop });
+      this.finish('planted', tick, null, { growing: this.path.next.growing, crop: this.path.next.crop || this.path.next.sapling });
       await this.newGoal(ctx, tick, 'planted'); this.refresh(ctx, tick);
       return 'planted';
     }

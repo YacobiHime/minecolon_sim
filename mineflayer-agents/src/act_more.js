@@ -434,8 +434,14 @@ function moreHandlers(lib) {
           if (ctx.memory) ctx.memory.notePlace(up.name, up.position, { imp: 0.7 });
         }
       }
+      // 苗木を植えた: 結果に sapling: { name, pos, skyLight, light } を付け、場所を覚える (あとでやること・道筋の「植わっている」)
+      let sapling = null;
+      if (res && /_sapling$|_propagule$/.test(item) && nb && nb.name === item && a.nb !== nb.name) {
+        sapling = { name: nb.name, pos: { x: nb.position.x, y: nb.position.y, z: nb.position.z }, on: b.name, skyLight: nb.skyLight ?? null, light: nb.light ?? null };
+        if (ctx.memory) ctx.memory.notePlace(nb.name, nb.position, { imp: 0.7 });
+      }
       const far = b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.62, 0)).toFixed(1);
-      return { ...(farm ? { farm } : {}), ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}(${b.position.x},${b.position.y},${b.position.z} ${far}m)に使ったが何も起きなかった${bot.entity.isInWater ? ' (自分は水の中)' : ''}` };
+      return { ...(farm ? { farm } : {}), ...(sapling ? { sapling } : {}), ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}(${b.position.x},${b.position.y},${b.position.z} ${far}m)に使ったが何も起きなかった${bot.entity.isInWater ? ' (自分は水の中)' : ''}` };
     },
 
     // use_item: その場で使う

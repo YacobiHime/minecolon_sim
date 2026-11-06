@@ -2,10 +2,11 @@
 // あとでやること (展望記憶)。始めたことのうち、時間がたってから結果が出るものを覚えておく。
 //   共通の形: { id, kind, pos (場所), start (始めたゲーム内の時刻 = ワールドの age、tick), dueMin・dueMax (見込みの時刻、tick), what (中身), n, ... }
 //   kind: crop (作物を植えた → 育ちきる)・smelt (かまどに入れたまま → 焼き上がる)・grow_up (子どもが生まれた → 大人になる)・
-//         breed_again (繁殖させた → 次に繁殖できる)
+//         breed_again (繁殖させた → 次に繁殖できる)・sapling (苗木を植えた → 木に育つ)
 //   見込みの時刻は仕様の事実 (knowledge/facts.json の crop_time・smelt_time・mob_baby・mob_breed_cooldown) から:
 //     作物: 明るい所の湿った耕地で 20〜30分、乾いた耕地ではおよそ倍。見えたときは作物の育ち (age) から見込みを直す (骨粉・湿り具合で変わる分)
 //     かまど: 1個 10秒。子ども: およそ20分で大人。繁殖: 5分ほど次の繁殖ができない
+//     苗木: 明るい所で上が空いていれば 10〜20分で木になる (sapling_time の事実)。見えたときは、苗木のままか・原木になったか・無くなったかを見る
 //   時刻はゲーム内の時刻 (tick。20 tick = 1秒、1200 tick = 1分) で持つ。倍速 (tickrate) を変えても、ゲーム内で何分たったかは正しい。
 //   モデルには言葉だけ (「M2に小麦を3本植えた (約8分前。育つのはあと15分ほど)」)。数値はここで持つ。
 // 研究方針: 事実だけ。どう使うと良いか・取りに行くべきかは書かない。取りに行くかは 2B がゴールの候補から選ぶ。
@@ -19,6 +20,7 @@ const DEFAULTS = {
   cropMin: 20 * TPM, cropMax: 30 * TPM, dryFactor: 2, // crop_time の事実
   smeltPer: 200, // かまどは1個 10秒 (smelt_time の事実)
   growUp: 20 * TPM, breedAgain: 5 * TPM, // mob_baby・mob_breed_cooldown の事実
+  saplingMin: 10 * TPM, saplingMax: 20 * TPM, // sapling_time の事実
   mergeDist: 6, // 同じ種類・同じ中身で、この距離以内の所は1つにまとめる (畑の続きに植えたなど)
   seeRadius: 12, // ここまで近くにいれば、作物の育ちを見て見込みを直す
   scan: 4, // 作物を数える範囲 (場所から水平にこのマス)
@@ -32,7 +34,7 @@ const CROP_JA = { wheat: '小麦', carrots: 'にんじん', potatoes: 'じゃが
 const CROP_ITEM = { wheat: 'wheat', carrots: 'carrot', potatoes: 'potato', beetroots: 'beetroot' };
 const CROP_MAX_AGE = { wheat: 7, carrots: 7, potatoes: 7, beetroots: 3 };
 const ANIMAL_JA = { cow: '牛', sheep: '羊', pig: '豚', chicken: '鶏', rabbit: 'ウサギ', horse: '馬', donkey: 'ロバ', goat: 'ヤギ', mooshroom: 'ムーシュルーム', llama: 'ラマ', turtle: 'カメ' };
-const KIND_JA = { crop: '作物', smelt: 'かまど', grow_up: '動物の子ども', breed_again: '繁殖' };
+const KIND_JA = { crop: '作物', smelt: 'かまど', grow_up: '動物の子ども', breed_again: '繁殖', sapling: '苗木' };
 
 const ja = (n) => CROP_JA[n] || ANIMAL_JA[n] || jaName(n) || n;
 
@@ -73,6 +75,7 @@ class Prospects {
     if (kind === 'smelt') { const t = c.smeltPer * Math.max(1, n); return [t, t]; }
     if (kind === 'grow_up') return [c.growUp, c.growUp];
     if (kind === 'breed_again') return [c.breedAgain, c.breedAgain];
+    if (kind === 'sapling') return [c.saplingMin, c.saplingMax];
     return [0, 0];
   }
 
@@ -80,17 +83,19 @@ class Prospects {
   add(kind, { pos, now, n = 1, what = {}, loop = null }) {
     if (!pos || !Number.isFinite(now)) return null;
     const [a, b] = this.span(kind, what, n);
-    const key = what.crop || what.input || what.animal || '';
-    const near = this.open().find((x) => x.kind === kind && (x.what.crop || x.what.input || x.what.animal || '') === key && dist3(x.pos, pos) <= this.cfg.mergeDist);
+    const key = keyOf(what);
+    const near = this.open().find((x) => x.kind === kind && keyOf(x.what) === key && dist3(x.pos, pos) <= this.cfg.mergeDist);
     if (near) {
       near.n += n;
       near.last = now;
       if (kind === 'smelt') { const [, bb] = this.span(kind, what, near.n); near.dueMin = near.start + bb; near.dueMax = near.dueMin; } else { near.dueMax = Math.max(near.dueMax, now + b); }
       if (what.wet === false) near.what.wet = false;
+      if (kind === 'sapling') near.positions = [...(near.positions || [near.pos]), round(pos)];
       return { item: near, merged: true };
     }
     this.store.prospectSeq += 1;
-    const item = { id: `L${this.store.prospectSeq}`, kind, pos: round(pos), start: now, last: now, dueMin: now + a, dueMax: now + b, n, what: { ...what }, loop, dueAt: null, done: null };
+    const item = { id: `L${this.store.prospectSeq}`, kind, pos: round(pos), start: now, last: now, dueMin: now + a, dueMax: now + b, n, what: { ...what }, loop, dueAt: null, done: null,
+      ...(kind === 'sapling' ? { positions: [round(pos)] } : {}) };
     this.list.push(item);
     this.trim(now);
     return { item, merged: false };
@@ -167,11 +172,41 @@ class Prospects {
     return out;
   }
 
-  // 作物を取った (持ち物の作物が増えた)。here の近くの作物のものを済んだにする
+  // 植えた苗木の様子を見る (近くにいるときだけ)。植えた所が原木になっていれば (木に育った) ripeSeenAt。
+  //   苗木のままならそのまま。苗木でも原木でもなければ: 育ったのを見たあとなら切られた (cut)、見る前なら無くなった (gone) で済んだにする
+  observeSaplings(blockAt, here, now, loop = null) {
+    const out = [];
+    if (typeof blockAt !== 'function' || !here) return out;
+    for (const x of this.open().filter((q) => q.kind === 'sapling' && dist3(q.pos, here) <= this.cfg.seeRadius)) {
+      // 植えた所ごとに: 苗木のまま・原木 (木に育った)・ほかの物
+      let read = 0; let young = 0; let grown = 0;
+      for (const p of x.positions || [x.pos]) {
+        let b = null;
+        try { b = blockAt(p.x, p.y, p.z); } catch (_) { b = null; }
+        if (!b) continue; // 読み込まれていない
+        read += 1;
+        if (b.name === x.what.sapling) young += 1; else if (/_log$/.test(b.name)) grown += 1;
+      }
+      if (!read) continue;
+      if (!grown && young) { x.seen = { at: now, grown: 0, young }; continue; }
+      if (grown) {
+        x.seen = { at: now, grown, young };
+        if (x.ripeSeenAt == null) { x.ripeSeenAt = now; out.push({ op: 'ripe_seen', id: x.id, kind: x.kind, what: x.what, n: x.n, count: grown, sinceStartMin: round1((now - x.start) / TPM), loop }); }
+        continue;
+      }
+      const r = this.finish(x, { now, how: x.ripeSeenAt != null ? 'cut' : 'gone', loop });
+      if (r) out.push(r);
+    }
+    return out;
+  }
+
+  // 作物を取った (持ち物の作物が増えた)。here の近くの作物のものを済んだにする。
+  //   苗木: 木に育ったのを見たあとで、その木の原木が増えたら済んだ (切った)
   harvested(here, gained, now, loop = null) {
     const out = [];
-    for (const x of this.open().filter((q) => q.kind === 'crop' && dist3(q.pos, here) <= this.cfg.harvestDist)) {
-      if ((gained[CROP_ITEM[x.what.crop]] || 0) > 0) { const r = this.finish(x, { now, how: 'harvested', loop }); if (r) out.push(r); }
+    for (const x of this.open().filter((q) => (q.kind === 'crop' || q.kind === 'sapling') && dist3(q.pos, here) <= this.cfg.harvestDist)) {
+      const got = x.kind === 'crop' ? gained[CROP_ITEM[x.what.crop]] : x.ripeSeenAt != null ? gained[x.what.log] : 0;
+      if ((got || 0) > 0) { const r = this.finish(x, { now, how: 'harvested', loop }); if (r) out.push(r); }
     }
     return out;
   }
@@ -218,6 +253,11 @@ class Prospects {
       const st = due ? '次に繁殖できる頃' : `次に繁殖できるのはあと${minutesJa(mid - now)}ほど`;
       return `${where}で${ja(x.what.animal)}に餌をやって繁殖させた (${ago}。${st})`;
     }
+    if (x.kind === 'sapling') {
+      const st = x.done ? (x.done.how === 'harvested' || x.done.how === 'cut' ? '切った' : '見に行ったら無くなっていた')
+        : x.ripeSeenAt != null ? '木に育っているのを見た' : due ? '木に育っている頃' : `木に育つのはあと${minutesJa(mid - now)}ほど`;
+      return `${where}に${ja(x.what.sapling)}を${x.n}本植えた (${ago}。${st})`;
+    }
     return '';
   }
 
@@ -242,6 +282,11 @@ class Prospects {
     if (x.kind === 'breed_again') {
       const st = due ? 'can breed again by now' : `can breed again in about ${minutesEn(mid - now)}`;
       return `bred ${x.what.animal} at ${where} (${ago}; ${st})`;
+    }
+    if (x.kind === 'sapling') {
+      const st = x.done ? (x.done.how === 'harvested' || x.done.how === 'cut' ? 'cut' : 'gone when checked')
+        : x.ripeSeenAt != null ? 'seen grown into a tree' : due ? 'expected to have grown into a tree by now' : `expected to grow into a tree in about ${minutesEn(mid - now)}`;
+      return `planted ${x.n} ${x.what.sapling} at ${where} (${ago}; ${st})`;
     }
     return '';
   }
@@ -273,6 +318,10 @@ class Prospects {
         name = `かまどの${ja(x.what.output || x.what.input)}を取りに行く@${where}`;
         desc = `${where}、${ja(x.what.input)}を入れてから約${since}。焼き上がっている頃`;
         descEn = `go take what was smelted in the furnace at ${whereE} (put in about ${sinceE} ago; expected to be done by now)`;
+      } else if (x.kind === 'sapling') {
+        name = `${ja(x.what.log || x.what.sapling)}を切りに行く@${where}`;
+        desc = `${where}、${ja(x.what.sapling)}を植えてから約${since}。${x.ripeSeenAt != null ? '木に育っているのを見た' : '木に育っている頃'}`;
+        descEn = `go cut the tree grown from the ${x.what.sapling} planted at ${whereE} (planted about ${sinceE} ago; ${x.ripeSeenAt != null ? 'seen grown into a tree' : 'expected to have grown into a tree by now'})`;
       } else {
         name = `${ja(x.what.animal)}の所へ行く@${where}`;
         desc = `${where}、${x.kind === 'grow_up' ? '子どもが生まれてから' : '繁殖させてから'}約${since}。${x.kind === 'grow_up' ? '大人になっている頃' : '次に繁殖できる頃'}`;
@@ -290,6 +339,8 @@ class Prospects {
     return out;
   }
 }
+
+function keyOf(what = {}) { return what.crop || what.input || what.animal || what.sapling || ''; }
 
 function round1(v) { return Math.round(v * 10) / 10; }
 
