@@ -12,7 +12,7 @@
 //   たどれない物 (レシピも入手元も分からない) は、その旨を添えて 2B に選び直させる (maxTries 回まで)。
 // 研究方針: 仕様・事実は見せるが、どう使うかは書かない。評価語を指示に入れない。数値はここで持ち、モデルには言葉だけ。
 const { LLMDecider } = require('./deciders/llm');
-const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn } = require('./planner');
+const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn, FARM_CROPS } = require('./planner');
 const states = require('./states');
 const { dir8 } = require('./vocab');
 const { itemCandidates, personCandidates, placeCandidates } = require('./vocab');
@@ -371,10 +371,28 @@ class GoalPath {
   }
 
   // ---- 道筋 ----
+  // 近くの畑 (planner の world.farm)。blockAt があればブロックを数え、無ければ見えている作物の ripe から。1つの ctx で1回
+  farmOf(ctx) {
+    if (ctx._farm) return ctx._farm;
+    const raw = ctx.raw;
+    let f = null;
+    if (ctx.blockAt && raw && raw.self) f = states.farmStatus(ctx.blockAt, raw.self.pos, { radius: (this.cfg.stateOpts && this.cfg.stateOpts.farmRadius) || states.DEFAULTS.farmRadius });
+    else {
+      f = { empty: 0, growing: {}, ripe: {} };
+      for (const b of (raw && raw.blocks) || []) {
+        if (!FARM_CROPS.test(b.name) || b.ripe == null) continue;
+        f.ripe[b.name] = b.ripe; f.growing[b.name] = Math.max(0, (b.seen || 0) - b.ripe);
+      }
+    }
+    ctx._farm = f;
+    return f;
+  }
+
   world(ctx) {
     const raw = ctx.raw;
     const kinds = new Set(ctx.placeKinds || []);
     return {
+      farm: this.farmOf(ctx),
       inventory: raw.inventory,
       visibleBlocks: raw.blocks.map((b) => b.name),
       visibleMobs: raw.entities.filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name),

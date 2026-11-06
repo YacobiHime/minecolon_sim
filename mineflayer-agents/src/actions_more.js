@@ -63,7 +63,11 @@ function useTargets(raw, ctx = {}) {
   }
   const ents = [...seen.values()].slice(0, ctx.useEntities ?? 4)
     .map((e) => ({ kind: 'entity', name: e.name, pos: e.pos, entityId: e.id, label: `${e.kind === 'hostile' ? '敵' : ''}${e.name} ${relDir(here, e.pos)}`, labelEn: `${e.kind === 'hostile' ? 'hostile ' : ''}${e.name} (${whereEn(here, e.pos)})` }));
-  return [...blocks, ...ents];
+  // 畑 (agent が渡す ctx.farmTargets): 空いている耕地・植わっている作物 (近くを数えたもの)・覚えている耕地/作物の場所 (M番号)。
+  //   見えている同じ名前の対象より遠い所でも出す (歩いて行って使う)。id は name@所 で見えている物と分ける
+  const extra = (ctx.farmTargets || []).filter((t) => !blocks.some((b) => b.name === t.name && b.pos && t.pos && Math.abs(b.pos.x - t.pos.x) + Math.abs(b.pos.y - t.pos.y) + Math.abs(b.pos.z - t.pos.z) === 0))
+    .map((t) => ({ kind: 'block', name: t.name, idName: t.idName || null, pos: t.pos, label: `${t.name}${t.note ? `(${t.note})` : ''} ${relDir(here, t.pos)}`, labelEn: `${t.name}${t.noteEn ? ` (${t.noteEn})` : ''} (${whereEn(here, t.pos)})` }));
+  return [...blocks, ...extra, ...ents];
 }
 
 function heldItems(raw) {
@@ -113,7 +117,7 @@ function moreActions(raw, ctx = {}, on = () => true) {
     const ch = [];
     for (const [ii, ti] of rankPairs(items.length, targets.length)) {
       const it = items[ii]; const t = targets[ti];
-      const id = `${it}>${t.name}`;
+      const id = `${it}>${t.idName || t.name}`;
       if (!ok('use_on', id)) continue;
       ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に`, labelEn: `${it === HAND ? 'bare hand' : it} on ${t.labelEn}`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null });
       if (ch.length >= maxN) break;

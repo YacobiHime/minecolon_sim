@@ -347,6 +347,13 @@ function moreHandlers(lib) {
       if (ctx.memory && nb && nb.name !== a.nb && /^(furnace|crafting_table|chest|barrel|brewing_stand|enchanting_table|anvil|torch)$|_bed$/.test(nb.name)) {
         ctx.memory.notePlace(nb.name, nb.position, { imp: 0.8 });
       }
+      // 畑: 耕した耕地・植えた作物の場所を覚える (go_to・use_on の候補になる)
+      if (ctx.memory) {
+        const now = bot.blockAt(b.position);
+        if (now && now.name === 'farmland' && b.name !== 'farmland') ctx.memory.notePlace('farmland', now.position, { imp: 0.7 });
+        const up = bot.blockAt(b.position.offset(0, 1, 0));
+        if (now && now.name === 'farmland' && up && /^(wheat|carrots|potatoes|beetroots)$/.test(up.name)) ctx.memory.notePlace(up.name, up.position, { imp: 0.7 });
+      }
       const far = b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.62, 0)).toFixed(1);
       return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}(${b.position.x},${b.position.y},${b.position.z} ${far}m)に使ったが何も起きなかった${bot.entity.isInWater ? ' (自分は水の中)' : ''}` };
     },

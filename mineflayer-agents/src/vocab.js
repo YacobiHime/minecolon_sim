@@ -7,7 +7,7 @@
 //       先にたどった道筋 (planner) から言葉にした事実 (入手元が見えるか・まれに落ちるか・作業台/かまど/道具が要るか・手間 小/中/大)。
 //   「この欲求にはこの物」という対応はここでは作らない (2B が選ぶ)。
 //   人: 知っている人・見えている人。場所: 拠点・覚えている場所 (M番号)・8方位の遠く (行ったことがあるか)。
-const { index, Planner, GROUND, VOCAB_MIN_CHANCE, effortWord, CROP_BLOCKS, EFFORT_EN } = require('./planner');
+const { index, Planner, GROUND, VOCAB_MIN_CHANCE, effortWord, CROP_BLOCKS, EFFORT_EN, FARM } = require('./planner');
 const { dir8En } = require('./en');
 const { jaName, WOOD, COLOR } = require('./names_ja');
 const { matchName } = require('./knowledge');
@@ -37,6 +37,8 @@ function collapse(list, woodPref) {
 }
 
 // ctx = { raw, facts: [{items}], placeKinds: [覚えている場所の種類], history: [{kind,target}], version, maxItems, recipeHops }
+function foodsOf(md) { return md.foodsByName || {}; }
+
 function itemCandidates(ctx) {
   const ix = index(ctx.version);
   const md = ix.md;
@@ -59,6 +61,19 @@ function itemCandidates(ctx) {
     else if (e.kind !== 'player') for (const [item, mobs] of ix.mobs) if (mobs.some((m) => m.mob === e.name && (m.rawChance ?? 1) >= VOCAB_MIN_CHANCE)) add(item, 'mob');
   }
   for (const k of ctx.placeKinds || []) add(k, 'place');
+  // 焼いてできる食べ物: 持ち物・見える物・見える生き物から取れる物を焼いた物 (beef → cooked_beef)
+  for (const x of [...list]) {
+    if (!['inventory', 'block', 'mob', 'dropped'].includes(x.src)) continue;
+    for (const [out, ins] of ix.smelt) if (foodsOf(md)[out] && ins.includes(x.name)) add(out, 'smelt');
+  }
+  // 畑: 候補にある種 (植える物) から、育てて取れる物と、それを材料にする食べ物 (wheat_seeds → wheat → bread)
+  const foodsBy = md.foodsByName || {};
+  for (const x of [...list]) {
+    const prod = Object.entries(FARM).find(([, f]) => f.seed === x.name);
+    if (!prod) continue;
+    add(prod[0], 'farm');
+    for (const [out, rs] of ix.recipes) if (foodsBy[out] && rs.some((r) => Object.keys(r.ings).length === 1 && r.ings[prod[0]])) add(out, 'farm'); // 収穫物だけで作れる食べ物 (bread)
+  }
   for (const h of ctx.history || []) if (h.kind === 'item') add(h.target, 'history');
   const allNames = md.itemsArray.map((it) => it.name);
   for (const f of ctx.facts || []) for (const p of f.items || []) for (const n of allNames) if (matchName(p, n)) add(n, 'facts');
@@ -77,7 +92,7 @@ function itemCandidates(ctx) {
   }, { index: ix });
   const out = collapse(list, woodPref).filter((x) => x.have || Number.isFinite(planner.cost(x.name).c));
   // 段の順 (持ち物・見える物 → 知っていること → レシピで近い物) を保ったまま maxItems まで
-  const pri = { inventory: 0, dropped: 1, block: 1, mob: 1, place: 2, history: 2, facts: 3, recipe1: 4, recipe2: 5 };
+  const pri = { inventory: 0, dropped: 1, block: 1, mob: 1, place: 2, history: 2, smelt: 2, farm: 2, facts: 3, recipe1: 4, recipe2: 5 };
   out.sort((a, b) => (pri[a.src] - pri[b.src]) || (a.order - b.order));
   const foods = md.foodsByName || {};
   const annotate = ctx.annotate !== false;
@@ -136,6 +151,7 @@ function pathFacts(ex, raw, { maxFacts = 3, target = null, lang = 'ja' } = {}) {
   };
   const say = (s) => {
     const rare = rareWord(s.expect);
+    if (s.how === 'farm') return s.where === 'growing' ? `${s.from} が近くの耕地に植わっている (育ちきったら取れる)` : `${FARM[s.item].seed} を耕地に植えると育つ`;
     if (s.how === 'kill') return `${s.from} ${s.where === 'visible' ? 'が' : 'は'}${vis(s)}${rare ? ` (${rare}落とす)` : ''}`;
     if (s.from === s.item) return CROP_BLOCKS.test(s.from) ? `育った所が${vis(s)}` : vis(s);
     return `${s.item === target ? '' : `${s.item} は `}${s.from} から${rare}落ちる (${s.from} は${vis(s)})`;
@@ -163,6 +179,7 @@ function pathFactsEn(ex, raw, { maxFacts = 3, target = null } = {}) {
   };
   const say = (s) => {
     const rare = rareWord(s.expect, 'en');
+    if (s.how === 'farm') return s.where === 'growing' ? `${s.from} planted on farmland nearby (can be taken when fully grown)` : `grows from ${FARM[s.item].seed} planted on farmland`;
     if (s.how === 'kill') return `${s.from} ${vis(s)}${rare ? ` (${rare} drops it)` : ''}`;
     if (s.from === s.item) return CROP_BLOCKS.test(s.from) ? `grown ones ${vis(s)}` : vis(s);
     return `${s.item === target ? 'it' : s.item} ${rare ? `${rare} ` : ''}drops from ${s.from} (${s.from} ${vis(s)})`;

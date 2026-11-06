@@ -12,12 +12,24 @@ const { SMELTABLE } = require('./actions');
 const DEFAULT_VERSION = '1.20.1';
 // rebreak / rekill: 落ちる確率が低い物を、同じ所でもう1回壊す・もう1匹倒す手間 (1回目は探して歩く手間を含むので、2回目からは小さい)
 const COST = { visible: 1, known: 2, unseen: 6, unseenRare: 12, mobVisible: 2, mobUnseen: 6, mobRare: Infinity, craft: 0.3, smelt: 0.6, toolShare: 0.5, stationShare: 0.5,
-  rebreak: 0.25, rekill: 1 };
+  rebreak: 0.25, rekill: 1, farmPlant: 0.3, farmWait: 3, farmGrowing: 1.5 };
+// 畑 (仕様、1.20.1): 種を耕地に使う (use_on) と植わる → 明るい所で育つ (crop_time の事実: 湿った耕地でおよそ20〜30分) → 育ちきった作物を壊すと
+//   収穫物と種が落ちる。yield: 育ちきった1本から落ちる収穫物の平均 (小麦・ビートルート 1、にんじん・じゃがいも 1〜4 の平均)。
+//   にんじん・じゃがいもは収穫物そのものが種なので、持っている (共有のチェストにある) ときだけ畑の道筋にする
+const FARM = {
+  wheat: { crop: 'wheat', seed: 'wheat_seeds', yield: 1 },
+  beetroot: { crop: 'beetroots', seed: 'beetroot_seeds', yield: 1 },
+  carrot: { crop: 'carrots', seed: 'carrot', yield: 2.71 },
+  potato: { crop: 'potatoes', seed: 'potato', yield: 2.71 },
+};
+const FARM_CROPS = /^(wheat|beetroots|carrots|potatoes)$/;
+const HOES = ['wooden_hoe', 'stone_hoe', 'iron_hoe', 'golden_hoe', 'diamond_hoe', 'netherite_hoe'];
 // 期待値で 1/期待値 回壊す (倒す) ときの手間: 1回目の手間 + 2回目からの手間 × (1/期待値 − 1)。1回で1個以上落ちる物は1回分
 function chanceCost(base, expect, again) { const e = expect || 1; return base + again * Math.max(0, 1 / e - 1); }
 // 地上・浅い所でふつうに見つかるブロックと生き物 (まだ見ていなくても、探せば見つかるとみなす手間を小さくする)。
 // それ以外の自然のブロックは手間を大きく見る。それ以外の生き物は、見えていなければ入手元にしない (ネザーにしかいない・村のゴーレム等)
-const COMMON_BLOCKS = /_log$|_leaves$|^(stone|deepslate|sand|gravel|clay|grass|tall_grass|fern|coal_ore|iron_ore|copper_ore|sugar_cane|pumpkin|melon|wheat|carrots|potatoes|beetroots|sweet_berry_bush|andesite|diorite|granite|water)$/;
+//   (小麦・にんじん・じゃがいも・ビートルートの作物は村の畑のほかには生えていないので、ここに入れない = まだ見ていなければ手間が大きい)
+const COMMON_BLOCKS = /_log$|_leaves$|^(stone|deepslate|sand|gravel|clay|grass|tall_grass|fern|coal_ore|iron_ore|copper_ore|sugar_cane|pumpkin|melon|sweet_berry_bush|andesite|diorite|granite|water)$/;
 const COMMON_MOBS = /^(cow|pig|sheep|chicken|rabbit|zombie|skeleton|spider|creeper|cod|salmon|squid|horse|llama)$/;
 // 作物 (レシピのある物と同じ名前のブロックでも、育っている所を探せる)
 const CROP_BLOCKS = /^(wheat|carrots|potatoes|beetroots|sweet_berry_bush|melon|pumpkin|sugar_cane)$/;
@@ -147,7 +159,9 @@ function invMap(inventory) {
 
 // world = { inventory: [{name,count}], visibleBlocks: [名前], visibleMobs: [名前], knownBlocks: [覚えている場所の種類],
 //           stations: { crafting_table: bool, furnace: bool } (見えている・覚えている), excludeBlocks: RegExp,
-//           sharedChests: [{ id, items: [{name,count}] }] (共有のチェスト。board.js。中身は全員に見えている) }
+//           sharedChests: [{ id, items: [{name,count}] }] (共有のチェスト。board.js。中身は全員に見えている),
+//           farm: { empty: 空いている耕地の数, growing: { wheat: 育ち途中の本数 }, ripe: { wheat: 育ちきった本数 } } (近くの畑。states.farmStatus) }
+//   畑の作物 (wheat・carrots 等) のブロックは、育ちきった物が見えているときだけ「見える」(掘れば収穫物が落ちる)。育ち途中は farm.growing
 // 共有のチェストにある物は、作る・掘るより先にそこから出す (手順 how: 'chest'、from: チェストの id)。足りない分だけほかの入手元から
 class Planner {
   constructor(world = {}, opts = {}) {
@@ -159,6 +173,10 @@ class Planner {
     this.stations0 = { crafting_table: false, furnace: false, ...(world.stations || {}) };
     this.exclude = world.excludeBlocks || GROUND;
     this.chests0 = (world.sharedChests || []).map((c) => ({ id: c.id, items: Object.fromEntries((c.items || []).filter((i) => i.count > 0).map((i) => [i.name, i.count])) }));
+    const fm = world.farm || {};
+    this.farm = { empty: fm.empty || 0, growing: { ...(fm.growing || {}) }, ripe: { ...(fm.ripe || {}) } };
+    // 育ち途中しか見えていない作物は「見える」から外す (掘っても種しか落ちない)
+    for (const c of Object.keys(this.farm.growing)) if (this.vis.has(c) && !(this.farm.ripe[c] > 0)) this.vis.delete(c);
     this.reach = null; this.costCache = null; this.dirty = true;
   }
 
@@ -196,6 +214,7 @@ class Planner {
       for (const s of this.ix.blocks.get(it) || []) for (const t of s.tools || []) q.push(t);
       for (const r of this.ix.recipes.get(it) || []) q.push(...Object.keys(r.ings));
       for (const inp of this.ix.smelt.get(it) || []) q.push(inp);
+      if (FARM[it]) q.push(FARM[it].seed, ...HOES);
     }
     return seen;
   }
@@ -240,7 +259,27 @@ class Planner {
       const c = cOf(inp) + COST.smelt + furnC;
       if (Number.isFinite(c)) consider({ c, how: 'smelt', from: inp });
     }
+    const fo = this.farmOption(item, cOf);
+    if (fo) consider(fo);
     return best;
+  }
+
+  // 畑で育てる (1個あたりの手間): 育ち途中の作物があれば待つだけ。なければ 種 + 耕す (クワ) + 植える + 待つ
+  farmOption(item, cOf) {
+    const fm = FARM[item];
+    if (!fm) return null;
+    if ((this.farm.growing[fm.crop] || 0) > 0) return { c: COST.farmGrowing / fm.yield, how: 'farm', crop: fm.crop };
+    let seedC;
+    if (fm.seed === item) seedC = (this.inv0[item] || 0) > 0 || this.chestFor(item) ? 0 : Infinity;
+    else seedC = cOf(fm.seed);
+    if (!Number.isFinite(seedC)) return null;
+    let hoeC = 0;
+    if (!(this.farm.empty > 0) && !HOES.some((h) => this.hasTool(h))) {
+      hoeC = Math.min(...HOES.map((h) => cOf(h)));
+      if (!Number.isFinite(hoeC)) return null;
+      hoeC *= COST.toolShare;
+    }
+    return { c: (seedC + COST.farmPlant + COST.farmWait) / fm.yield + hoeC, how: 'farm', crop: fm.crop };
   }
 
   // 届く物すべての手間を、変わらなくなるまで繰り返して求める (材料の輪があっても止まる)
@@ -303,10 +342,17 @@ class Planner {
         if (!this.expand(best.tool, 1, sim, st)) return false;
         sim.tools.add(best.tool); this.dirty = true;
       }
+      // 見えている育ちきった作物は、その本数ぶんだけ取る。足りない分は畑 (植わっている分を待つ・植える)
+      if (FARM[item] && best.from === FARM[item].crop && best.where === 'visible' && this.farm.ripe[best.from] > 0) {
+        const take = Math.min(n, Math.ceil(this.farm.ripe[best.from] * FARM[item].yield));
+        sim.out.push({ item, count: take, how: 'collect', from: best.from, where: best.where, tool: null, tries: this.farm.ripe[best.from] });
+        return take >= n || this.expandFarm(item, n - take, sim, st);
+      }
       // tries: 期待値で何回壊すか (落ちる数の期待値から)。文 (pathText) には出さない
       sim.out.push({ item, count: n, how: 'collect', from: best.from, where: best.where, tool: best.tool || null, tries: Math.ceil(n / (best.expect || 1)) });
       return true;
     }
+    if (best.how === 'farm') return this.expandFarm(item, n, sim, st);
     if (best.how === 'kill') { sim.out.push({ item, count: n, how: 'kill', from: best.from, where: best.where, tries: Math.ceil(n / (best.expect || 1)) }); return true; }
     if (best.how === 'craft') {
       const r = best.recipe;
@@ -337,8 +383,40 @@ class Planner {
     return false;
   }
 
+  // 畑の手順: 種 (・クワ) を先に手に入れ、最後に { how: 'farm', plants (これから植える本数), growing (もう植わっている本数), till (耕すマス), seed, crop, tool, rounds }
+  expandFarm(item, n, sim, st) {
+    const fm = FARM[item];
+    const plantsAll = Math.ceil(n / fm.yield);
+    const growing = Math.min(plantsAll, sim.farmGrowing[fm.crop] || 0);
+    sim.farmGrowing[fm.crop] = (sim.farmGrowing[fm.crop] || 0) - growing;
+    let plants = plantsAll - growing;
+    let rounds = 1;
+    if (plants > 0 && fm.seed === item) {
+      // 収穫物そのものが種: 持っている数 (道筋の初めの持ち物) を植え、増やして戻す
+      const seeds = Math.max(1, Math.min(plants, this.inv0[item] || 0));
+      rounds = Math.max(1, Math.ceil(Math.log((n + seeds) / seeds) / Math.log(fm.yield)));
+      plants = seeds;
+    } else if (plants > 0 && !this.expand(fm.seed, plants, sim, st)) return false;
+    const empty = Math.min(plants, sim.farmEmpty);
+    sim.farmEmpty -= empty;
+    const till = plants - empty;
+    let tool = null;
+    if (till > 0) {
+      tool = HOES.find((h) => sim.tools.has(h)) || null;
+      if (!tool) {
+        const costs = this.costs();
+        const h = HOES.map((x) => ({ x, c: costs.has(x) ? costs.get(x).c : this.cost(x).c })).sort((a, b) => a.c - b.c)[0];
+        if (!h || !Number.isFinite(h.c) || !this.expand(h.x, 1, sim, st)) { sim.fail = sim.fail || 'wooden_hoe'; return false; }
+        sim.tools.add(h.x); this.dirty = true; tool = h.x;
+      }
+    }
+    sim.out.push({ item, count: n, how: 'farm', crop: fm.crop, seed: fm.seed, plants, growing, till, tool, rounds });
+    return true;
+  }
+
   newSim() {
     return { inv: { ...this.inv0 }, out: [], stations: { ...this.stations0 }, tools: new Set(Object.keys(this.inv0).filter((k) => this.inv0[k] > 0)),
+      farmEmpty: this.farm.empty, farmGrowing: { ...this.farm.growing },
       chests: this.chests0.map((c) => ({ id: c.id, items: { ...c.items } })) };
   }
 
@@ -382,6 +460,14 @@ class Planner {
       if (o.how === 'smelt') {
         if (!this.stationAvail('furnace')) { stations.add('furnace'); walk('furnace', depth + 1); }
         walk(o.from, depth + 1);
+      }
+      if (o.how === 'farm') {
+        leaves.push({ item: it, how: 'farm', from: o.crop, where: (this.farm.growing[o.crop] || 0) > 0 ? 'growing' : 'plant', expect: 1, depth });
+        if ((this.farm.growing[o.crop] || 0) === 0 && FARM[it].seed !== it) walk(FARM[it].seed, depth + 1);
+        if ((this.farm.growing[o.crop] || 0) === 0 && !(this.farm.empty > 0) && !HOES.some((h) => this.hasTool(h))) {
+          const h = HOES.map((x) => ({ x, c: costs.has(x) ? costs.get(x).c : Infinity })).sort((a, b) => a.c - b.c)[0];
+          if (h && Number.isFinite(h.c)) { if (!tools.has(h.x)) tools.set(h.x, depth); walk(h.x, depth + 1); }
+        }
       }
     };
     walk(item, 0);
@@ -472,7 +558,36 @@ function stepText(s) {
   if (s.how === 'kill') return `${n} ← ${s.from}(${WHERE_JA[s.where] || ''})`;
   if (s.how === 'craft') return `${n} ← ${Object.entries(s.ings).map(([k, v]) => `${k} ${v}`).join(' + ')}${s.station ? ` (${s.station})` : ''}`;
   if (s.how === 'smelt') return `${n} ← ${s.from} ${s.count} を焼く (furnace・${s.fuel})`;
+  if (s.how === 'farm') return `${n} ← ${farmText(s)}`;
   return n;
+}
+
+// 畑の手順の文: 耕す → 植える → 育つ → 取る のうち、残っている所から
+function farmText(s) {
+  const parts = [];
+  if (s.till > 0) parts.push(`耕す ${s.till} (${s.tool} を土に)`);
+  if (s.plants > 0) parts.push(`${s.seed} ${s.plants} を耕地に植える`);
+  if (s.growing > 0) parts.push(`植わっている ${s.crop} ${s.growing}`);
+  parts.push(`育ったら ${s.crop} を壊して取る${s.rounds > 1 ? ` (植えて取るのを${s.rounds}回)` : ''}`);
+  return parts.join(' → ');
+}
+function farmNext(s) {
+  if (s.till > 0) return `${s.tool} で土を耕して耕地にする`;
+  if (s.plants > 0) return `${s.seed} を耕地に植える`;
+  return `${s.crop} が育ちきったら壊して ${s.item} を取る`;
+}
+function farmTextEn(s) {
+  const parts = [];
+  if (s.till > 0) parts.push(`till ${s.till} (${s.tool} on dirt)`);
+  if (s.plants > 0) parts.push(`plant ${s.plants} ${s.seed} on farmland`);
+  if (s.growing > 0) parts.push(`${s.growing} ${s.crop} planted already`);
+  parts.push(`break fully grown ${s.crop}${s.rounds > 1 ? ` (plant and harvest ${s.rounds} times)` : ''}`);
+  return parts.join(' -> ');
+}
+function farmNextEn(s) {
+  if (s.till > 0) return `till dirt into farmland with ${s.tool}`;
+  if (s.plants > 0) return `plant ${s.seed} on farmland`;
+  return `when ${s.crop} is fully grown, break it for ${s.item}`;
 }
 
 function nextText(s) {
@@ -480,6 +595,7 @@ function nextText(s) {
   if (s.how === 'craft') return `${s.item} を作る`;
   if (s.how === 'chest') return `共有のチェスト ${s.from} から ${s.item} を出す`;
   if (s.how === 'smelt') return `${s.from} を焼いて ${s.item} にする`;
+  if (s.how === 'farm') return farmNext(s);
   if ((s.how === 'kill' || s.how === 'collect') && s.from && s.from !== s.item) return `${s.from} から ${s.item} を手に入れる`;
   return `${s.item} を手に入れる`;
 }
@@ -495,6 +611,7 @@ function stepTextEn(s) {
   if (s.how === 'kill') return `${n} <- kill ${s.from}${w ? ` (${w})` : ''}`;
   if (s.how === 'craft') return `${n} <- ${Object.entries(s.ings).map(([k, v]) => `${k} x${v}`).join(' + ')}${s.station ? ` (at ${s.station})` : ''}`;
   if (s.how === 'smelt') return `${n} <- smelt ${s.from} x${s.count} (furnace, fuel ${s.fuel})`;
+  if (s.how === 'farm') return `${n} <- ${farmTextEn(s)}`;
   return n;
 }
 function nextTextEn(s) {
@@ -502,6 +619,7 @@ function nextTextEn(s) {
   if (s.how === 'craft') return `make ${s.item}`;
   if (s.how === 'chest') return `take ${s.item} out of ${chestEn(s.from)}`;
   if (s.how === 'smelt') return `smelt ${s.from} into ${s.item}`;
+  if (s.how === 'farm') return farmNextEn(s);
   if (s.how === 'kill' && s.from) return `get ${s.item} by killing ${s.from}`;
   if (s.how === 'collect' && s.from && s.from !== s.item) return `get ${s.item} from ${s.from}`;
   return `get ${s.item}`;
@@ -549,4 +667,4 @@ function effortWord(c) {
   return EFFORT_WORDS.find(([lim]) => c < lim)[1];
 }
 
-module.exports = { EFFORT_EN, stepTextEn, nextTextEn, pathEn, WHERE_EN, Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };
+module.exports = { FARM, FARM_CROPS, HOES, farmText, EFFORT_EN, stepTextEn, nextTextEn, pathEn, WHERE_EN, Planner, plan, effortWord, EFFORT_WORDS, CROP_BLOCKS, SAPLING_DROP, isPlaceableBlockItem, PLANTABLE, index, pathText, stepText, nextText, remaining, mergeSteps, GROUND, FUELS, COST, dropFix, blockDropExpect, chanceCost, VOCAB_MIN_CHANCE };

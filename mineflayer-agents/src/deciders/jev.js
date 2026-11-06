@@ -361,6 +361,15 @@ function pathMatch(s, action, arg) {
     if (s.how === 'craft' && action === 'craft' && fam(a, s.item)) return 'step';
     if (s.how === 'chest' && action === 'chest_take' && fam(a, s.item)) return 'step'; // 共有のチェストから出す (board.js)
     if (s.how === 'smelt' && ((action === 'smelt' && fam(a, s.from)) || action === 'furnace_take')) return 'step';
+    if (s.how === 'farm') { // 畑: 耕す (クワを土に)・植える (種を耕地に)・取る (作物を壊す)
+      const [x, y] = a.split('>');
+      const yb = String(y || '').split('@')[0];
+      if (s.till > 0 && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block)$/.test(yb)) return 'step';
+      if (s.plants > 0 && action === 'use_on' && x === s.seed && yb === 'farmland') return 'step';
+      if (!(s.till > 0) && !(s.plants > 0) && action === 'collect' && a === s.crop) return 'step';
+      if (action === 'go_to' && /farmland|wheat|carrots|potatoes|beetroots/.test(a)) return 'approach';
+      return 'other';
+    }
     if ((action === 'go_to' || action === 'pillar') && (fam(a, src) || (s.station && a === s.station))) return 'approach';
     return 'other';
   }
@@ -368,7 +377,8 @@ function pathMatch(s, action, arg) {
   if (s.how === 'enclose' && action === 'enclose') return 'step';
   if (s.how === 'lure' && action === 'lure' && x === s.animal) return 'step';
   if (s.how === 'breed' && action === 'use_on' && y === s.animal) return 'step';
-  if (s.how === 'till' && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block)$/.test(y || '')) return 'step';
+  if (s.how === 'till' && action === 'use_on' && /_hoe$/.test(x || '') && /^(dirt|grass_block)$/.test(String(y || '').split('@')[0])) return 'step';
+  if (s.how === 'plant' && action === 'use_on' && x === s.seed && String(y || '').split('@')[0] === 'farmland') return 'step';
   if (s.how === 'place' && action === 'place' && fam(a, s.item)) return 'step';
   if (s.how === 'chest_put' && action === 'chest_put' && fam(a, s.item)) return 'step';
   if (s.how === 'find' && (action === 'explore' || (action === 'go_to' && a === s.block))) return 'step';

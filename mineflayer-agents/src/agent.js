@@ -23,6 +23,7 @@ const nochange = require('./nochange');
 const { SelfGoal } = require('./selfgoal');
 const { GoalPlan } = require('./goalplan');
 const { GoalPath } = require('./goalpath');
+const { farmStatus } = require('./states');
 const { Reflect } = require('./reflect');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
 const { isPlaceableBlockItem } = require('./planner');
@@ -82,6 +83,33 @@ function obsEn(raw, cfg, planText) {
   return observationEn(raw, { names: knowledge.namesInText(planText), maxVisible: js.maxVisible, maxNearby: js.maxNearby, showDay: cfg.perception.showDay });
 }
 
+// use_on の畑の対象: 近くの空いている耕地・育ちきった作物 (farm = states.farmStatus) と、覚えている耕地・作物の場所 (cfg.act.farmRadius m 以内)
+const FARM_PLACE = /^(farmland|wheat|carrots|potatoes|beetroots)$/;
+function farmTargets(raw, memPlaces, farm, cfg) {
+  const out = [];
+  if (farm) {
+    if (farm.emptyPos && farm.emptyPos.length) out.push({ name: 'farmland', idName: 'farmland@empty', pos: farm.emptyPos[0], note: '空いている', noteEn: 'empty' });
+    for (const [crop, ps] of Object.entries(farm.cropPos || {})) {
+      const r = ps.find((q) => q.ripe);
+      if (r) out.push({ name: crop, idName: `${crop}@ripe`, pos: r, note: '育ちきった', noteEn: 'fully grown' });
+    }
+  }
+  const far = (cfg.act && cfg.act.farmRadius) ?? 48;
+  for (const p of memPlaces || []) {
+    if (!FARM_PLACE.test(p.kind) || p.d > far || p.d < 4) continue;
+    out.push({ name: p.kind, idName: `${p.kind}@${p.id}`, pos: p.pos, note: `覚えている所 ${p.id}`, noteEn: `remembered place ${p.id}` });
+  }
+  return out;
+}
+
+// 知っていることを選ぶ名前に、覚えている耕地・作物の場所と、近くの畑を足す (種を持つ人・耕地を知る人に畑の事実が出るように)
+function farmNames(names, memPlaces, farm) {
+  for (const p of memPlaces || []) if (FARM_PLACE.test(p.kind)) names.add(p.kind);
+  if (farm && farm.farmland > 0) names.add('farmland');
+  for (const c of Object.keys((farm && farm.cropPos) || {})) names.add(c);
+  return names;
+}
+
 // 観測と記憶から、decider に渡す材料を作る (bot に依存しない)
 function buildContext(raw, memory, cfg, extra = {}) {
   const help = helpOf(cfg);
@@ -105,6 +133,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
     board: extra.boardActs || null,
+    farmTargets: farmTargets(raw, memPlaces, extra.farm || null, cfg),
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
@@ -115,7 +144,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
   let factsShown = [];
   if (kn && kn.facts.length) {
     const hints = new Set(cfg.goal.hints || []);
-    factsShown = knowledge.selectFacts(kn.facts, { ...factsOpts(raw, memory, prog, extra.factsNames, extra.ahead || null), names: knowledge.namesInView({ raw, actions, plan: prog }), max: kn.max, exclude: hints });
+    factsShown = knowledge.selectFacts(kn.facts, { ...factsOpts(raw, memory, prog, extra.factsNames, extra.ahead || null), names: farmNames(knowledge.namesInView({ raw, actions, plan: prog }), memPlaces, extra.farm), max: kn.max, exclude: hints });
   }
   const goal = help.hints ? { ...cfg.goal, hints: [...(cfg.goal.hints || []), ...factsShown.map((f) => f.text)] } : { ...cfg.goal, hints: [] };
   // Jev 用の英語 (同じ raw・記憶・事実から。jev の stateLang: 'en' のときに使う)。件数は cfg.decider.jev.state で絞る
@@ -916,7 +945,10 @@ class Agent {
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
     const socialEn = this.social.words({ lang: 'en' });
     const bview = this.prepareBoard(raw);
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
+    // 近くの畑 (空いている耕地・植わっている作物)。use_on の対象・planner の world.farm に使う
+    let farm = null;
+    try { farm = bot && typeof bot.blockAt === 'function' ? farmStatus((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos) : null; } catch (_) { farm = null; }
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
       boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
@@ -942,7 +974,7 @@ class Agent {
     if (this.goalPlan && !this.goalPath) {
       const kn = this.help.hints ? this.knowledge : null;
       const facts = (text) => (kn && kn.facts.length
-        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text, null, ahead), names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
+        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text, null, ahead), names: farmNames(knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), memPlacesNow, farm), max: kn.max }).map((f) => f.text) : []);
       planUpdate = await this.goalPlan.update({
         persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, actions: ctx.actions, memText: ctx.memText, socialText, troubles,
         worst, peopleText: this.peopleText(raw), needNow: (k) => this.social.needsModel.effective()[k],
@@ -965,7 +997,7 @@ class Agent {
     if (this.goalPath) {
       const kn = this.help.hints ? this.knowledge : null;
       const facts = (text) => (kn && kn.facts.length
-        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text, null, ahead), names: knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), max: kn.max }).map((f) => f.text) : []);
+        ? knowledge.selectFacts(kn.facts, { ...factsOpts(raw, this.memory, text, null, ahead), names: farmNames(knowledge.namesInView({ raw, actions: ctx.actions, plan: text }), memPlacesNow, farm), max: kn.max }).map((f) => f.text) : []);
       const cellSize = this.memory.limits.exploreCell;
       planUpdate = await this.goalPath.update({
         persona: cfg.persona, goalText: cfg.goal.text, obsText: ctx.obsText, raw, facts, allFacts: kn ? kn.facts : [], memText: ctx.memText, socialText, troubles,
@@ -980,6 +1012,7 @@ class Agent {
         pressing: (o) => this.social.needsModel.pressing(o),
         later: (o) => this.social.needsModel.later(o), // 先のつらさ (anticipate.js)
         board: bview ? bview.goal : null,
+        _farm: farm || undefined,
       }, tick, { troubles });
       this.lastGave = [];
       ctx.progress = this.goalPath.planText();

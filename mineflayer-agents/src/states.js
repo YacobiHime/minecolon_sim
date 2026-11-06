@@ -6,10 +6,11 @@
 //     lit      : 拠点の近くに松明などの明かりが N 個ある               (target: lit_base)
 //     walled   : 拠点の真ん中が壁 (高さ2) か柵で囲われている            (target: walled_base)
 //     chest    : 拠点の近くのチェストに <物> が N 個ある (開けて見た中身) (target: chest_<物>)
+//     planted  : 今いる所の近くの耕地に <作物> が N 本植わっている (育ち途中も含む) (target: planted_wheat など)
 //   済んだかはプログラムが確かめる (checkState)。道筋は仕様だけで作る (planState): 要る物は planner でたどり、
 //   そのあとに行動の手順 (囲う・連れてくる・増やす・耕す・置く・入れる) を並べる。
 //   研究方針: 仕様・事実は見せるが、どう使うとよいかは書かない。数値はここで持ち、モデルには言葉だけ (手間は 小/中/大)。
-const { Planner, effortWord, EFFORT_EN } = require('./planner');
+const { Planner, effortWord, EFFORT_EN, FARM, FARM_CROPS } = require('./planner');
 const { dist3 } = require('./util');
 const { chestLabelEn } = require('./board');
 
@@ -18,9 +19,12 @@ const PEN_ANIMALS = ['cow', 'sheep', 'pig', 'chicken'];
 // 囲いの境 (人・動物が越えられない): 柵・塀・閉じた柵の門
 const BARRIER = /_fence$|_wall$|_fence_gate$|^iron_bars$/;
 const LIGHTS = /^(torch|wall_torch|soul_torch|soul_wall_torch|lantern|soul_lantern|glowstone|jack_o_lantern|sea_lantern|shroomlight|campfire|soul_campfire|redstone_lamp)$/;
-const DEFAULTS = { penSize: 5, wallSize: 3, radius: 8, maxCells: 160, farmRadius: 8, hydrate: 4, chestItems: 2, near: 16, counts: { pen: 2, farmland: 8, lit: 4, walled: 1, chest: 8 } };
+const DEFAULTS = { penSize: 5, wallSize: 3, radius: 8, maxCells: 160, farmRadius: 8, hydrate: 4, chestItems: 2, near: 16, counts: { pen: 2, farmland: 8, lit: 4, walled: 1, chest: 8, planted: 8 } };
 // 行動の手順の手間 (planner の手間と同じ尺度。数値はモデルに見せない)
-const ACT_COST = { enclose: 3, encloseEach: 0.1, lure: 4, lureUnseen: 10, breed: 3, till: 0.3, findWater: 6, place: 0.3, chestPut: 1 };
+const ACT_COST = { enclose: 3, encloseEach: 0.1, lure: 4, lureUnseen: 10, breed: 3, till: 0.3, findWater: 6, place: 0.3, chestPut: 1, plant: 0.3 };
+// 作物 (ブロック) → 種 (植える物)
+const CROP_SEED = Object.fromEntries(Object.values(FARM).map((f) => [f.crop, f.seed]));
+const SEED_CROP = Object.fromEntries(Object.values(FARM).map((f) => [f.seed, f.crop]));
 
 const isSolid = (b) => !!b && b.boundingBox === 'block' && !BARRIER.test(b.name);
 const isOpenGate = (b) => !!b && /_fence_gate$/.test(b.name) && (b.open === true || (typeof b.getProperties === 'function' && (() => { try { return b.getProperties().open === true; } catch (_) { return false; } })()));
@@ -83,6 +87,31 @@ function hydratedFarmland(blockAt, center, { radius = DEFAULTS.farmRadius, hydra
   return { all, wet };
 }
 
+// 近くの畑の様子: 耕地 (上が空いている = 空き)・作物 (育ち途中 / 育ちきった)。age が最大なら育ちきった
+//   返り値 { farmland, empty, emptyPos: [近い順に数個], growing: { wheat: n }, ripe: { wheat: n }, cropPos: { wheat: [...] } }
+function farmStatus(blockAt, center, { radius = DEFAULTS.farmRadius, down = 3, up = 2, keep = 4 } = {}) {
+  const cx = Math.floor(center.x); const cy = Math.floor(center.y); const cz = Math.floor(center.z);
+  const out = { farmland: 0, empty: 0, emptyPos: [], growing: {}, ripe: {}, cropPos: {} };
+  for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) for (let dy = -down; dy <= up; dy++) {
+    const b = blockAt(cx + dx, cy + dy, cz + dz);
+    if (!b || b.name !== 'farmland') continue;
+    out.farmland += 1;
+    const above = blockAt(cx + dx, cy + dy + 1, cz + dz);
+    const pos = { x: cx + dx, y: cy + dy, z: cz + dz, d: Math.round(Math.hypot(dx, dz, dy) * 10) / 10 };
+    if (!above || above.name === 'air' || above.name === 'cave_air') { out.empty += 1; out.emptyPos.push(pos); continue; }
+    if (!FARM_CROPS.test(above.name)) continue;
+    let age = null;
+    try { age = typeof above.getProperties === 'function' ? Number(above.getProperties().age) : (above.age ?? null); } catch (_) { age = null; }
+    const max = above.name === 'beetroots' ? 3 : 7;
+    const k = age != null && age >= max ? 'ripe' : 'growing';
+    out[k][above.name] = (out[k][above.name] || 0) + 1;
+    (out.cropPos[above.name] = out.cropPos[above.name] || []).push({ ...pos, y: pos.y + 1, ripe: k === 'ripe' });
+  }
+  out.emptyPos.sort((a, b) => a.d - b.d).splice(keep);
+  for (const c of Object.keys(out.cropPos)) out.cropPos[c].sort((a, b) => a.d - b.d).splice(keep);
+  return out;
+}
+
 function countLights(blockAt, center, { radius = DEFAULTS.radius - 2, down = 2, up = 4 } = {}) {
   const cx = Math.floor(center.x); const cy = Math.floor(center.y); const cz = Math.floor(center.z);
   let n = 0;
@@ -105,6 +134,8 @@ function parseStateId(id) {
   if (s === 'walled_base') return { type: 'walled' };
   m = s.match(/^chest_([a-z0-9_]+)$/);
   if (m) return { type: 'chest', item: m[1] };
+  m = s.match(/^planted_([a-z_]+)$/);
+  if (m && CROP_SEED[m[1]]) return { type: 'planted', crop: m[1], seed: CROP_SEED[m[1]] };
   m = s.match(/^shared_([A-Za-z0-9_]+-\d+)__([a-z0-9_]+)$/);
   if (m) return { type: 'shared', chest: m[1], item: m[2] };
   return null;
@@ -118,6 +149,7 @@ function stateGoalText(st, count) {
   if (st.type === 'lit') return `拠点の近くに明かりが${n}個ある`;
   if (st.type === 'walled') return '拠点の真ん中が囲われている';
   if (st.type === 'chest') return `拠点の近くのチェストに ${st.item} が${n}個ある`;
+  if (st.type === 'planted') return `近くの耕地に ${st.crop} が${n}本植わっている`;
   if (st.type === 'shared') return `共有のチェスト ${st.chest} に ${st.item} が${n}個ある`;
   return '';
 }
@@ -130,6 +162,7 @@ function stateGoalTextEn(st, count) {
   if (st.type === 'lit') return `${n} lights near the base`;
   if (st.type === 'walled') return 'the center of the base is enclosed';
   if (st.type === 'chest') return `${n} ${st.item} in a chest near the base`;
+  if (st.type === 'planted') return `${n} ${st.crop} planted on farmland nearby`;
   if (st.type === 'shared') return `${n} ${st.item} in ${chestLabelEn(st.chest)}`;
   return '';
 }
@@ -145,6 +178,11 @@ function senseState(st, sense, cfg = DEFAULTS) {
     if (!blockAt || !here) return { have: 0, known: false };
     const f = hydratedFarmland(blockAt, here, { radius: c.farmRadius, hydrate: c.hydrate });
     return { have: f.wet, all: f.all, known: true };
+  }
+  if (st.type === 'planted') {
+    if (!blockAt || !here) return { have: 0, known: false };
+    const f = farmStatus(blockAt, here, { radius: c.farmRadius });
+    return { have: (f.growing[st.crop] || 0) + (f.ripe[st.crop] || 0), empty: f.empty, farmland: f.farmland, ripe: f.ripe[st.crop] || 0, known: true };
   }
   // 共有のチェスト: 中身は全員に見えている (board.js。sense.shared = [{ id, items, known }])
   if (st.type === 'shared') {
@@ -231,6 +269,16 @@ function planState(st, count, world, status = { have: 0 }, opts = {}) {
     need.push({ item: hoe, count: 1 });
     if (!visBlocks.has('water')) acts.push({ how: 'find', block: 'water' });
     acts.push({ how: 'till', count: left, tool: hoe });
+  } else if (st.type === 'planted' && left > 0) {
+    need.push({ item: st.seed, count: left });
+    const till = Math.max(0, left - (status.empty || 0));
+    if (till > 0) {
+      const hoe = cheapest(['hoe']);
+      need.push({ item: hoe, count: 1 });
+      if (!visBlocks.has('water') && !(status.farmland > 0)) acts.push({ how: 'find', block: 'water' });
+      acts.push({ how: 'till', count: till, tool: hoe });
+    }
+    acts.push({ how: 'plant', seed: st.seed, crop: st.crop, count: left });
   } else if (st.type === 'lit' && left > 0) {
     need.push({ item: 'torch', count: left });
     acts.push({ how: 'place', item: 'torch', count: left, where: '拠点' });
@@ -259,6 +307,7 @@ function planState(st, count, world, status = { have: 0 }, opts = {}) {
     else if (a.how === 'find') effort += ACT_COST.findWater;
     else if (a.how === 'place') effort += ACT_COST.place * a.count;
     else if (a.how === 'chest_put') effort += ACT_COST.chestPut;
+    else if (a.how === 'plant') effort += ACT_COST.plant * a.count;
   }
   const steps = [...items.steps, ...acts.map((a) => ({ ...a, act: true }))];
   return { ok: true, items, acts, steps, next: steps[0] || null, done: left === 0, left, effort, effortWord: left === 0 ? 'なし' : effortWord(effort) };
@@ -271,6 +320,7 @@ function actText(a) {
   if (a.how === 'breed') return `${a.animal} を${a.count}頭増やす (${a.food} を2頭に)`;
   if (a.how === 'till') return `耕す ${a.count} (${a.tool} を水の近くの土に)`;
   if (a.how === 'find') return `${a.block} を探す`;
+  if (a.how === 'plant') return `${a.seed} ${a.count} を耕地に植える`;
   if (a.how === 'place') return `${a.item} ${a.count} を置く (${a.where})`;
   if (a.how === 'chest_put') return a.chest ? `共有のチェスト ${a.chest} に ${a.item} ${a.count} を入れる` : `chest に ${a.item} ${a.count} を入れる`;
   return a.how;
@@ -282,12 +332,13 @@ function actTextEn(a) {
   if (a.how === 'breed') return `breed ${a.count} more ${a.animal} (${a.food} to two of them)`;
   if (a.how === 'till') return `till ${a.count} (${a.tool} on dirt near water)`;
   if (a.how === 'find') return `find ${a.block}`;
+  if (a.how === 'plant') return `plant ${a.count} ${a.seed} on farmland`;
   if (a.how === 'place') return `place ${a.count} ${a.item} (${a.where === '拠点' ? 'at the base' : a.where})`;
   if (a.how === 'chest_put') return a.chest ? `put ${a.count} ${a.item} into ${chestLabelEn(a.chest)}` : `put ${a.count} ${a.item} into a chest`;
   return a.how;
 }
 
-const UNIT = { pen: '頭', farmland: 'マス', lit: '個', walled: '', chest: '個', shared: '個' };
+const UNIT = { pen: '頭', farmland: 'マス', lit: '個', walled: '', chest: '個', shared: '個', planted: '本' };
 const GEAR = /_(sword|axe|pickaxe|shovel|hoe|helmet|chestplate|leggings|boots)$|^(shield|bow|crossbow|fishing_rod|shears)$/;
 
 // 2B に見せる状態の候補 [{ name, desc, state, count }]。
@@ -301,6 +352,10 @@ function stateCandidates(ctx) {
   const ids = [...PEN_ANIMALS.map((a) => `pen_${a}`), 'farmland', 'lit_base', 'walled_base'];
   const inv = new Map();
   for (const i of raw.inventory || []) if (!GEAR.test(i.name)) inv.set(i.name, (inv.get(i.name) || 0) + i.count);
+  // 植わっている作物: 小麦 (種は草から) と、種を持っている作物
+  const crops = new Set(['wheat']);
+  for (const [n] of inv) if (SEED_CROP[n]) crops.add(SEED_CROP[n]);
+  for (const cr of crops) ids.push(`planted_${cr}`);
   for (const [n] of [...inv].sort((a, b) => b[1] - a[1]).slice(0, c.chestItems)) ids.push(`chest_${n}`);
   const extra = new Map();
   for (const x of ctx.shared || []) {
@@ -321,7 +376,7 @@ function stateCandidates(ctx) {
     const fe = []; // 英語 (Jev 用。同じ値から)
     if (ex && ex.note) { facts.push(ex.note); fe.push(ex.noteEn || ex.note); }
     if (status.noBase) { facts.push('拠点はまだない'); fe.push('no base yet'); }
-    else if (st.type === 'farmland' || status.known) {
+    else if (st.type === 'farmland' || st.type === 'planted' || status.known) {
       facts.push(st.type === 'walled' ? (status.have ? '今は囲われている' : '今は囲われていない') : `今${status.have}${UNIT[st.type]}`);
       fe.push(st.type === 'walled' ? (status.have ? 'enclosed now' : 'not enclosed now') : `${status.have} now`);
     } else { facts.push(status.far ? '拠点から離れているので今は数えられない' : '今は数えられない'); fe.push('cannot be counted now'); }
@@ -330,9 +385,10 @@ function stateCandidates(ctx) {
       facts.push(e ? `${st.animal} が${ctx.dir ? ctx.dir(e.pos) : ''}に見える` : `${st.animal} はまだ見ていない`);
       fe.push(e ? `${st.animal} visible` : `${st.animal} not seen yet`);
     }
+    if (st.type === 'planted' && status.known) { facts.push(`空いている耕地${status.empty || 0}マス`); fe.push(`${status.empty || 0} empty farmland`); }
     if (st.type === 'farmland') { const w = (ctx.world && (ctx.world.visibleBlocks || []).includes('water')); facts.push(w ? 'water が見える' : 'water は見えない'); fe.push(w ? 'water visible' : 'no water visible'); }
     if (p.ok && p.acts.length) {
-      const needs = p.acts.flatMap((a) => (a.how === 'enclose' ? [`${a.item} ${a.count - (a.gate ? 1 : 0)}${a.gate ? `・${a.gate} 1` : ''}`] : a.how === 'lure' || a.how === 'breed' ? [] : a.how === 'till' ? [`${a.tool} 1`] : a.how === 'place' || a.how === 'chest_put' ? [`${a.item} ${a.count}`] : []));
+      const needs = p.acts.flatMap((a) => (a.how === 'enclose' ? [`${a.item} ${a.count - (a.gate ? 1 : 0)}${a.gate ? `・${a.gate} 1` : ''}`] : a.how === 'lure' || a.how === 'breed' ? [] : a.how === 'till' ? [`${a.tool} 1`] : a.how === 'plant' ? [`${a.seed} ${a.count}`] : a.how === 'place' || a.how === 'chest_put' ? [`${a.item} ${a.count}`] : []));
       const food = p.acts.find((a) => a.how === 'lure' || a.how === 'breed');
       if (food) needs.push(`${food.food} ${p.items.steps.filter((x) => x.item === food.food).reduce((t, x) => t + x.count, 0) || 1}`);
       if (needs.length) { facts.push(`要る物: ${[...new Set(needs)].join('・')}`); fe.push(`needs ${[...new Set(needs)].join(', ')}`); }
@@ -344,4 +400,4 @@ function stateCandidates(ctx) {
   return out;
 }
 
-module.exports = { stateGoalTextEn, actTextEn, stateCandidates, UNIT,  BREED_FOOD, PEN_ANIMALS, BARRIER, LIGHTS, DEFAULTS, ACT_COST, enclosedArea, hydratedFarmland, countLights, parseStateId, stateGoalText, senseState, planState, actText, isBarrier, isSolid };
+module.exports = { farmStatus, CROP_SEED, SEED_CROP, stateGoalTextEn, actTextEn, stateCandidates, UNIT,  BREED_FOOD, PEN_ANIMALS, BARRIER, LIGHTS, DEFAULTS, ACT_COST, enclosedArea, hydratedFarmland, countLights, parseStateId, stateGoalText, senseState, planState, actText, isBarrier, isSolid };
