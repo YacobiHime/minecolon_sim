@@ -589,6 +589,8 @@
   "decider": {
     "type": "jev",
     "jev": {
+      "_comment_provider": "Jev の提供元: openrouter (既定。キー OPENROUTER_API / /root/.config/openrouter.env) か typesafe (TypeSafe 直)。版を固定するなら providers.openrouter.model を typesafe/jev-1.14 に",
+      "provider": "openrouter",
       "model": "jev-latest",
       "twoStage": {
         "_comment": "対象が maxDirect 個以下の行動と direct の行動は1回目にそのまま並べ、ほかは分類1つにまとめて、選ばれたら2回目で対象を選ぶ。enabled: false で1段",

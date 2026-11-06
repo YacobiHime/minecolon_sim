@@ -52,7 +52,7 @@ const LLM_STATS = {
 
 // 提供元・役ごとの使用量と費用 (プロセスの中の全員でまとめる)。maxUsd を超えたら exceeded を立て、以後の呼び出しは投げずに失敗にする
 function emptyUse() {
-  return { calls: 0, errors: 0, rateLimited: 0, retries: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, reasoningTokens: 0, ms: 0, costUsd: 0, unpriced: 0 };
+  return { calls: 0, errors: 0, rateLimited: 0, retries: 0, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, ms: 0, costUsd: 0, unpriced: 0 };
 }
 const LLM_USAGE = {
   byProvider: {}, byRole: {}, totalUsd: 0, maxUsd: null, exceeded: false, listeners: [], providers: {},
@@ -65,7 +65,7 @@ const LLM_USAGE = {
       if (r.error) u.errors += 1;
       u.rateLimited += r.rateLimited || 0;
       u.retries += r.retries || 0;
-      for (const f of ['promptTokens', 'cachedTokens', 'completionTokens', 'reasoningTokens', 'ms']) u[f] += r[f] || 0;
+      for (const f of ['promptTokens', 'cachedTokens', 'cacheWriteTokens', 'completionTokens', 'reasoningTokens', 'ms']) u[f] = (u[f] || 0) + (r[f] || 0);
       u.costUsd += r.costUsd || 0;
       if (r.priced === false && !r.error) u.unpriced += 1;
     }
@@ -236,13 +236,15 @@ class LLMDecider {
         const reasoningTokens = d.usage?.completion_tokens_details?.reasoning_tokens ?? null;
         const cachedTokens = d.timings?.cache_n ?? d.usage?.prompt_tokens_details?.cached_tokens ?? null;
         // llama-server の cache_n はキャッシュに当たったトークン (費用は 0 なので区別しない)
-        const cost = costOf(this.pricing, { promptTokens, cachedTokens: d.usage?.prompt_tokens_details?.cached_tokens ?? 0, completionTokens });
-        Object.assign(use, { error: false, promptTokens, cachedTokens: d.usage?.prompt_tokens_details?.cached_tokens ?? 0, completionTokens, reasoningTokens, ms, costUsd: cost.usd, priced: cost.priced });
+        // OpenAI: cached_tokens (キャッシュに当たった) と cache_write_tokens (キャッシュに書いた。単価が入力より高い) は prompt_tokens の内数
+        const cacheWriteTokens = d.usage?.prompt_tokens_details?.cache_write_tokens ?? 0;
+        const cost = costOf(this.pricing, { promptTokens, cachedTokens: d.usage?.prompt_tokens_details?.cached_tokens ?? 0, cacheWriteTokens, completionTokens });
+        Object.assign(use, { error: false, promptTokens, cachedTokens: d.usage?.prompt_tokens_details?.cached_tokens ?? 0, cacheWriteTokens, completionTokens, reasoningTokens, ms, costUsd: cost.usd, priced: cost.priced });
         return {
           text: msg.content ?? '',
           refusal: msg.refusal ?? null,
           finishReason: d.choices?.[0]?.finish_reason ?? null, // 'length' = 出力が max_tokens か文脈の上限で切れた
-          promptTokens, completionTokens, reasoningTokens, cachedTokens,
+          promptTokens, completionTokens, reasoningTokens, cachedTokens, cacheWriteTokens,
           ms, serverMs, waitMs: stat.waitMs, queueMs, retries, rateLimited,
           provider: this.provider, model: this.model, costUsd: cost.usd,
         };

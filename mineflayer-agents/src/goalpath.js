@@ -752,6 +752,8 @@ class GoalPath {
     let r = null;
     try { r = await this.jev.call(state, questions, 'goal'); } catch (e) { r = { r: { ok: false, error: e.message } }; }
     record.jev = { inputTokens: r.inputTokens ?? null, ms: r.r ? r.r.ms : null, questions: Object.keys(questions).length, ok: !!(r.r && r.r.ok) };
+    // 提供元・費用・refusal (答えの無い質問は P = 0 として数える)
+    if (r.r) { if (r.r.via) record.jev.via = r.r.via; if (r.r.costUsd != null) record.jev.costUsd = r.r.costUsd; if (r.r.refusals && r.r.refusals.length) record.jev.refusals = r.r.refusals; if (r.r.longContext) record.jev.longContext = true; }
     if (!r.r || !r.r.ok) { record.rule = 'jev_error'; record.error = r.r ? r.r.error : null; return { index: 0, record }; }
     const ans = r.r.answers || {};
     const pv = (key) => { const a = ans[key]; return a && Number.isFinite(a.noul) ? a.noul : 0; };

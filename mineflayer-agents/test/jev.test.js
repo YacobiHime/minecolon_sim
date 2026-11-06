@@ -53,7 +53,7 @@ test('JevDecider: 1回の呼び出しに choice / score / noul / 相手ごとの
   const r = await d.decide(ctx());
   assert.strictEqual(seen.length, 1);
   const b = seen[0].body;
-  assert.strictEqual(seen[0].url, 'https://api.typesafe.ai/v1/systemone');
+  assert.strictEqual(seen[0].url, 'https://openrouter.ai/api/v1/systemone'); // 既定は OpenRouter 経由
   assert.strictEqual(seen[0].headers.Authorization, 'Bearer test-key');
   assert.strictEqual(b.model, 'jev-latest');
   assert.ok(!Array.isArray(b.questions), 'questions は名前をキーにした辞書');

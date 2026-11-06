@@ -18,7 +18,10 @@ function estimateTokens(text) {
 
 function emptyJev() {
   return { calls: 0, errors: 0, rateLimited: 0, retries: 0, inputChars: 0, inputTokens: 0, estimatedCalls: 0, outputTokens: 0, ms: 0, questions: 0,
-    byStage: {}, decisions: 0, decisionCalls: 0, decisionInputTokens: 0 };
+    byStage: {}, decisions: 0, decisionCalls: 0, decisionInputTokens: 0,
+    // OpenRouter の usage.cost (US ドル) が返った呼び出し: その費用の合計と、その呼び出しの入力トークン (残りは単価から計算する)
+    reportedCostUsd: 0, reportedCostCalls: 0, reportedCostInputTokens: 0,
+    refusals: 0, refusalCalls: 0, longContextCalls: 0, maxBodyBytes: 0, fatal: 0, via: {}, models: {} };
 }
 
 function emptyTwoB() {
@@ -53,6 +56,13 @@ class UsageMeter {
     j.outputTokens += r.outputTokens || 0;
     j.ms += r.ms || 0;
     j.questions += r.questions || 0;
+    if (Number.isFinite(r.costUsd)) { j.reportedCostUsd += r.costUsd; j.reportedCostCalls += 1; j.reportedCostInputTokens += est ? 0 : tok; }
+    if (r.refusals && r.refusals.length) { j.refusals += r.refusals.length; j.refusalCalls += 1; }
+    if (r.longContext) j.longContextCalls += 1;
+    if (r.bodyBytes > j.maxBodyBytes) j.maxBodyBytes = r.bodyBytes;
+    if (r.fatal) j.fatal += 1;
+    if (r.via) j.via[r.via] = (j.via[r.via] || 0) + 1;
+    if (r.model) j.models[r.model] = (j.models[r.model] || 0) + 1;
     // 1回目 (行動の分類まで) / 2回目 (対象を選ぶ) の別
     const st = (j.byStage[r.stage || 1] = j.byStage[r.stage || 1] || { calls: 0, inputChars: 0, inputTokens: 0 });
     st.calls += 1;
@@ -93,12 +103,18 @@ class UsageMeter {
     if (r.promptTokens && r.promptTokens > (k.maxPromptTokens || 0)) k.maxPromptTokens = r.promptTokens;
   }
 
+  // 費用: usage.cost が返った呼び出しはその値、返らなかった呼び出しは入力トークン × 単価
+  static jevCost(j) {
+    const rest = Math.max(0, (j.inputTokens || 0) - (j.reportedCostInputTokens || 0));
+    return Number(((j.reportedCostUsd || 0) + (rest / 1e6) * JEV_USD_PER_MTOK).toFixed(6));
+  }
+
   summary() {
     const j = this.jev;
     return {
       jev: { ...j, avgInputTokens: j.calls ? Math.round(j.inputTokens / j.calls) : 0,
         callsPerDecision: j.decisions ? Number((j.decisionCalls / j.decisions).toFixed(3)) : null,
-        inputTokensPerDecision: j.decisions ? Math.round(j.decisionInputTokens / j.decisions) : null, avgMs: j.calls ? Math.round(j.ms / j.calls) : 0, costUsd: Number(((j.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)), maxInputTokens: this.maxJevInputTokens, exceeded: this.exceeded },
+        inputTokensPerDecision: j.decisions ? Math.round(j.decisionInputTokens / j.decisions) : null, avgMs: j.calls ? Math.round(j.ms / j.calls) : 0, costUsd: UsageMeter.jevCost(j), reportedCostUsd: Number((j.reportedCostUsd || 0).toFixed(6)), maxInputTokens: this.maxJevInputTokens, exceeded: this.exceeded },
       twoB: { ...this.twoB, avgPromptChars: this.twoB.calls ? Math.round(this.twoB.promptChars / this.twoB.calls) : 0 },
       llm: this.llm && this.llm.summary ? this.llm.summary() : (this.llm || null),
     };
@@ -115,6 +131,7 @@ function mergeUsageSummaries(list, { maxInputTokens = null } = {}) {
     const j = u.jev || {};
     addInto(jev, j);
     for (const [st, v] of Object.entries(j.byStage || {})) addInto((jev.byStage[st] = jev.byStage[st] || { calls: 0, inputChars: 0, inputTokens: 0 }), v);
+    for (const g of ['via', 'models']) for (const [k, v] of Object.entries(j[g] || {})) jev[g][k] = (jev[g][k] || 0) + v;
     exceeded = exceeded || !!j.exceeded;
     const t = u.twoB || {};
     addInto(twoB, t);
@@ -126,6 +143,7 @@ function mergeUsageSummaries(list, { maxInputTokens = null } = {}) {
       if (mx) dst.maxPromptTokens = mx;
     }
   }
+  jev.maxBodyBytes = Math.max(0, ...list.filter(Boolean).map((u) => (u.jev && u.jev.maxBodyBytes) || 0)); // 足さずに最大
   // 文を作る LLM: 提供元ごと・役ごとの数を足す
   const llm = { byProvider: {}, byRole: {}, providers: {}, costUsd: 0, maxUsd: null, exceeded: false };
   for (const u of list.filter(Boolean)) {

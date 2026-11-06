@@ -147,7 +147,23 @@ function jevFromRows(all) {
     calls, decisions: loops.length, callsPerDecision: loops.length ? Number((calls / loops.length).toFixed(3)) : null, inputTokens: tok, inputChars: sum(loops.map((r) => r.jev.inputChars)),
     estimatedCalls: loops.filter((r) => r.jev.tokensEstimated).length, rateLimited: sum(loops.map((r) => r.jev.rateLimited)),
     retries: sum(loops.map((r) => r.jev.retries)), avgMs: loops.length ? Math.round(sum(loops.map((r) => r.jev.ms)) / loops.length) : 0,
-    costUsd: Number(((tok / 1e6) * JEV_USD_PER_MTOK).toFixed(6)),
+    ...jevCostFromLoops(loops, tok),
+  };
+}
+
+// 費用: 記録の jev.costUsd (OpenRouter の usage.cost。2段なら合計) があればその値、無い判断は入力トークン × 単価。refusal・long-context・提供元も数える
+function jevCostFromLoops(loops, tok) {
+  const rep = loops.filter((r) => Number.isFinite(r.jev.costUsd));
+  const repTok = sum(rep.map((r) => r.jev.inputTokens));
+  const reportedCostUsd = sum(rep.map((r) => r.jev.costUsd));
+  const via = {};
+  const models = {};
+  for (const r of loops) { if (r.jev.via) via[r.jev.via] = (via[r.jev.via] || 0) + 1; if (r.jev.model) models[r.jev.model] = (models[r.jev.model] || 0) + 1; }
+  return {
+    costUsd: Number((reportedCostUsd + ((tok - repTok) / 1e6) * JEV_USD_PER_MTOK).toFixed(6)), reportedCostUsd: Number(reportedCostUsd.toFixed(6)), reportedCostCalls: rep.length,
+    refusals: sum(loops.map((r) => (r.jev.refusals || []).length + ((r.jev.stage2 && r.jev.stage2.refusals) || []).length)),
+    longContextCalls: loops.filter((r) => r.jev.longContext || (r.jev.stage2 && r.jev.stage2.longContext)).length,
+    maxBodyBytes: Math.max(0, ...loops.map((r) => r.jev.bodyBytes || 0)), via, models,
   };
 }
 
@@ -837,6 +853,8 @@ function main() {
       inputTokensPerCall: jev.calls ? Math.round(jev.inputTokens / jev.calls) : 0, byStage: jev.byStage || null,
       estimatedCalls: jev.estimatedCalls, costUsd: jev.costUsd ?? Number(((jev.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)),
       avgMs: jev.avgMs, rateLimited: jev.rateLimited, retries: jev.retries, errors: jev.errors ?? null, exceeded: jev.exceeded ?? null,
+      reportedCostUsd: jev.reportedCostUsd ?? null, reportedCostCalls: jev.reportedCostCalls ?? null, refusals: jev.refusals ?? null,
+      longContextCalls: jev.longContextCalls ?? null, maxBodyBytes: jev.maxBodyBytes ?? null, via: jev.via || null, models: jev.models || null, fatal: jev.fatal ?? null,
     },
     survival: survivalStats(agents, all),
     selfGoals: { count: all.filter((r) => r.event === 'self_goal').length, byReason: all.filter((r) => r.event === 'self_goal').reduce((m, r) => { m[r.reason] = (m[r.reason] || 0) + 1; return m; }, {}), timeline: goalTimeline(all) },
@@ -1006,14 +1024,18 @@ function main() {
     }
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
     for (const l of llmUsageLines(out.llm)) console.log(l);
-    console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision}・呼び出し ${out.jev.callsPerDecision} 回、1呼び出し ${out.jev.inputTokensPerCall})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);
+    console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision}・呼び出し ${out.jev.callsPerDecision} 回、1呼び出し ${out.jev.inputTokensPerCall})、費用 $${out.jev.costUsd}`
+      + (out.jev.reportedCostCalls ? ` (うち応答の usage.cost ${out.jev.reportedCostCalls} 回 $${out.jev.reportedCostUsd}、残りは 100万トークン $${JEV_USD_PER_MTOK} で計算)` : ` (100万トークン $${JEV_USD_PER_MTOK} で計算)`));
+    const jx = out.jev;
+    if (jx.via || jx.models) console.log(`  Jev の提供元 ${JSON.stringify(jx.via || {})}、返ったモデル ${JSON.stringify(jx.models || {})}`);
+    if (jx.refusals || jx.longContextCalls || jx.fatal) console.log(`  refusal ${jx.refusals || 0}・long-context (本文 > 32,000 バイト) ${jx.longContextCalls || 0} 回 (最大 ${jx.maxBodyBytes} バイト)${jx.fatal ? `・止めたエラー (402 残高不足など) ${jx.fatal}` : ''}`);
   }
 }
 
 // usage.llm → { costUsd, maxUsd, exceeded, byProvider, byRole, providers }
 function llmUsageSummary(l) {
   const pick = (u) => ({ calls: u.calls, errors: u.errors, rateLimited: u.rateLimited, retries: u.retries, promptTokens: u.promptTokens, cachedTokens: u.cachedTokens,
-    completionTokens: u.completionTokens, reasoningTokens: u.reasoningTokens, avgMs: u.avgMs ?? (u.calls ? Math.round(u.ms / u.calls) : 0), costUsd: u.costUsd, unpriced: u.unpriced });
+    cacheWriteTokens: u.cacheWriteTokens ?? null, completionTokens: u.completionTokens, reasoningTokens: u.reasoningTokens, avgMs: u.avgMs ?? (u.calls ? Math.round(u.ms / u.calls) : 0), costUsd: u.costUsd, unpriced: u.unpriced });
   const map = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, u]) => [k, pick(u)]));
   return { costUsd: l.costUsd, maxUsd: l.maxUsd ?? null, exceeded: !!l.exceeded, byProvider: map(l.byProvider), byRole: map(l.byRole), providers: l.providers || {} };
 }
@@ -1021,7 +1043,7 @@ function llmUsageSummary(l) {
 function llmUsageLines(l) {
   if (!l) return [];
   const out = [`文を作る LLM: 費用 $${l.costUsd}${l.maxUsd != null ? ` (上限 $${l.maxUsd}${l.exceeded ? '、上限で止めた' : ''})` : ''}`];
-  const line = (k, u) => `  ${k}: ${u.calls} 回 (失敗 ${u.errors}・429 ${u.rateLimited}・再試行 ${u.retries})、入力 ${u.promptTokens} (キャッシュ ${u.cachedTokens})・出力 ${u.completionTokens}${u.reasoningTokens ? ` (推論 ${u.reasoningTokens})` : ''} トークン、平均 ${u.avgMs}ms、$${u.costUsd}`;
+  const line = (k, u) => `  ${k}: ${u.calls} 回 (失敗 ${u.errors}・429 ${u.rateLimited}・再試行 ${u.retries})、入力 ${u.promptTokens} (キャッシュ ${u.cachedTokens}${u.cacheWriteTokens ? `・キャッシュへの書き込み ${u.cacheWriteTokens}` : ''})・出力 ${u.completionTokens}${u.reasoningTokens ? ` (推論 ${u.reasoningTokens})` : ''} トークン、平均 ${u.avgMs}ms、$${u.costUsd}`;
   for (const [k, u] of Object.entries(l.byProvider)) {
     const p = l.providers[k];
     out.push(`${line(k, u)}${p ? ` [${p.model}、料金 ${p.priced === true ? `入力 $${p.pricing.inputPerMTok}・出力 $${p.pricing.outputPerMTok} / 100万トークン` : '未設定'}]` : ''}`);

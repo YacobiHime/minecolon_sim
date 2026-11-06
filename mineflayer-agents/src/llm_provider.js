@@ -50,9 +50,11 @@ const PROVIDER_DEFAULTS = {
     requireKey: true,
     apiKeyFile: '/root/.config/luna.env',
     apiKeyVars: ['LUNA_API_KEY', 'OPENAI_API_KEY'],
-    // https://developers.openai.com/api/docs/models/gpt-6-luna (2026-11-06 確認): 入力 $0.10・キャッシュ済み入力 $0.01・出力 $0.50 / 100万トークン。
-    // 入力が 272K トークンを超える呼び出しは入力 2倍・出力 1.5倍。推論のトークンは出力として数える (completion_tokens に含まれる)
-    pricing: { inputPerMTok: 0.10, cachedInputPerMTok: 0.01, outputPerMTok: 0.50, longContext: { overTokens: 272000, inputMult: 2, outputMult: 1.5 },
+    // https://developers.openai.com/api/docs/models/gpt-6-luna (2026-11-06 確認): 入力 $0.10・キャッシュ済み入力 $0.01・キャッシュへの書き込み $0.125・出力 $0.50 / 100万トークン。
+    // 入力が 272K トークンを超える呼び出しは入力 (キャッシュも) 2倍・出力 1.5倍。推論のトークンは出力として数える (completion_tokens に含まれる)。
+    // 実際の応答 (2026-11-06): usage.prompt_tokens_details に cached_tokens と cache_write_tokens (どちらも prompt_tokens の内数)、
+    //   completion_tokens_details.reasoning_tokens。reasoning_effort: none なら temperature を受け付け、low 以上では 400 (既定の 1 だけ) になる
+    pricing: { inputPerMTok: 0.10, cachedInputPerMTok: 0.01, cacheWritePerMTok: 0.125, outputPerMTok: 0.50, longContext: { overTokens: 272000, inputMult: 2, outputMult: 1.5 },
       source: 'developers.openai.com/api/docs/models/gpt-6-luna (2026-11-06)' },
   },
 };
@@ -104,7 +106,10 @@ function llmOptsFor(cfg, role, extra = {}) {
   const strip = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => !CONN_KEYS.includes(k)));
   const userP = (cfg && cfg.llm && cfg.llm.providers && cfg.llm.providers[name]) || {};
   if (name === 'local') return { ...p, ...dl, ...userP, pricing: p.pricing, ...(extra || {}), provider: name, role };
-  return { ...p, ...strip(dl), ...strip(extra), provider: name, role };
+  const o = { ...p, ...strip(dl), ...strip(extra), provider: name, role };
+  // OpenAI の推論ありの呼び出し (reasoning_effort が none 以外) は temperature を受け付けない (400)。初めから送らない (送り直しの1回を省く)
+  if (o.apiStyle === 'openai' && o.sendTemperature == null && o.reasoningEffort && o.reasoningEffort !== 'none') o.sendTemperature = false;
+  return o;
 }
 
 // 使う提供元すべての API キーを確かめる。返り値 [{ provider, roles, ok, error? }]
@@ -120,17 +125,19 @@ function checkKeys(cfg, { env = process.env } = {}) {
   });
 }
 
-// 1回の呼び出しの費用。usage = { promptTokens, cachedTokens, completionTokens }
+// 1回の呼び出しの費用。usage = { promptTokens, cachedTokens, cacheWriteTokens, completionTokens } (cached・cacheWrite は promptTokens の内数)
 function costOf(pricing, u) {
   if (!pricing || pricing.inputPerMTok == null || pricing.outputPerMTok == null) return { usd: 0, priced: false };
   const prompt = u.promptTokens || 0;
   const cached = Math.min(prompt, u.cachedTokens || 0);
+  const write = Math.min(prompt - cached, u.cacheWriteTokens || 0);
   const lc = pricing.longContext;
   const long = lc && prompt > lc.overTokens;
   const im = long ? lc.inputMult || 1 : 1;
   const om = long ? lc.outputMult || 1 : 1;
   const cachedRate = pricing.cachedInputPerMTok ?? pricing.inputPerMTok;
-  const usd = (((prompt - cached) * pricing.inputPerMTok + cached * cachedRate) * im + (u.completionTokens || 0) * pricing.outputPerMTok * om) / 1e6;
+  const writeRate = pricing.cacheWritePerMTok ?? pricing.inputPerMTok;
+  const usd = (((prompt - cached - write) * pricing.inputPerMTok + cached * cachedRate + write * writeRate) * im + (u.completionTokens || 0) * pricing.outputPerMTok * om) / 1e6;
   return { usd, priced: true };
 }
 

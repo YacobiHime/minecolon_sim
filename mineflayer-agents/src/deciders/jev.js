@@ -343,6 +343,19 @@ function buildQuestions(ctx, opts) {
   return { questions: q, speakers };
 }
 
+// 1回の呼び出しの記録に足すもの: 提供元 (via)・応答の id・provider (OpenRouter が足す)・費用 (usage.cost)・refusal の質問・本文の大きさ
+function callInfo(r) {
+  const o = { via: r.via || null };
+  if (r.id) o.id = r.id;
+  if (r.provider) o.provider = r.provider;
+  if (r.costUsd != null) o.costUsd = r.costUsd;
+  if (r.refusals && r.refusals.length) o.refusals = r.refusals;
+  if (r.bodyBytes != null) o.bodyBytes = r.bodyBytes;
+  if (r.longContext) o.longContext = true;
+  if (r.fatal) o.fatal = true;
+  return o;
+}
+
 function r3(v) { return v == null || !Number.isFinite(v) ? null : Math.round(v * 1000) / 1000; }
 
 // choice の答えから: 選んだ選択肢の確率 p・1位÷2位の比 ratio・上位3つ・選んだ選択肢の並びの位置 pos (0 = 先頭)・選択肢の数 n
@@ -425,7 +438,8 @@ class JevDecider {
     const usageIn = r.usage && Number.isFinite(r.usage.input_tokens) ? r.usage.input_tokens : null;
     const nq = Object.keys(questions).length;
     const rec = this.meter
-      ? this.meter.addJev({ stage, inputChars: inputText.length, inputText, inputTokens: usageIn, outputTokens: r.usage ? r.usage.output_tokens : null, ms: r.ms, questions: nq, error: r.ok ? null : r.error, rateLimited: r.rateLimited, retries: r.retries })
+      ? this.meter.addJev({ stage, inputChars: inputText.length, inputText, inputTokens: usageIn, outputTokens: r.usage ? r.usage.output_tokens : null, ms: r.ms, questions: nq, error: r.ok ? null : r.error, rateLimited: r.rateLimited, retries: r.retries,
+        costUsd: r.costUsd, refusals: r.refusals, longContext: r.longContext, bodyBytes: r.bodyBytes, via: r.via, model: r.model, fatal: r.fatal })
       : { inputTokens: usageIn ?? estimateTokens(inputText), estimated: usageIn == null };
     return { r, inputChars: inputText.length, inputTokens: rec.inputTokens, estimated: rec.estimated };
   }
@@ -452,7 +466,7 @@ class JevDecider {
       model: r.model || null, ms: r.ms, queueMs: r.queueMs, retries: r.retries, rateLimited: r.rateLimited, status: r.status ?? null,
       inputChars: c1.inputChars, inputTokens: c1.inputTokens, tokensEstimated: c1.estimated, outputTokens: r.usage ? r.usage.output_tokens : null,
       questions: Object.keys(questions), options: Object.keys(criteria).length, limits: r.limits || null, calls: 1,
-      groups: Object.keys(groups), lang,
+      groups: Object.keys(groups), lang, ...callInfo(r),
     };
     if (order) jev.order = order;
     if (cut) jev.cut = cut; // 上限で切った (行動ごとに順番に取った)
@@ -463,8 +477,13 @@ class JevDecider {
       base.latencyMs = jev.ms; base.promptChars = jev.inputChars; base.promptTokens = jev.inputTokens;
       if (this.meter && this.meter.addDecision) this.meter.addDecision({ calls: jev.calls, inputTokens: jev.inputTokens });
     };
-    if (!r.ok) { finish(); return { ...base, action: null, arg: '', parseOk: false, repaired: false, error: r.error }; }
+    if (!r.ok) { finish(); return { ...base, action: null, arg: '', parseOk: false, repaired: false, error: r.error, ...(r.fatal ? { fatal: true } : {}) }; }
     const a = r.answers || {};
+    // next_action が refusal (答えなし): 選べなかったとして、Jev の答えが無いときと同じ扱い (action: null)
+    if (!a.next_action && (r.refusals || []).includes('next_action')) {
+      finish();
+      return { ...base, action: null, arg: '', parseOk: false, repaired: false, error: 'Jev が next_action に答えなかった (refusal)', refusal: true };
+    }
     let chosen = a.next_action ? a.next_action.choice : null;
     // 状態が変わらなかった行動に負の重み (help.noChange のとき、agent が ctx.noChange を渡す)。
     // 分類の選択肢は、中の対象の回数の一番少ないもの (変わらなかったことのない対象が1つでもあれば重みなし)
@@ -497,7 +516,8 @@ class JevDecider {
       const st2 = buildStage2State(ctx, act, lang);
       const q2 = buildStage2Questions(act, ctx, { lang, order: ctx.order || null });
       const c2 = await this.call(st2, q2, 2);
-      const s2 = { action: act.name, options: Object.keys(q2.target.criteria).length, inputChars: c2.inputChars, inputTokens: c2.inputTokens, tokensEstimated: c2.estimated, ms: c2.r.ms, outputTokens: c2.r.usage ? c2.r.usage.output_tokens : null };
+      const s2 = { action: act.name, options: Object.keys(q2.target.criteria).length, inputChars: c2.inputChars, inputTokens: c2.inputTokens, tokensEstimated: c2.estimated, ms: c2.r.ms, outputTokens: c2.r.usage ? c2.r.usage.output_tokens : null, ...callInfo(c2.r) };
+      if (s2.costUsd != null) jev.costUsd = Number(((jev.costUsd || 0) + s2.costUsd).toFixed(8));
       jev.calls = 2;
       jev.stage1 = { inputChars: c1.inputChars, inputTokens: c1.inputTokens, ms: r.ms };
       jev.inputChars += c2.inputChars; jev.inputTokens += c2.inputTokens; jev.ms += c2.r.ms || 0;
@@ -517,7 +537,7 @@ class JevDecider {
       }
       if (!id || !act.choices.some((c) => c.id === id)) {
         // 2回目が失敗・一覧にない答え: 一覧の先頭 (近い・手元のもの) にする
-        s2.error = c2.r.ok ? `一覧にない対象: ${id}` : c2.r.error;
+        s2.error = !c2.r.ok ? c2.r.error : (c2.r.refusals || []).includes('target') ? 'Jev が target に答えなかった (refusal)' : `一覧にない対象: ${id}`;
         id = act.choices[0].id;
         s2.fallback = true;
       }
@@ -532,4 +552,4 @@ class JevDecider {
   }
 }
 
-module.exports = { fairCut, probStats, pathMatch, stepKey, buildStateEn, buildQuestionsEn, JevDecider, actionOptions, buildState, buildQuestions, buildStage2State, buildStage2Questions, twoStageCfg, TWO_STAGE_DEFAULTS, REMEMBER_LEVELS, REL_LEVELS };
+module.exports = { callInfo, fairCut, probStats, pathMatch, stepKey, buildStateEn, buildQuestionsEn, JevDecider, actionOptions, buildState, buildQuestions, buildStage2State, buildStage2Questions, twoStageCfg, TWO_STAGE_DEFAULTS, REMEMBER_LEVELS, REL_LEVELS };

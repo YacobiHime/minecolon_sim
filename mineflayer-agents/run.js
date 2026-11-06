@@ -11,7 +11,10 @@
 // --random-talk P: --decider random のとき、確率 P で話す (Jev なしで 2B の発言の負荷を試す)。
 // 記録は runs/<時刻>/<名前>-<時刻>.jsonl (1人1ファイル) と runs/<時刻>/run.json (実行の合計)。
 // LLM (2B) の窓口は --llm か環境変数 LLM_BASE_URL (既定 http://127.0.0.1:18081)。
-// Jev の API キーは環境変数 TYPESAFE_API_KEY か /root/.config/typesafe.env (表示・記録しない)。
+// Jev の提供元: --jev-provider openrouter|typesafe (config の decider.jev.provider。既定 openrouter)、--jev-model M (例 typesafe/jev-1.14)。
+//   openrouter のキーは環境変数 OPENROUTER_API (か OPENROUTER_API_KEY) か /root/.config/openrouter.env、
+//   typesafe のキーは環境変数 TYPESAFE_API_KEY か /root/.config/typesafe.env (表示・記録しない)。
+//   402 の残高不足が返ったら全員を止める。
 // 文を作る LLM の提供元 (src/llm_provider.js): --llm-provider local|luna (既定の提供元)、--llm-roles goal=luna,reflect=luna (役ごと)、
 //   --llm-model M・--llm-base-url URL (--llm-provider の提供元に)、--max-llm-usd X (費用の上限。全プロセスの合計)。
 //   luna の API キーは環境変数 LUNA_API_KEY (無ければ OPENAI_API_KEY) か /root/.config/luna.env (表示・記録しない)。
@@ -132,7 +135,7 @@ async function runParent(args, base, n, procs) {
 async function main() {
   const args = parseArgs(process.argv);
   if (!args.config) {
-    console.error('usage: node run.js --config <file> [--agents N] [--minutes N] [--llm URL] [--decider llm|split|jev|random] [--max-jev-tokens N]\n'
+    console.error('usage: node run.js --config <file> [--agents N] [--minutes N] [--llm URL] [--decider llm|split|jev|random] [--max-jev-tokens N] [--jev-provider openrouter|typesafe] [--jev-model M]\n'
       + '         [--llm-provider local|luna] [--llm-roles goal=luna,reflect=luna] [--llm-model M] [--llm-base-url URL] [--max-llm-usd X]');
     process.exit(2);
   }
@@ -142,12 +145,19 @@ async function main() {
   const llmUrl = args.llm || process.env.LLM_BASE_URL;
   if (llmUrl || args.decider) ov.decider = { ...(args.decider ? { type: args.decider } : {}), ...(llmUrl ? { llm: { baseUrl: llmUrl } } : {}) };
   if (args['max-jev-tokens']) ov.usage = { maxJevInputTokens: Number(args['max-jev-tokens']) };
+  if (args['jev-provider']) ov.decider = { ...(ov.decider || {}), jev: { provider: args['jev-provider'] } };
   if (args['random-talk']) ov.decider = { ...(ov.decider || {}), talkP: Number(args['random-talk']) };
   const llmOv = llmOverrides(args);
   if (llmOv) ov.llm = llmOv;
   // 並べ方の種: --seed か config の order.seed。どちらも無ければここで決め、子プロセスにも --seed で渡す (記録の start と run.json に残る)
   if (args.seed != null) ov.order = { seed: Number(args.seed) >>> 0 };
   const base = loadConfig(args.config, ov);
+  // --jev-model は使う提供元のモデル (config の decider.jev.providers.<提供元>.model より優先)
+  if (args['jev-model']) {
+    const jv = (base.decider.jev = base.decider.jev || {});
+    const pv = jv.provider || 'openrouter';
+    jv.providers = { ...(jv.providers || {}), [pv]: { ...((jv.providers || {})[pv] || {}), model: args['jev-model'] } };
+  }
   if (!base.order || base.order.seed == null) {
     base.order = { ...(base.order || {}), seed: Math.floor(Math.random() * 2 ** 32) >>> 0 };
     args.seed = String(base.order.seed);
@@ -174,9 +184,10 @@ async function main() {
   if (decType === 'jev') {
     jevClient = new JevClient(base.decider.jev || {});
     if (!jevClient.hasKey) {
-      console.error('Jev の API キーがない (TYPESAFE_API_KEY か /root/.config/typesafe.env)。--decider llm で動かすこと');
+      console.error(`Jev (${jevClient.provider}) の API キーがない (${jevClient.keyHint})。--jev-provider で提供元を替えるか、--decider llm で動かすこと`);
       process.exit(2);
     }
+    if (!child) console.log(`Jev: ${jevClient.provider} ${jevClient.url} model=${jevClient.model}`);
   }
   const talker = base.talk && base.talk.enabled === false ? null
     : new Talker({ llmOptsFor: (role) => llmProvider.llmOptsFor(base, role, (base.talk && base.talk.llm) || {}), meter });
@@ -198,6 +209,7 @@ async function main() {
   const stopAll = (why) => { console.log(`stopping (${why})...`); for (const a of agents) a.stop(); };
   meter.onExceeded((u) => stopAll(`Jev の入力トークンが上限 ${u.jev.maxInputTokens} に達した`));
   LLM_USAGE.onExceeded((u) => stopAll(`LLM の費用が上限 $${u.maxUsd} に達した ($${u.costUsd})`));
+  if (jevClient) jevClient.onFatal((f) => stopAll(f.error));
   process.on('SIGINT', () => stopAll('SIGINT'));
   process.on('SIGTERM', () => stopAll('SIGTERM'));
   process.on('unhandledRejection', (e) => console.log('unhandledRejection:', e && e.message));

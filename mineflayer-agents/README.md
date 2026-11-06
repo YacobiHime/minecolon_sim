@@ -126,14 +126,38 @@ node mineflayer-agents/run.js --config mineflayer-agents/configs/first_setting.j
 node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ --text
 ```
 
-Jev の API キーは環境変数 `TYPESAFE_API_KEY` か `/root/.config/typesafe.env` (`TYPESAFE_API_KEY=...` の1行) から読む。
-表示・記録・コミットしない。キーが無いのに `decider.type: "jev"` なら起動しない (`--decider llm` を使う)。
+### Jev の提供元 (openrouter / typesafe) と API キー
+
+Jev は **OpenRouter 経由** (既定、2026-11-06 ユーザー決定) か **TypeSafe 直** で呼ぶ。どちらも System One API (`{model, state, questions}`) で、答えの形は同じ。
+
+| 提供元 | 窓口 | キー (表示・記録・コミットしない) |
+|---|---|---|
+| `openrouter` (既定) | `https://openrouter.ai/api/v1/systemone` | 環境変数 `OPENROUTER_API` → `/root/.config/openrouter.env` の `OPENROUTER_API=...` (か `OPENROUTER_API_KEY=...`) の1行 → 環境変数 `OPENROUTER_API_KEY` |
+| `typesafe` | `https://api.typesafe.ai/v1/systemone` | 環境変数 `TYPESAFE_API_KEY` → `/root/.config/typesafe.env` の `TYPESAFE_API_KEY=...` の1行 |
+
+- 環境変数の `OPENROUTER_API_KEY` はファイルより後に見る (シェルの設定に古いキーが残っていて 401 "User not found" になったため。2026-11-06)。
+  別のファイルは `OPENROUTER_ENV_FILE=/path` / `TYPESAFE_ENV_FILE=/path`。
+- 切り替え: `--jev-provider openrouter|typesafe` か config の `decider.jev.provider`。モデルは `decider.jev.model` (既定 `jev-latest`)、
+  提供元ごとに固定するなら `decider.jev.providers.openrouter.model: "typesafe/jev-1.14"` のように書く (`--jev-model M` は使う提供元のモデルを変える)。
+  OpenRouter は `jev-latest`・`jev-1.14`・`typesafe/jev-1.14`・`~typesafe/jev-latest` を通し、返るモデル名は `typesafe/jev-1.14-20261014`。
+  TypeSafe 直の綴り `jev-1.14.0` は OpenRouter では 400 なので `typesafe/jev-1.14` に直して送る。
+- キーが無いのに `decider.type: "jev"` なら起動しない (`--jev-provider` を替えるか `--decider llm`)。
+- OpenRouter の応答は TypeSafe 直の形に `id`・`provider` ("TypeSafe")・`usage.cost` (US ドル) が足される。記録の `jev` に `via` (提供元)・`id`・`provider`・`model`・
+  `costUsd`・`bodyBytes` を残し、run.json の `usage.jev.costUsd` は `usage.cost` の合計 (返らない呼び出しは入力トークン × $0.042/100万)。
+- 答えの `type: "refusal"` (値も確率も無い) は答えが無いとして扱い、記録の `jev.refusals` に質問の名前を残す。`next_action` が refusal なら行動を選べなかった扱い
+  (Jev が失敗したときと同じく look_around)。ゴールの案の noul が refusal なら P = 0。
+- 再試行: 429・502・503・524・529 と、402 のうち本文の `limit_source` が in-flight 予算のもの (`Retry-After` に従う)。
+  **402 の残高不足は再試行せず、全員を止める** (エラーの文に「残高 (クレジット) が足りない」)。
+- 送る本文が 32,000 バイトを超えると OpenRouter は黙って long-context モード (遅く・精度が下がるとされる) で走らせるので、記録に `jev.longContext` を残し、
+  最初の1回は警告を出す。`--max-jev-tokens` (入力トークンの上限) は提供元によらず今まで通り効く。
+- 実測 (2026-11-06、記録の場面 40 個 × 各経路 2 回): 答えの一致は経路の差と呼ぶたびの揺れが同じ程度 (下の「Jev の提供元の比較」)。
+  OpenRouter 経由は 1回 p50 335ms (TypeSafe 直 162ms)。
 
 ## 構成 (段階1に足したもの)
 
 ```
 src/deciders/jev.js  Jev の decider (1回の呼び出しに Choice・Noul・Score をまとめる)
-src/jev_client.js    System One API の窓口 (キーの読み込み・429/529 の再試行・同時数の制限)
+src/jev_client.js    System One API の窓口 (提供元 openrouter/typesafe・キーの読み込み・再試行・402 で止める・refusal・本文の大きさ・同時数の制限)
 src/usage.js         使用量 (Jev の入力の文字数・トークン・応答時間、2B の回数・プロンプトの長さ) と、Jev の入力トークンの上限
 src/talker.js        2B で発言と答えを作る
 src/social.js        感情・人間関係 (数値はプログラム、2B には短い言葉)。欲求とストレスは needs.js
@@ -377,7 +401,7 @@ bash /root/mc-server-fabric/stop.sh && bash mineflayer-agents/server-fabric/firs
   2B の呼び出しと待ち・Jev の呼び出しと 429。
 - **2B の待ち時間**: llama-server の応答の `timings` (prompt_ms + predicted_ms) を処理時間とし、全体の時間から引いた残りを待ち (スロットの空き待ち。
   イベントループの遅れも入る) として数える (`src/deciders/llm.js` の `LLM_STATS`)。`run.json` の `twoBLatency`。
-- **Jev**: 429 / 529 は `jev_client.js` が retry-after (無ければ 0.5・1・2・4 秒) で4回まで再試行する。同時の呼び出しは1プロセス `decider.jev.maxConcurrent` (8) まで。
+- **Jev**: 429・502・503・524・529 と in-flight 予算の 402 は `jev_client.js` が retry-after (無ければ 0.5・1・2・4 秒、最大 30 秒) で4回まで再試行する。同時の呼び出しは1プロセス `decider.jev.maxConcurrent` (8) まで。
 - `--decider random --random-talk 0.15`: Jev を使わずに、でたらめな行動と確率 0.15 の発言 (2B) で負荷を試す。
 
 ## 負荷の試験 (2026-11-04、world_action_test・peaceful、2B は gpu-server の `-np 8`)
@@ -414,10 +438,12 @@ summarize_run (20人向けに足したもの): 集まり (16m 以内でつなが
 文を作る役 (発言・ゴールの案・振り返り・答え・全体チャット) の LLM を切り替える。記憶とメンタルモデルはハーネスが持ち、行動は Jev が選ぶ形は変わらない。
 
 - **local** (既定): llama.cpp の llama-server の Gemma 4 E2B (OpenAI 互換)。窓口は今まで通り `--llm URL` (`decider.llm.baseUrl`)。費用 0。
-- **luna**: OpenAI の `gpt-6-luna` (Chat Completions、`https://api.openai.com/v1`)。料金は入力 $0.10・キャッシュ済み入力 $0.01・出力 $0.50 / 100万トークン
-  (入力が 272K を超える呼び出しは入力 2倍・出力 1.5倍。developers.openai.com/api/docs/models/gpt-6-luna、2026-11-06 確認)。
+- **luna**: OpenAI の `gpt-6-luna` (Chat Completions、`https://api.openai.com/v1`)。料金は入力 $0.10・キャッシュ済み入力 $0.01・キャッシュへの書き込み $0.125・
+  出力 $0.50 / 100万トークン (入力が 272K を超える呼び出しは入力 2倍・出力 1.5倍。developers.openai.com/api/docs/models/gpt-6-luna、2026-11-06 確認)。
+  応答の `usage.prompt_tokens_details` の `cached_tokens` と `cache_write_tokens` (どちらも入力の内数)、`completion_tokens_details.reasoning_tokens` から費用を出す。
   送り方: `max_completion_tokens`・`reasoning_effort: none` (既定。推論を使うと出力の上限に `reasoningExtraTokens` を足す)・
-  `response_format: json_schema` (strict。文字列の長さの制約は外す)。temperature か schema を 400 で断られたら外して送り直す (以後も外す)。
+  `response_format: json_schema` (strict。文字列の長さの制約は外す)。`reasoning_effort: none` なら temperature を受け付ける。
+  low 以上では temperature は 400 (既定の 1 だけ) なので初めから送らない。ほかに temperature か schema を 400 で断られたら外して送り直す (以後も外す)。
   429・5xx は retry-after (無ければ 1, 2, 4… 秒) で 4 回まで再試行、同時に投げるのは 1プロセス 8 本まで (`--procs 4` なら全体で 32 本)。
   promptfit の上限 (`ctxTokens`) は 272,000 (local は `goalPath.prompt.ctxTokens` = 8192)。
 
@@ -452,3 +478,22 @@ LUNA_API_KEY=dummy node mineflayer-agents/run.js ... --llm-provider luna --llm-b
 - **使用量と費用**: run.json の `usage.llm` に提供元ごと (`byProvider`) と 提供元/役ごと (`byRole`、例 `luna/goal`) の呼び出し・失敗・429・再試行・
   入力 (うちキャッシュ)・出力 (うち推論) トークン・待ち時間・費用。`summarize_run.js --text` に「文を作る LLM: 費用 $…」の行。
   `--max-llm-usd X` (config `llm.maxUsd`) を全プロセスの合計で超えたら全員を止め、それ以降の呼び出しは投げない。
+
+## Jev の提供元の比較 (2026-11-06、OpenRouter 経由 / TypeSafe 直)
+
+前の実行の記録の場面 40 個 (英語の state。途中の場面を作り直した 24 個と、記録に残る送った state そのまま 16 個。選択肢 45〜94 個) を、
+同じ state・同じ質問で各経路 2 回ずつ (計 160 回) 呼んだ。モデルは `jev-latest` (OpenRouter は `typesafe/jev-1.14-20261014`、TypeSafe 直は `jev-1.14.0` が返る)。
+
+| | OpenRouter 経由 | TypeSafe 直 |
+|---|---|---|
+| 1回の時間 p50 / p90 / 最大 | 335 / 357 / 408 ms | 162 / 182 / 300 ms |
+| 失敗・再試行・refusal | 0・0・0 | 0・0・0 |
+| choice の probabilities | 全部に付く (選択肢すべて) | 全部に付く |
+| 入力トークン (同じ場面で同じ数) | 277,268 | 277,268 |
+| 費用 | `usage.cost` の合計 $0.011645 (= 入力 × $0.042/100万 と一致) | 計算で $0.011645 |
+
+- 選んだ行動の一致: 同じ経路の 2 回で OpenRouter 39/40・TypeSafe 38/40、経路をまたいで (1回目どうし) 38/40、4 回とも同じ 36/40。
+  違った 4 場面はどれも 1位の確率が 0.11〜0.19 の接戦か、1位と2位がほぼ同じ (collect:fern 0.5〜0.59 と use_on:hand>fern 0.52) 場面。
+- 確率の差 (choice の分布の全変動距離): 同じ経路の 2 回で平均 0.054 (OpenRouter)・0.050 (TypeSafe)、経路をまたいで平均 0.050。
+  noul の差の平均は同じ経路 0.029・経路をまたいで 0.024、score の差は 0.028・0.035。**経路の差は呼ぶたびの揺れと同じ程度** (OpenRouter で別の較正にはなっていない)。
+- 本文 34,267 バイト (> 32,000) の場面: OpenRouter 406ms (同じ場面の 11,267 バイトで 381ms)、TypeSafe 直 260ms (191ms)。この 1 場面では遅さはほとんど見えなかった。
