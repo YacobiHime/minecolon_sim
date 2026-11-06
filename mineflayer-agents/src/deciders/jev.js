@@ -55,6 +55,19 @@ function targetName(a, c) { return c.player || (a.name === 'go_to' && c.kind) ||
 // 行動の一覧 → Choice の選択肢 { key: 文 }、key → {action, arg} か {group}、行動の説明表 { 行動: 説明 }
 //   選択肢の文は「行動の名前 + 対象の label」だけ。行動の説明は表 (state.actions) に1回だけ書く
 //   twoStage が有効なら、対象の多い行動は分類1つ (key "行動:*") にまとめ、対象の名前の要約を付ける
+// keys ("行動:引数") を行動ごとに分け、各行動から順番に1つずつ max 個まで取る (元の順に並べ直して返す)
+function fairCut(keys, max) {
+  const by = new Map();
+  for (const k of keys) { const a = k.split(':')[0]; if (!by.has(a)) by.set(a, []); by.get(a).push(k); }
+  const picked = new Set();
+  for (let i = 0; picked.size < max; i++) {
+    let any = false;
+    for (const list of by.values()) { if (i < list.length && picked.size < max) { picked.add(list[i]); any = true; } }
+    if (!any) break;
+  }
+  return keys.filter((k) => picked.has(k));
+}
+
 function actionOptions(actions, opts = {}) {
   const ts = opts.twoStage ? twoStageCfg(opts.twoStage) : { enabled: false };
   const en = opts.lang === 'en';
@@ -91,11 +104,15 @@ function actionOptions(actions, opts = {}) {
       map[a.name] = { action: a.name, arg: '' };
     }
   }
-  let keys = Object.keys(criteria).slice(0, MAX_OPTIONS);
+  const all = Object.keys(criteria);
+  // 上限 (MAX_OPTIONS) を超えるときは、行動の種類ごとに順番に1つずつ取る (各行動の中の並び = 近さなどの順は保つ)。
+  //   前は行動の一覧の順のまま先頭から切っていたので、一覧の後ろの行動 (use_on・give など) の選択肢がまとめて落ちていた
+  let keys = all.length > MAX_OPTIONS ? fairCut(all, MAX_OPTIONS) : all;
+  const cut = all.length > MAX_OPTIONS ? { total: all.length, kept: keys.length } : null;
   // 並べ方を変える (opts.order = Order。記録は order)
   let order = null;
   if (opts.order) { const r = opts.order.shuffle(keys, opts.stream || 'act'); keys = r.arr; order = r.rec; }
-  return { criteria: Object.fromEntries(keys.map((k) => [k, criteria[k]])), map, table, groups, order };
+  return { criteria: Object.fromEntries(keys.map((k) => [k, criteria[k]])), map, table, groups, order, cut };
 }
 
 const hasGoal = (ctx) => !!(ctx && ctx.goal && ctx.goal.text);
@@ -421,7 +438,7 @@ class JevDecider {
 
   async decide(ctx) {
     const lang = this.lang;
-    const { criteria, map, table, groups, order } = actionOptions(ctx.actions, { twoStage: this.twoStage.enabled ? this.twoStage : false, lang, order: ctx.order || null });
+    const { criteria, map, table, groups, order, cut } = actionOptions(ctx.actions, { twoStage: this.twoStage.enabled ? this.twoStage : false, lang, order: ctx.order || null });
     const state = buildState(ctx, { table, lang });
     const { questions, speakers, agreeKeys = [], breakers = [] } = buildQuestions(ctx, { criteria, maxRelations: this.maxRelations, hasTable: true, lang });
     const c1 = await this.call(state, questions, 1);
@@ -433,6 +450,7 @@ class JevDecider {
       groups: Object.keys(groups), lang,
     };
     if (order) jev.order = order;
+    if (cut) jev.cut = cut; // 上限で切った (行動ごとに順番に取った)
     // 送った state と質問の全文は最初の1回だけ記録に残す (長いので)
     if (!this.loggedState) { jev.sent = { state, questions }; this.loggedState = true; }
     const base = { rawOutput: null, latencyMs: r.ms, promptChars: c1.inputChars, promptTokens: c1.inputTokens, say: '', jev };
@@ -509,4 +527,4 @@ class JevDecider {
   }
 }
 
-module.exports = { probStats, pathMatch, stepKey, buildStateEn, buildQuestionsEn, JevDecider, actionOptions, buildState, buildQuestions, buildStage2State, buildStage2Questions, twoStageCfg, TWO_STAGE_DEFAULTS, REMEMBER_LEVELS, REL_LEVELS };
+module.exports = { fairCut, probStats, pathMatch, stepKey, buildStateEn, buildQuestionsEn, JevDecider, actionOptions, buildState, buildQuestions, buildStage2State, buildStage2Questions, twoStageCfg, TWO_STAGE_DEFAULTS, REMEMBER_LEVELS, REL_LEVELS };

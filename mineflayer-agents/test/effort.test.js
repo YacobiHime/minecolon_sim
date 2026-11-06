@@ -65,3 +65,23 @@ test('board: 賛成を聞く提案に、自分がその物を手に入れる手�
   assert.match(st.open.q1, /effort for you to get apple x4: large/);
   assert.doesNotMatch(st.open.q1, /should|better|worth/);
 });
+
+test('jev.actionOptions: 255 を超えると、行動ごとに順番に取る (一覧の後ろの行動も残る)。各行動の中の順は保つ。並べ替えはそのあと', () => {
+  const { actionOptions, fairCut } = require('../src/deciders/jev');
+  const mk = (name, n) => ({ name, argType: 'choice', desc: name, choices: Array.from({ length: n }, (_, i) => ({ id: `${name}${i}`, label: `${name}${i}` })) });
+  const acts = [mk('go_to', 200), mk('collect', 100), mk('use_on', 50), { name: 'look_around', argType: 'none', desc: 'x' }];
+  const r = actionOptions(acts, {});
+  const keys = Object.keys(r.criteria);
+  assert.strictEqual(keys.length, 255);
+  assert.deepStrictEqual(r.cut, { total: 351, kept: 255 });
+  assert.ok(keys.includes('look_around'));
+  assert.strictEqual(keys.filter((k) => k.startsWith('use_on:')).length, 50);
+  assert.ok(keys.includes('collect:collect0') && keys.includes('go_to:go_to0'));
+  // 各行動の中では先頭 (近い順など) から残る
+  const go = keys.filter((k) => k.startsWith('go_to:')).map((k) => Number(k.split('go_to')[2]));
+  assert.deepStrictEqual(go, go.slice().sort((a, b) => a - b));
+  assert.strictEqual(go[go.length - 1], go.length - 1);
+  assert.deepStrictEqual(fairCut(['a:1', 'a:2', 'a:3', 'b:1'], 3), ['a:1', 'a:2', 'b:1']);
+  // 上限以下なら切らない
+  assert.strictEqual(actionOptions([mk('go_to', 3)], {}).cut, null);
+});
