@@ -144,6 +144,7 @@ function buildStateEn(ctx, opts = {}) {
   const o = e.obs || {};
   if (o.self) st.self = o.self;
   st.inventory = o.inventory || 'nothing';
+  if (o.not_placed) st.not_placed = o.not_placed; // 持っているのにまだ置いていないベッド (observe.observationEn)
   st.visible = o.visible || 'nothing notable';
   st.nearby = o.nearby || 'nobody';
   if (o.farmland) st.farmland = o.farmland; // 近くの耕地 (湿っている/乾いている・植わっている。observe.observationEn)

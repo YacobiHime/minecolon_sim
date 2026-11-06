@@ -84,9 +84,9 @@ const JEV_STATE_DEFAULTS = { maxVisible: 8, maxNearby: 6, maxPlaces: 4, maxEvent
 
 function jevStateCfg(cfg) { return { ...JEV_STATE_DEFAULTS, ...((cfg.decider && cfg.decider.jev && cfg.decider.jev.state) || {}) }; }
 // 英語の観察。見えるブロックは目印と、道筋・ゴールの文 (planText) に出てくる名前だけ
-function obsEn(raw, cfg, planText) {
+function obsEn(raw, cfg, planText, bedPlaced = false) {
   const js = jevStateCfg(cfg);
-  return observationEn(raw, { names: knowledge.namesInText(planText), maxVisible: js.maxVisible, maxNearby: js.maxNearby, showDay: cfg.perception.showDay });
+  return observationEn(raw, { names: knowledge.namesInText(planText), maxVisible: js.maxVisible, maxNearby: js.maxNearby, showDay: cfg.perception.showDay, bedPlaced });
 }
 
 // use_on の畑の対象: 近くの空いている耕地・育ちきった作物 (farm = states.farmStatus) と、覚えている耕地・作物の場所 (cfg.act.farmRadius m 以内)
@@ -150,7 +150,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     disabled: new Set((cfg.act && cfg.act.disabled) || []), enable: new Set((cfg.act && cfg.act.enable) || []),
     selfBase: !!(cfg.world && cfg.world.base === 'self'), fleeRadius: cfg.act.fleeRadius,
     // 入れ物の中身・村人の取引 (開けて見たときに覚えたもの。act_more.js)。use_on などの候補の絞り方 (cfg.act)
-    containers: (memory.extra && memory.extra.containers) || {}, trades: (memory.extra && memory.extra.trades) || {},
+    containers: (memory.extra && memory.extra.containers) || {}, lastContainer: (memory.extra && memory.extra.lastContainer) || null, trades: (memory.extra && memory.extra.trades) || {},
     collectExclude: collectExcludeOf(cfg),
     useOnSkip: cfg.act.useOnPlaceable === false ? (n) => isPlaceableBlockItem(n, (cfg.server && cfg.server.version) || undefined) : null,
     visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
@@ -173,8 +173,10 @@ function buildContext(raw, memory, cfg, extra = {}) {
   const goal = help.hints ? { ...cfg.goal, hints: [...(cfg.goal.hints || []), ...factsShown.map((f) => f.text)] } : { ...cfg.goal, hints: [] };
   // Jev 用の英語 (同じ raw・記憶・事実から。jev の stateLang: 'en' のときに使う)。件数は cfg.decider.jev.state で絞る
   const js = jevStateCfg(cfg);
+  // 自分で置いたベッドがあるか (act.js の place が覚える)。無ければ、持っているベッドを観察に「まだ置いていない」と出す
+  const bedPlaced = !!(memory.extra && memory.extra.myBed);
   const enCtx = {
-    obs: obsEn(raw, cfg, prog),
+    obs: obsEn(raw, cfg, prog, bedPlaced),
     mem: memory.toStateEn(here, { places: memPlaces, maxPlaces: js.maxPlaces, maxEvents: js.maxEvents, maxHeard: js.maxHeard, maxTaught: js.maxTaught }),
     social: extra.socialEn || '',
     lastResult: extra.lastResultEn || '',
@@ -197,7 +199,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     actions,
     troubles,
     progress: prog,
-    obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes, showDay: cfg.perception.showDay }) + (extra.baseText ? `\n${extra.baseText}` : ''),
+    obsText: summarizeObservation(raw, { maxTypes: cfg.perception.maxTypes, showDay: cfg.perception.showDay, bedPlaced }) + (extra.baseText ? `\n${extra.baseText}` : ''),
     memText: memory.toPromptText(here, { places: memPlaces }),
     socialText: extra.socialText || '',
     boardText: extra.boardText || '',
@@ -1184,7 +1186,7 @@ class Agent {
         for (const p of this.peopleList(raw)) if (p.doingEn) od[p.name] = p.doingEn;
         ctx.en.othersDoing = od;
       }
-      ctx.en.obs = obsEn(raw, cfg, ctx.progress);
+      ctx.en.obs = obsEn(raw, cfg, ctx.progress, !!(this.memory.extra && this.memory.extra.myBed));
       ctx.pathNext = this.goalPath.pathNext();
       if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
     }

@@ -669,6 +669,47 @@ function voiceStats(all, { hearRadius = 24, replySec = 60 } = {}) {
 //   goTo: 聞いた場所 (人から聞いて覚えた所) へ go_to した数 (判断の記録の heardPlace。古い記録には無い)・着いた数
 const ORIGIN0 = { x: 0, y: 64, z: 0 };
 const hasPlace = (text) => { try { return !!text && parsePlaces(String(text), ORIGIN0).length > 0; } catch (_) { return false; } };
+// チェストとベッド (2026-11-06T06-05-27 の実行で見つけた不具合の数)
+//   chest.lookOtherTake: 「中を見た」チェストと、そのあと3回以内の「取り出す」が別の位置だった回数
+//   bed.placeFail / placeRetried: ベッドを置けなかった回数 / 置き直して置けた回数 (result.retries)
+//   bed.diedUnplaced: 自分のベッドを一度も置かないまま、ベッドを持って死んだ回数
+function chestBedStats(all) {
+  const byName = new Map();
+  for (const r of all) {
+    if (!r._name) continue;
+    if (!byName.has(r._name)) byName.set(r._name, []);
+    byName.get(r._name).push(r);
+  }
+  const key = (p) => (p ? `${p.x},${p.y},${p.z}` : null);
+  let looks = 0; let lookOtherTake = 0; let takeFail = 0;
+  let placeTry = 0; let placeFail = 0; let placeRetried = 0; let diedUnplaced = 0;
+  for (const rows of byName.values()) {
+    const steps = rows.filter((r) => r.action && r.result);
+    steps.forEach((r, i) => {
+      if (r.action !== 'chest_take') return;
+      if (r.arg === 'look' || String(r.arg).startsWith('look@')) {
+        looks += 1;
+        const at = key(r.result.chest && r.result.chest.pos);
+        const next = steps.slice(i + 1, i + 4).find((x) => x.action === 'chest_take' && !String(x.arg).startsWith('look'));
+        if (at && next && next.result.chest && key(next.result.chest.pos) !== at) lookOtherTake += 1;
+      } else if (!r.result.ok) takeFail += 1;
+    });
+    let placedBed = false; let lastInv = [];
+    for (const r of rows) {
+      if (r.event === 'death') {
+        if (!placedBed && lastInv.some((x) => /_bed$/.test(x.name))) diedUnplaced += 1;
+        continue;
+      }
+      if (r.inventory) lastInv = r.inventory;
+      if (r.action === 'place' && /_bed$/.test(String(r.arg)) && r.result) {
+        placeTry += 1;
+        if (r.result.ok) { placedBed = true; if (r.result.retries) placeRetried += 1; } else placeFail += 1;
+      }
+    }
+  }
+  return { chest: { looks, lookOtherTake, takeFail }, bed: { placeTry, placeFail, placeRetried, diedUnplaced } };
+}
+
 function placeShareStats(all) {
   const finds = all.filter((r) => r.event === 'board' && r.kind === 'report_find');
   const said = finds.filter((r) => r.say);
@@ -879,6 +920,7 @@ function main() {
     voices: voiceStats(all, { hearRadius: hearOf(all) }),
     voiceReach: voiceReach(all),
     placeShare: placeShareStats(all),
+    chestBed: chestBedStats(all),
     farm: farmStats(all, loops),
     prospects: prospectStats(all),
     mRefs: mRefStats(all),

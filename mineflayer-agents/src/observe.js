@@ -188,6 +188,13 @@ function summarizeInventory(items) {
   return [...m.entries()].map(([name, count]) => ({ name, count }));
 }
 
+// 持っているのにまだ置いていないベッド (bedPlaced: 自分で置いたベッドがあるか。act.js の place が memory.extra.myBed に覚える)。
+//   事実だけ (「置くとよい」などは書かない)。2026-11-06 の実行で、Mai がベッドを作ったが置けず、置き直さないまま死んで失った
+function unplacedBeds(raw, bedPlaced) {
+  if (bedPlaced) return [];
+  return [...new Set((raw.inventory || []).filter((i) => /_bed$/.test(i.name)).map((i) => i.name))];
+}
+
 // 生の観測を、プロンプトに入れる短い文章にする (bot に依存しない純粋な関数)
 function summarizeObservation(raw, opts = {}) {
   const maxTypes = opts.maxTypes ?? 12;
@@ -199,6 +206,7 @@ function summarizeObservation(raw, opts = {}) {
   const ride = s.vehicle ? ` ${s.vehicle}に乗っている` : '';
   lines.push(`自分: ${s.name} 位置(${Math.round(s.pos.x)},${Math.round(s.pos.y)},${Math.round(s.pos.z)}) 体力${s.health}/20 満腹${s.food}/20 時間:${s.phase}${dayTxt}${ride}`);
   lines.push('持ち物: ' + (raw.inventory.length ? raw.inventory.map((i) => `${i.name}x${i.count}`).join(', ') : 'なし'));
+  for (const b of unplacedBeds(raw, opts.bedPlaced)) lines.push(`${b} を持っている (まだ置いていない)`);
   const blocks = [...raw.blocks].sort((a, b) => (b.notable - a.notable) || (a.nearest.d - b.nearest.d)).slice(0, maxTypes);
   lines.push('見えるブロック: ' + (blocks.length
     ? blocks.map((b) => `${b.name}${b.ripe != null ? `(育ちきった${b.ripe}/${b.seen})` : ''} ${relDir(s.pos, b.nearest)}${b.seen > 1 ? ` 他${b.seen - 1}+` : ''}`).join(', ')
@@ -233,7 +241,8 @@ function observationEn(raw, opts = {}) {
   const ents = raw.entities.slice(0, maxNearby);
   const nearby = ents.map((e) => `${e.name} (${kindEn[e.kind] || e.kind}; ${en.whereEn(s.pos, e.pos)})`);
   const ft = farmTextEn(opts.farm || raw.farm);
-  return { self: self.join(', '), inventory: en.invText(raw.inventory), visible: visible.length ? visible.join('; ') : 'nothing notable', nearby: nearby.length ? nearby.join('; ') : 'nobody', ...(ft ? { farmland: ft } : {}) };
+  const beds = unplacedBeds(raw, opts.bedPlaced);
+  return { self: self.join(', '), inventory: en.invText(raw.inventory), ...(beds.length ? { not_placed: beds.map((b) => `holding ${b} (not placed yet)`).join('; ') } : {}), visible: visible.length ? visible.join('; ') : 'nothing notable', nearby: nearby.length ? nearby.join('; ') : 'nobody', ...(ft ? { farmland: ft } : {}) };
 }
 
-module.exports = { observationEn, cropRipe, VEHICLE, collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };
+module.exports = { unplacedBeds, observationEn, cropRipe, VEHICLE, collectRaw, summarizeObservation, summarizeInventory, notableMatcher, blockVisible, DEFAULT_NOTABLE, HOSTILE };

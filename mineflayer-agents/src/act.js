@@ -14,7 +14,7 @@ const unstuck = require('./unstuck');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
-const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
+const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 25000 /* 置けなかったら別の所で置き直す (3回まで。1回 blockUpdate の時間切れ 5 秒) */, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
   attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS };
 const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
 const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
@@ -115,6 +115,16 @@ function digTimeText(ms) {
 }
 
 // 右クリックで開く・動く物 (この上に置こうとすると、置かずに開いてしまう)
+// 置こうとした所 t に、置いた物のブロックが実際にあるか (置く前の名前 beforeName から変わって、空気・液体でない)。
+//   名前が持ち物と同じならそれ。違う名前になる物 (種 → 作物など) もあるので、置く前と違う固い/置かれた物なら置けたとみなす
+function placedAt(bot, t, item, beforeName) {
+  const b = bot.blockAt(t);
+  if (!b) return false;
+  if (b.name === item) return true;
+  if (b.name === beforeName || /^(air|cave_air|void_air|water|lava)$/.test(b.name)) return false;
+  return !REPLACEABLE.has(b.name);
+}
+
 const INTERACTIVE = /^(furnace|blast_furnace|smoker|crafting_table|chest|trapped_chest|barrel|ender_chest|anvil|enchanting_table|hopper|dispenser|dropper|lever|note_block|loom|lectern|brewing_stand|cartography_table|grindstone|smithing_table|stonecutter|bell|cake)$|_(bed|door|trapdoor|button|fence_gate|sign|shulker_box)$/;
 
 // 落ちている物へ近づく距離: ふつうは 0.8。耕地・作物の上の物は 1.5 (耕地には乗らない (unstuck.avoidFarmland)。隣に立てば拾える)
@@ -395,7 +405,15 @@ const handlers = {
         }
       }
     }
+    // 置けなかったとき (blockUpdate の時間切れ・置けない所) は、実際にブロックが置けていたかを確かめ、置けていなければ
+    //   別の場所 (ベッドは別の向き) で置き直す (ctx.placeTries 回まで)。2026-11-06 の実行で、Mai がベッドを1回置けず
+    //   (blockUpdate の時間切れ)、置き直さないまま死んでベッドを失った
+    const isBed = /_bed$/.test(ch.item);
+    const maxTries = ctx.placeTries ?? 3;
+    const failedDirs = new Set();
+    const errs = [];
     for (const t of spots) {
+      if (errs.length >= maxTries) break;
       const tb = bot.blockAt(t);
       const below = bot.blockAt(t.offset(0, -1, 0));
       if (!tb || !below || !REPLACEABLE.has(tb.name) || below.boundingBox !== 'block' || INTERACTIVE.test(below.name)) continue;
@@ -405,25 +423,41 @@ const handlers = {
       if (above && above.boundingBox === 'block') continue;
       if (!faceReachable(bot, below, new Vec3(0, 1, 0))) continue; // 見えない面・届かない所には置かない
       // ベッドは向いている方へ2マス使う (足 → 頭)。斜めの所は向きが決まらないので使わず、頭の側も空いていて下が固いことを確かめる
-      if (/_bed$/.test(ch.item)) {
+      let dir = null;
+      if (isBed) {
         const dx = t.x - base.x; const dz = t.z - base.z;
         if (Math.abs(dx) === Math.abs(dz)) continue;
-        const head = Math.abs(dx) > Math.abs(dz) ? t.offset(Math.sign(dx), 0, 0) : t.offset(0, 0, Math.sign(dz));
+        dir = Math.abs(dx) > Math.abs(dz) ? [Math.sign(dx), 0] : [0, Math.sign(dz)];
+        if (failedDirs.has(dir.join(','))) continue; // 置けなかった向きは使わない
+        const head = t.offset(dir[0], 0, dir[1]);
         const hb = bot.blockAt(head); const hbelow = bot.blockAt(head.offset(0, -1, 0));
         if (!hb || !REPLACEABLE.has(hb.name) || !hbelow || hbelow.boundingBox !== 'block') continue;
       }
+      const beforeName = tb.name;
+      let cleared = '';
       try {
-        let cleared = '';
         if (tb.name !== 'air' && tb.name !== 'cave_air') cleared = await clearBlock(bot, tb); // 雪や草をどける
         await bot.equip(it, 'hand');
         await bot.placeBlock(below, new Vec3(0, 1, 0));
-        // 置いた設備 (かまど・作業台・チェスト・ベッド・松明) の場所は覚える
-        if (ctx.memory && /^(furnace|crafting_table|chest|torch)$|_bed$/.test(ch.item)) ctx.memory.notePlace(ch.item, t, { imp: 0.8 });
-        return { ok: true, msg: `${ch.item}を(${t.x},${t.y},${t.z})に置いた${cleared ? ` (${cleared})` : ''}`, placedItem: ch.item };
       } catch (e) {
-        return { ok: false, msg: `${ch.item}を置けなかった: ${String(e.message).slice(0, 50)}` };
+        // 時間切れでも置けていることがある (知らせが遅れた)。少し待ってブロックを見て確かめる
+        await sleep(ctx.placeCheckMs ?? 400);
+        if (!placedAt(bot, t, ch.item, beforeName)) {
+          errs.push(String(e.message).slice(0, 50));
+          if (dir) failedDirs.add(dir.join(','));
+          continue;
+        }
       }
+      // 置いた設備 (かまど・作業台・チェスト・ベッド・松明) の場所は覚える
+      if (ctx.memory && /^(furnace|crafting_table|chest|torch)$|_bed$/.test(ch.item)) ctx.memory.notePlace(ch.item, t, { imp: 0.8 });
+      if (isBed && ctx.memory) {
+        const ex = ctx.memory.extra || (ctx.memory.extra = {});
+        ex.myBed = { name: ch.item, pos: { x: t.x, y: t.y, z: t.z }, tick: ctx.memory.tick ?? null };
+      }
+      const retried = errs.length ? ` (${errs.length}回置けず、別の所に置き直した)` : '';
+      return { ok: true, msg: `${ch.item}を(${t.x},${t.y},${t.z})に置いた${cleared ? ` (${cleared})` : ''}${retried}`, placedItem: ch.item, ...(errs.length ? { retries: errs.length } : {}) };
     }
+    if (errs.length) return { ok: false, msg: `${ch.item}を置けなかった (${errs.length}か所で試した): ${errs[errs.length - 1]}`, retries: errs.length };
     return { ok: false, msg: '置ける場所が近くにない' };
   },
 

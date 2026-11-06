@@ -83,6 +83,33 @@ function containerAt(ctx, pos) {
   return m[posKey(pos)] || null;
 }
 
+// 見えている入れ物 [{ name, pos, d }] (近い順)。最後に開けた入れ物 (ctx.lastContainer = "x,y,z") が見えていれば先頭に。
+//   ラージチェストの片割れ (覚えた中身の pair) は1つにまとめる (同じ中身)
+function visibleContainers(raw, ctx = {}) {
+  const maxD = ctx.visionRadius ?? 16;
+  const all = [];
+  for (const b of raw.blocks) {
+    if (!CONTAINER.test(b.name)) continue;
+    for (const p of (b.positions && b.positions.length ? b.positions : [b.nearest])) {
+      if (p && p.d <= maxD) all.push({ name: b.name, pos: { x: p.x, y: p.y, z: p.z }, d: p.d });
+    }
+  }
+  all.sort((a, b) => a.d - b.d);
+  const i = ctx.lastContainer ? all.findIndex((c) => posKey(c.pos) === ctx.lastContainer) : -1;
+  if (i > 0) all.unshift(all.splice(i, 1)[0]);
+  const seen = new Set();
+  const out = [];
+  for (const c of all) {
+    const k = posKey(c.pos);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const m = containerAt(ctx, c.pos);
+    if (m && m.pair) seen.add(m.pair);
+    out.push(c);
+  }
+  return out;
+}
+
 function nearestBlock(raw, re, maxD = Infinity) {
   return raw.blocks.filter((b) => re.test(b.name) && b.nearest.d <= maxD).sort((a, b) => a.nearest.d - b.nearest.d)[0] || null;
 }
@@ -164,12 +191,16 @@ function moreActions(raw, ctx = {}, on = () => true) {
     out.push({ name: 'dismount', desc: `${raw.self.vehicle}から降りる`, descEn: `get off the ${raw.self.vehicle}`, argType: 'choice', choices: [{ id: 'here', label: '降りる', labelEn: 'get off' }] });
   }
 
-  // chest_put / chest_take: いちばん近い入れ物
-  const cont = nearestBlock(raw, CONTAINER, ctx.visionRadius ?? 16);
+  // chest_put / chest_take: 見えている入れ物。最後に開けた入れ物 (ctx.lastContainer) が見えていればそれ、なければいちばん近い入れ物。
+  //   近い順だけで選ぶと、動いたあとに別の入れ物がいちばん近くなり、「中を見た」入れ物と「取り出す」入れ物が別になった
+  //   (2026-11-06 の実行の Daiki: 縦に並んだ2つのチェスト)。ほかに見えている入れ物は、中を知らなければ「中を見る」、
+  //   知っていればその中身を、場所を付けた候補 (id に @x,y,z) で出す
+  const conts = visibleContainers(raw, ctx);
+  const cont = conts[0] || null;
   if (cont) {
-    const where = `${cont.name} ${relDir(here, cont.nearest)}`;
-    const whereE = `${cont.name} (${whereEn(here, cont.nearest)})`;
-    const pos = { x: cont.nearest.x, y: cont.nearest.y, z: cont.nearest.z };
+    const where = `${cont.name} ${relDir(here, cont.pos)}`;
+    const whereE = `${cont.name} (${whereEn(here, cont.pos)})`;
+    const pos = cont.pos;
     if (on('chest_put') && inv.length) {
       const ch = inv.filter((i) => ok('chest_put', i.name)).map((i) => ({ id: i.name, label: `${i.name}x${i.count}`, labelEn: `${i.name} x${i.count}`, item: i.name, count: i.count, pos, block: cont.name }));
       if (ch.length) out.push({ name: 'chest_put', desc: `${where} に持ち物を入れる (その種類を全部)`, descEn: `put items into the ${whereE} (all of that kind)`, argType: 'choice', choices: cap(ch) });
@@ -179,6 +210,15 @@ function moreActions(raw, ctx = {}, on = () => true) {
       const ch = known && known.items.length
         ? known.items.filter((i) => ok('chest_take', i.name)).map((i) => ({ id: i.name, label: `${i.name}x${i.count}`, labelEn: `${i.name} x${i.count}`, item: i.name, pos, block: cont.name }))
         : (known ? [] : [{ id: 'look', label: '中を見る', labelEn: 'look inside', look: true, pos, block: cont.name }]);
+      // ほかに見えている入れ物 (場所を付ける)
+      for (const c of conts.slice(1, 1 + (ctx.otherContainers ?? 2))) {
+        const k = containerAt(ctx, c.pos);
+        const at = `${c.name} ${relDir(here, c.pos)}`;
+        const atE = `${c.name} (${whereEn(here, c.pos)})`;
+        const tag = `@${posKey(c.pos)}`;
+        if (!k) ch.push({ id: `look${tag}`, label: `${at} の中を見る`, labelEn: `look inside the ${atE}`, look: true, pos: c.pos, block: c.name });
+        else for (const i of k.items.filter((x) => ok('chest_take', x.name))) ch.push({ id: `${i.name}${tag}`, label: `${at} の ${i.name}x${i.count}`, labelEn: `${i.name} x${i.count} in the ${atE}`, item: i.name, pos: c.pos, block: c.name });
+      }
       if (ch.length) out.push({ name: 'chest_take', desc: known ? `${where} から取り出す (前に見た中身。その種類を全部)` : `${where} の中を見る (開けて中身を知る)`,
         descEn: known ? `take items out of the ${whereE} (contents seen before; all of that kind)` : `open the ${whereE} and see what is inside`, argType: 'choice', choices: cap(ch) });
     }
@@ -356,4 +396,4 @@ function hasInputs(inv, t) {
 
 const MORE_ACTIONS = ['use_on', 'use_item', 'dismount', 'chest_put', 'chest_take', 'furnace_take', 'trade', 'enchant', 'brew', 'anvil', 'follow', 'give', 'call', 'lure', 'enclose'];
 
-module.exports = { farmCount, SEEDS, lureChoices, encloseChoices, encloseNeed, FENCE_ITEM, WALL_BLOCK, GATE_ITEM, ENCLOSE_SIZES, moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };
+module.exports = { visibleContainers, farmCount, SEEDS, lureChoices, encloseChoices, encloseNeed, FENCE_ITEM, WALL_BLOCK, GATE_ITEM, ENCLOSE_SIZES, moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };

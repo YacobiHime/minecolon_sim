@@ -142,11 +142,67 @@ function summarize(items) {
 }
 
 // 入れ物の中身を覚える (memory.extra.containers["x,y,z"])。actions_more が chest_take / furnace_take の候補に使う
-function noteContainer(ctx, pos, name, items) {
+//   pair: ラージチェストのもう半分の位置 (同じ中身。両方の位置で覚える)。last: 最後に開けた入れ物として覚える
+//   (actions_more が次の chest_put / chest_take でこの入れ物を先に出す。近い順だけで選ぶと、縦に並んだチェストで
+//   「見た」のと「取り出す」のが別のチェストになった。2026-11-06 の実行の Daiki)
+function noteContainer(ctx, pos, name, items, { pair = null, last = false } = {}) {
   if (!ctx || !ctx.memory) return;
   const ex = ctx.memory.extra || (ctx.memory.extra = {});
   ex.containers = ex.containers || {};
-  ex.containers[posKey(pos)] = { name, items, tick: ctx.memory.tick ?? null };
+  const tick = ctx.memory.tick ?? null;
+  ex.containers[posKey(pos)] = pair ? { name, items, tick, pair: posKey(pair) } : { name, items, tick };
+  if (pair) ex.containers[posKey(pair)] = { name, items, tick, pair: posKey(pos) };
+  if (last) ex.lastContainer = posKey(pos);
+}
+
+// ラージチェストのもう半分 (block state の type: left/right と facing から)。1つだけのチェスト・樽などは null
+//   (仕様: ChestBlock.getConnectedDirection。left なら facing を時計回り、right なら反時計回りに回した方)
+const CW = { north: [1, 0], east: [0, 1], south: [-1, 0], west: [0, -1] }; // facing を時計回りに回した方の (dx, dz)
+function chestPair(bot, b) {
+  let pr = null;
+  try { pr = typeof b.getProperties === 'function' ? b.getProperties() : null; } catch (_) { pr = null; }
+  if (!pr || !CW[pr.facing] || (pr.type !== 'left' && pr.type !== 'right')) return null;
+  const [dx, dz] = CW[pr.facing];
+  const s = pr.type === 'left' ? 1 : -1;
+  const q = b.position.offset(dx * s, 0, dz * s);
+  const o = bot.blockAt(q);
+  return o && o.name === b.name ? { x: q.x, y: q.y, z: q.z } : null;
+}
+
+// 入れ物を開ける。前に開けた画面の中身が残っていて、それを新しい画面の中身と取り違えないようにする。
+//   mineflayer は、開いている画面と番号の違う window_items を1つ覚えておき、あとで同じ番号の画面が開くとその中身を使う。
+//   画面の番号は死んで生き返ると 1 から数え直す (サーバーの ServerPlayer が新しくなる) ので、前の命で開けた作業台の
+//   中身 (持ち物込み) が、チェストの中身に見えた (2026-11-06 の実行の Jiro: 「中を見る」で stick・wooden_sword・oak_planks
+//   と出たが、同じチェストを次に開けると wheat・oak_log・stick・jungle_planks だった)。
+//   画面が開いたあと、その番号の window_items がサーバーから届くまで待つ (届けば mineflayer が中身を入れ直す)
+async function openFresh(bot, open, waitMs = 2000) {
+  const client = bot._client;
+  if (!client || typeof client.on !== 'function') return { w: await open(), fresh: null };
+  let id = null; let fresh = false;
+  const onOpen = (p) => { id = p.windowId; fresh = false; };
+  const onItems = (p) => { if (id != null && p.windowId === id) fresh = true; };
+  client.on('open_window', onOpen);
+  client.on('window_items', onItems);
+  try {
+    const w = await open();
+    if (id == null && w && w.id != null) id = w.id;
+    for (let t = 0; !fresh && t < waitMs; t += 50) await sleep(50);
+    return { w, fresh };
+  } finally {
+    client.removeListener('open_window', onOpen);
+    client.removeListener('window_items', onItems);
+  }
+}
+
+// chest_put / chest_take の入れ物: 選んだ候補の位置 (ch.pos) の入れ物だけを開ける。
+//   そこに入れ物が無くなっていたら、近くの別の入れ物は開けない (見た入れ物と別の物を開けないように)
+function containerAt(bot, ch, ctx) {
+  if (!ch.pos) return { b: findBlockNear(bot, ch, ctx, CONTAINER) };
+  const b = bot.blockAt(V(ch.pos));
+  if (b && CONTAINER.test(b.name)) return { b };
+  const ex = ctx && ctx.memory && ctx.memory.extra;
+  if (ex && ex.containers) delete ex.containers[posKey(ch.pos)];
+  return { b: null, msg: `(${ch.pos.x},${ch.pos.y},${ch.pos.z})に入れ物が無くなっていた` };
 }
 
 function findBlockNear(bot, ch, ctx, re) {
@@ -485,19 +541,19 @@ function moreHandlers(lib) {
     },
 
     async chest_put(bot, ch, ctx) {
-      const b = findBlockNear(bot, ch, ctx, CONTAINER);
-      if (!b) return { ok: false, msg: '入れ物が見えない' };
+      const { b, msg } = containerAt(bot, ch, ctx);
+      if (!b) return { ok: false, msg: msg || '入れ物が見えない' };
       const type = bot.registry.itemsByName[ch.item];
       const n = lib.invCount(bot, ch.item);
       if (!type || !n) return { ok: false, msg: `${ch.item}を持っていない` };
       try { await walkToBlock(lib, bot, b, ctx, 4); } catch (e) { return { ok: false, msg: `${b.name}へ行けなかった: ${lib.pathErr(e)}` }; }
       let w = null;
       try {
-        w = await withTimeout(bot.openContainer(b), 8000, () => {});
+        ({ w } = await openFresh(bot, () => withTimeout(bot.openContainer(b), 8000, () => {})));
         let err = '';
         try { await w.deposit(type.id, null, n); } catch (e) { err = /full/.test(errText(e)) ? '入れ物が一杯' : errText(e); }
         const items = summarize(w.containerItems());
-        noteContainer(ctx, b.position, b.name, items);
+        noteContainer(ctx, b.position, b.name, items, { pair: chestPair(bot, b), last: true });
         w.close();
         const put = n - lib.invCount(bot, ch.item);
         if (ctx.memory) ctx.memory.notePlace(b.name, b.position, { imp: 0.8 });
@@ -512,12 +568,12 @@ function moreHandlers(lib) {
     },
 
     async chest_take(bot, ch, ctx) {
-      const b = findBlockNear(bot, ch, ctx, CONTAINER);
-      if (!b) return { ok: false, msg: '入れ物が見えない' };
+      const { b, msg } = containerAt(bot, ch, ctx);
+      if (!b) return { ok: false, msg: msg || '入れ物が見えない' };
       try { await walkToBlock(lib, bot, b, ctx, 4); } catch (e) { return { ok: false, msg: `${b.name}へ行けなかった: ${lib.pathErr(e)}` }; }
       let w = null;
       try {
-        w = await withTimeout(bot.openContainer(b), 8000, () => {});
+        ({ w } = await openFresh(bot, () => withTimeout(bot.openContainer(b), 8000, () => {})));
         const before = summarize(w.containerItems());
         let took = 0; let err = '';
         if (!ch.look) {
@@ -528,7 +584,7 @@ function moreHandlers(lib) {
           }
         }
         const items = summarize(w.containerItems());
-        noteContainer(ctx, b.position, b.name, items);
+        noteContainer(ctx, b.position, b.name, items, { pair: chestPair(bot, b), last: true });
         w.close();
         // 持ち物の数は画面を閉じてから確かめる (開いているあいだは bot.inventory に反映されないことがある)
         if (!ch.look) {
@@ -555,7 +611,7 @@ function moreHandlers(lib) {
       try { await walkToBlock(lib, bot, b, ctx, 4); } catch (e) { return { ok: false, msg: `${b.name}へ行けなかった: ${lib.pathErr(e)}` }; }
       let f = null;
       try {
-        f = await withTimeout(bot.openFurnace(b), 8000, () => {});
+        ({ w: f } = await openFresh(bot, () => withTimeout(bot.openFurnace(b), 8000, () => {})));
         const a = invMap(bot);
         if (f.outputItem()) await f.takeOutput();
         if (ch.what === 'all') {
@@ -877,4 +933,4 @@ function noteTrades(ctx, id, trades) {
 
 const MORE_TIMEOUTS = { use_on: 45000, use_item: 40000, dismount: 5000, chest_put: 25000, chest_take: 25000, furnace_take: 25000, trade: 35000, enchant: 30000, brew: 60000, anvil: 25000, follow: 45000, give: 40000, call: 3000 };
 
-module.exports = { wrapMany, mergeFarm, moreHandlers, MORE_TIMEOUTS, changeText, invDiff, noteContainer, furnaceItems, potionName, PROJECTILE };
+module.exports = { wrapMany, mergeFarm, moreHandlers, MORE_TIMEOUTS, changeText, invDiff, noteContainer, chestPair, openFresh, furnaceItems, potionName, PROJECTILE };
