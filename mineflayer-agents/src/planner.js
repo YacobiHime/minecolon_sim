@@ -175,7 +175,9 @@ class Planner {
     this.exclude = world.excludeBlocks || GROUND;
     this.chests0 = (world.sharedChests || []).map((c) => ({ id: c.id, items: Object.fromEntries((c.items || []).filter((i) => i.count > 0).map((i) => [i.name, i.count])) }));
     const fm = world.farm || {};
-    this.farm = { empty: fm.empty || 0, growing: { ...(fm.growing || {}) }, ripe: { ...(fm.ripe || {}) } };
+    // tillCount: 水から4マス以内の耕せるマスの数 (farmwater.tillSpots。分からなければ null = 数えない)
+    this.farm = { empty: fm.empty || 0, growing: { ...(fm.growing || {}) }, ripe: { ...(fm.ripe || {}) },
+      tillCount: Number.isFinite(fm.tillCount) ? fm.tillCount : (Array.isArray(fm.till) && fm.till.length < 4 ? fm.till.length : null) };
     // 耕す前の水の段 (farmwater.waterInfo)。無ければ見えている・覚えているブロックの名前から (見えていれば済んだとみなす)
     this.water = world.water || (this.vis.has('water') ? { where: 'visible', ready: true } : this.known.has('water') ? { where: 'known', id: null, ready: false } : { where: 'unknown', ready: false });
     this.cropPlaces = world.cropPlaces || {};
@@ -396,6 +398,14 @@ class Planner {
     const growing = Math.min(plantsAll, sim.farmGrowing[fm.crop] || 0);
     sim.farmGrowing[fm.crop] = (sim.farmGrowing[fm.crop] || 0) - growing;
     let plants = plantsAll - growing;
+    // 耕せるだけ植える (2026-11-06): 種が収穫物と別の作物は、持っている種の数まで、空いている耕地 + 水から4マス以内の耕せるマスの数まで植える
+    //   (要る数より多くても。要る数より少なければ要る数のまま = 足りない種は手に入れる道筋になる)
+    if (fm.seed !== item) {
+      const held = sim.inv[fm.seed] || 0;
+      const cap = sim.farmEmpty + (Number.isFinite(this.farm.tillCount) ? this.farm.tillCount : Infinity);
+      const more = Math.min(held, cap);
+      if (more > plants) plants = more;
+    }
     let rounds = 1;
     if (plants > 0 && fm.seed === item) {
       // 収穫物そのものが種: 持っている数 (道筋の初めの持ち物) を植え、増やして戻す

@@ -27,6 +27,7 @@ const UNSTUCK_DEFAULTS = {
   backMs: 700, digMax: 4, digMaxTimeMs: 3000, walkMs: 900,
   reconnect: true, reconnectWaitMs: 4000, reconnectTimeoutMs: 60000,
   avoidBamboo: true, losWhenPlacing: false,
+  avoidFarmland: true,
 };
 
 // 掘って抜けるときに先に狙う物 (当たり判定がずれやすい・柔らかい)
@@ -94,6 +95,13 @@ function setupPathfinder(bot, movements, o = {}) {
     // 竹: 乗れない・通れない (fences = physical でなく safe でもない) → 通り道にあれば pathfinder が掘ってから進む
     const b = bot.registry.blocksByName.bamboo;
     if (b && movements.fences) movements.fences.add(b.id);
+  }
+  if (movements && c.avoidFarmland) {
+    // 耕地: 上に乗らない・通らない・掘らない (fences + blocksCantBreak)。乗ったあとの跳ぶ・落ちるで踏まれて土に戻る (仕様) のを避ける。
+    //   2026-11-06 の実行では、水の近くで土に戻った7回のうち4回が、go_to・use_on の歩きで耕地の上に下りた・跳んだあと
+    const f = bot.registry.blocksByName.farmland;
+    if (f && movements.fences) movements.fences.add(f.id);
+    if (f && movements.blocksCantBreak) movements.blocksCantBreak.add(f.id);
   }
   bot.on('forcedMove', () => { stats(bot).forced += 1; });
   bot.on('path_reset', (reason) => { const r = stats(bot).resets; r[reason] = (r[reason] || 0) + 1; });

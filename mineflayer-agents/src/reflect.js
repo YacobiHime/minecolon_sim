@@ -157,6 +157,7 @@ class Reflect {
       `## 振り返ること (${{ day_end: '1日が終わる', before_sleep: '寝る前', death: '死んだあと', goals: 'ゴールをいくつか終えた' }[ctx.reason] || ctx.reason})`,
       facts.map((f) => `- ${f}`).join('\n'),
       ctx.socialText ? `## 今の体と心\n${ctx.socialText}` : '',
+      ctx.laterText ? `## あとでやること\n${ctx.laterText}` : '', // 植えた作物・かまどに入れた物など (prospect.js)
       `## 前の方針\n${this.policy ? `${this.policy.text}${this.policy.why ? ` (何のため: ${this.policy.why})` : ''}` : 'まだない'}`,
       '方針を JSON で。',
     ];

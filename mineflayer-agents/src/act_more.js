@@ -8,6 +8,7 @@ const { blockVisible } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
 const { posKey, CONTAINER, FURNACE, TRADER, HAND } = require('./actions_more');
 const farmwater = require('./farmwater');
+const { BREED_FOOD } = require('./animals');
 
 // 投げる・撃つ物 (右クリックで飛ぶ物)。生き物に使うときは離れて狙う
 const PROJECTILE = /^(bow|crossbow|trident|snowball|egg|ender_pearl|splash_potion|lingering_potion|experience_bottle)$/;
@@ -244,6 +245,30 @@ function noteTilled(ctx, pos) {
   if (l.length > 128) l.splice(0, l.length - 128);
 }
 
+// 子どもの動物 (AgeableMob の metadata 16 = 子ども)。読めなければ false
+function isBaby(e) { try { return !!(e && e.metadata && e.metadata[16] === true); } catch (_) { return false; } }
+function babyIds(bot, name, center, r = 8) {
+  const out = new Set();
+  for (const e of Object.values(bot.entities)) if (e && e.name === name && e.position && dist3(e.position, center) <= r && isBaby(e)) out.add(e.id);
+  return out;
+}
+
+// 耕地の湿り (moisture 7 = 湿っている)。読めなければ水が4マス以内にあるか
+function farmlandWet(bot, pos) {
+  const b = bot.blockAt(pos);
+  if (!b || b.name !== 'farmland') return null;
+  try { const m = Number(b.getProperties().moisture); if (Number.isFinite(m)) return m === 7; } catch (_) { /* 下で */ }
+  try { return farmwater.waterWithin((x, y, z) => bot.blockAt(new Vec3(x, y, z)), pos); } catch (_) { return null; }
+}
+
+// 近くの空いている耕地 (真上が空気)。近い順
+function emptyFarmland(bot, r = 6) {
+  const me = bot.entity.position;
+  return bot.findBlocks({ matching: (x) => x && x.name === 'farmland', maxDistance: r, count: 64 })
+    .filter((q) => { const up = bot.blockAt(q.offset(0, 1, 0)); return !up || /^(air|cave_air)$/.test(up.name); })
+    .sort((a, b) => a.distanceTo(me) - b.distanceTo(me));
+}
+
 // 動く相手に dist まで近づく (最大 ms)
 async function approach(lib, bot, e, dist, ms, ctx) {
   const t0 = Date.now();
@@ -311,6 +336,9 @@ function moreHandlers(lib) {
         if (!(await approach(lib, bot, e, ctx.useReach ?? 3, 12000, ctx))) return { ok: false, msg: `${ch.target}に近づけなかった` };
         if (!(await holdItem(bot, item))) return { ok: false, msg: `${item}を持てなかった` };
         const a = snapshot(bot);
+        // 好きな餌を動物に使う: 子どもが生まれたか (前後の子どもの数) を見る (あとでやること: 次に繁殖できる・大人になる)
+        const breedFood = (BREED_FOOD[e.name] || []).includes(item);
+        const babies0 = breedFood ? babyIds(bot, e.name, e.position) : null;
         await bot.activateEntity(e);
         await sleep(700);
         let win = closeAnyWindow(bot, ctx, null, null);
@@ -322,7 +350,15 @@ function moreHandlers(lib) {
           t = changeText(a, snapshot(bot));
         }
         const res = [t, win].filter(Boolean).join('、');
-        return { ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}` : `${itemTxt}を${ch.target}に使ったが何も起きなかった` };
+        let bred = null;
+        const fed = breedFood && (a.inv[item] || 0) > (invMap(bot)[item] || 0);
+        if (fed) {
+          let born = 0;
+          for (let k = 0; k < 6 && !born; k++) { await sleep(500); for (const id of babyIds(bot, e.name, e.position)) if (!babies0.has(id)) born += 1; }
+          const p = e.position || bot.entity.position;
+          bred = { animal: e.name, adult: !isBaby(e), babies: born, pos: { x: Math.round(p.x), y: Math.round(p.y), z: Math.round(p.z) } };
+        }
+        return { ...(bred ? { bred } : {}), ok: !!res, msg: res ? `${itemTxt}を${ch.target}に使った: ${res}${bred && bred.babies ? ` (子どもが${bred.babies}匹生まれた)` : ''}` : `${itemTxt}を${ch.target}に使ったが何も起きなかった` };
       }
       // ブロック
       let b;
@@ -389,12 +425,12 @@ function moreHandlers(lib) {
         if (now && now.name === 'farmland' && b.name !== 'farmland') {
           let nearWater = null;
           try { nearWater = farmwater.waterWithin((x, y, z) => bot.blockAt(new Vec3(x, y, z)), b.position); } catch (_) { nearWater = null; }
-          farm = { till: true, nearWater };
+          farm = { till: true, nearWater, pos: { x: b.position.x, y: b.position.y, z: b.position.z } };
           if (ctx.memory) ctx.memory.notePlace('farmland', now.position, { imp: 0.7 });
           noteTilled(ctx, { x: b.position.x, y: b.position.y, z: b.position.z });
         }
         if (now && now.name === 'farmland' && up && /^(wheat|carrots|potatoes|beetroots)$/.test(up.name)) {
-          if (b.name === 'farmland' && res) farm = { plant: up.name };
+          if (b.name === 'farmland' && res) farm = { plant: up.name, pos: { x: up.position.x, y: up.position.y, z: up.position.z }, wet: farmlandWet(bot, b.position) };
           if (ctx.memory) ctx.memory.notePlace(up.name, up.position, { imp: 0.7 });
         }
       }
@@ -526,8 +562,9 @@ function moreHandlers(lib) {
         f.close();
         const d = invDiff(a, invMap(bot)).filter((x) => x.d > 0);
         const rest = left.length ? ` (中に残り: ${left.map((i) => `${i.slot}:${i.name}x${i.count}`).join(', ')})` : ' (中は空)';
-        if (!d.length) return { ok: false, msg: `${b.name}から取り出す物がなかった${rest}` };
-        return { ok: true, msg: `${b.name}から ${diffText(d)} を取り出した${rest}` };
+        const at = { x: b.position.x, y: b.position.y, z: b.position.z };
+        if (!d.length) return { ok: false, msg: `${b.name}から取り出す物がなかった${rest}`, furnace: { at, taken: 0, left: left.length } };
+        return { ok: true, msg: `${b.name}から ${diffText(d)} を取り出した${rest}`, furnace: { at, taken: d.reduce((t, x) => t + x.d, 0), left: left.length } };
       } catch (e) {
         try { if (f) f.close(); } catch (_) { /* ignore */ }
         return { ok: false, msg: `${b.name}を開けなかった: ${errText(e)}` };
@@ -759,7 +796,50 @@ function moreHandlers(lib) {
       return { ok: true, msg: `「${text}」と呼んだ`, said: text };
     },
   };
+
+  // 続けて耕す・植える (ch.count > 1。wrapMany)
+  h.use_on = wrapMany(h.use_on);
   return h;
+}
+
+// 続けて耕す・植える (ch.count > 1。actions_more の候補が、持っている種と水の近くの耕せるマス・空いている耕地の数から決める)。
+//   1マス目のあと、近くの耕せるマス (耕す) / 空いている耕地 (植える) を count まで1回の行動で続ける。途中で失敗したらそこでやめる
+function wrapMany(one) {
+  return async function useOnMany(bot, ch, ctx) {
+    const n = Math.max(1, Math.floor(ch.count || 1));
+    const r0 = await one(bot, ch, ctx);
+    if (n <= 1 || !r0.ok || !r0.farm || (ctx.signal && ctx.signal.aborted)) return r0;
+    const rs = [r0];
+    let last = null;
+    for (let i = 1; i < n; i++) {
+      if ((ctx.signal && ctx.signal.aborted) || !bot.inventory.items().some((x) => x.name === ch.item)) break;
+      let r;
+      if (ch.till) r = await one(bot, { ...ch, pos: null }, ctx);
+      else {
+        const q = emptyFarmland(bot, ctx.plantRadius ?? 6)[0];
+        if (!q) break;
+        r = await one(bot, { ...ch, target: 'farmland', pos: { x: q.x, y: q.y, z: q.z } }, ctx);
+      }
+      if (!r.ok || !r.farm) { last = r; break; }
+      rs.push(r);
+    }
+    return mergeFarm(ch, rs, last);
+  };
+}
+
+// 続けて耕した・植えた結果を1つにまとめる
+function mergeFarm(ch, rs, last) {
+  const k = rs.length;
+  const itemTxt = ch.item === HAND ? '素手' : ch.item;
+  const tail = last ? `。${k + 1}マス目: ${last.msg}` : '';
+  if (rs[0].farm.till) {
+    const nw = rs.filter((r) => r.farm.nearWater).length;
+    return { ok: true, msg: `${itemTxt}を${k}マスに使った: ${k}マスがfarmlandになった${tail}`,
+      farm: { till: true, n: k, nearWater: nw === k, nearWaterN: nw, pos: rs[0].farm.pos, positions: rs.map((r) => r.farm.pos) }, each: rs.map((r) => r.msg) };
+  }
+  const crop = rs[0].farm.plant;
+  return { ok: true, msg: `${itemTxt}を${k}マスの耕地に使った: ${crop}が${k}本植わった、持ち物 ${ch.item}-${k}${tail}`,
+    farm: { plant: crop, n: k, pos: rs[0].farm.pos, wet: rs[0].farm.wet, positions: rs.map((r) => r.farm.pos), wetN: rs.filter((r) => r.farm.wet).length }, each: rs.map((r) => r.msg) };
 }
 
 function itemOf(it, count) {
@@ -791,4 +871,4 @@ function noteTrades(ctx, id, trades) {
 
 const MORE_TIMEOUTS = { use_on: 45000, use_item: 40000, dismount: 5000, chest_put: 25000, chest_take: 25000, furnace_take: 25000, trade: 35000, enchant: 30000, brew: 60000, anvil: 25000, follow: 45000, give: 40000, call: 3000 };
 
-module.exports = { moreHandlers, MORE_TIMEOUTS, changeText, invDiff, noteContainer, furnaceItems, potionName, PROJECTILE };
+module.exports = { wrapMany, mergeFarm, moreHandlers, MORE_TIMEOUTS, changeText, invDiff, noteContainer, furnaceItems, potionName, PROJECTILE };

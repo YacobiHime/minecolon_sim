@@ -82,4 +82,22 @@ function parsePlaces(text, origin, { version } = {}) {
   return out;
 }
 
-module.exports = { commonRef, parsePlaces, namesIn, ORIGIN_JA, dirOf };
+// 文の中の M 番号 (memory.placesForPrompt の、その人だけの番号) を共通の呼び方に置き換える。
+//   places: [{ id: 'M2', pos }]。一覧に無い番号はそのまま。出現地点が分からなければ座標「(x, y, z)」。返り値 { text, n (置き換えた数), ids }
+const RE_MREF = /(?<![A-Za-z0-9_＿Ａ-Ｚａ-ｚ０-９])[MＭ]([0-9０-９]{1,2})(?![0-9０-９])/g;
+function replaceMRefs(text, places, origin, opts = {}) {
+  const s = String(text ?? '');
+  const ids = [];
+  const byId = new Map((places || []).filter((p) => p && p.id && p.pos).map((p) => [p.id, p]));
+  const out = s.replace(RE_MREF, (m, d) => {
+    const id = `M${String(d).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))}`;
+    const p = byId.get(id);
+    if (!p) return m;
+    ids.push(id);
+    const ref = origin ? commonRef(p.pos, origin, opts) : `(${Math.round(p.pos.x)}, ${Math.round(p.pos.y)}, ${Math.round(p.pos.z)})`;
+    return `${ref}の所`;
+  });
+  return { text: out, n: ids.length, ids };
+}
+
+module.exports = { commonRef, parsePlaces, namesIn, ORIGIN_JA, dirOf, replaceMRefs };

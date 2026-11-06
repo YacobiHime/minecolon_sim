@@ -65,6 +65,7 @@ const DEFAULTS = {
     effort: { alpha: 0.04, perMeter: 1 / 16, unseenPerson: 6 } },
 };
 const KINDS = ['item', 'person', 'place', 'state'];
+const WAIT_WHY = 'もう植えてあって、あとは育つのを待つだけ';
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
 const NEED_LABELS = Object.values(NEED_LABEL);
 // 先のつらさの英語のキー (Jev の state.later) と、案ごとの質問 (事実を問う形。評価語を入れない)
@@ -141,8 +142,11 @@ function goalText(g) {
   if (g.kind === 'item') return `${g.target} ${g.count}`;
   if (g.kind === 'state') return states.stateGoalText(g.state || states.parseStateId(g.target) || {}, g.count);
   if (g.kind === 'person') return g.give ? `${g.target} に ${g.give} を渡す` : `${g.target} の近くにいる`;
-  return g.place && g.place.type === 'dir' ? `${g.target}へ行く` : `${g.target}へ行く`;
+  if (g.place && g.place.type === 'later') return laterText(g.target);
+  return `${g.target}へ行く`;
 }
+// あとでやることの候補の名前「小麦を取りに行く@M2」→「小麦を取りに行く (M2)」
+function laterText(name) { const i = String(name).lastIndexOf('@'); return i > 0 ? `${name.slice(0, i)} (${name.slice(i + 1)})` : String(name); }
 
 function candDesc(cands, name) {
   const c = [...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].find((x) => x.name === name);
@@ -165,6 +169,7 @@ function placeEn(g) {
   const pl = g.place || {};
   if (pl.type === 'dir') return `far to the ${pl.dir}`;
   if (pl.type === 'base' || g.target === '拠点') return 'the base';
+  if (pl.type === 'later' && pl.descEn) return pl.descEn.replace(/^go (get|take|to) /, '');
   return `${g.target}${pl.desc ? ` (${String(pl.desc).split(' ')[0] === '拠点' ? 'base' : String(pl.desc).split(' ')[0]})` : ''}`;
 }
 function goalTextEn(g) {
@@ -189,6 +194,12 @@ function statePathEn(p, { maxShown = 5 } = {}) {
 function rankPeople(people) {
   const score = (p) => (p.talks || 0) + 2 * (p.helped || 0) + (p.affinity != null ? Math.abs(p.affinity - 50) / 10 : 0) + (p.d != null ? 3 / (1 + p.d / 8) : 0);
   return people.map((p, i) => ({ p, i, s: score(p) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.p);
+}
+
+// 道筋の次が「育つのを待つ」だけ (畑の段で、耕す・植えるが残っておらず、植わっている作物がある)
+function waitOnly(p) {
+  const n = p && p.ok ? p.next : null;
+  return !!(n && n.how === 'farm' && !(n.till > 0) && !(n.plants > 0) && n.growing > 0);
 }
 
 function invCount(raw, name) { return (raw.inventory || []).filter((i) => i.name === name).reduce((t, i) => t + i.count, 0); }
@@ -243,7 +254,8 @@ class GoalPath {
     return {
       items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.cfg.maxItems, world: raw ? this.world(ctx) : null, annotate: this.cfg.annotate !== false }),
       people: personCandidates(rankPeople(ctx.people || []).slice(0, this.cfg.prompt.maxPeople)),
-      places: placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist, maxPlaces: this.cfg.prompt.maxMemPlaces, origin: ctx.origin || null }),
+      // あとでやることのうち見込みの時刻を過ぎたもの (prospect.js の goalCandidates。type: later) を場所の候補の先に足す。取りに行くかは 2B が選ぶ
+      places: [...(ctx.laterPlaces || []), ...placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist, maxPlaces: this.cfg.prompt.maxMemPlaces, origin: ctx.origin || null })],
       states: this.cfg.states && raw ? states.stateCandidates({ world: this.world(ctx), sense: this.senseOf(ctx), raw, cfg: this.cfg.stateOpts, version: this.cfg.version, dir: (pos) => dir8(raw.self.pos, pos), shared: bd ? bd.shared || [] : [] }) : [],
     };
   }
@@ -388,7 +400,10 @@ class GoalPath {
     if (ctx._farm) return ctx._farm;
     const raw = ctx.raw;
     let f = null;
-    if (ctx.blockAt && raw && raw.self) f = states.farmStatus(ctx.blockAt, raw.self.pos, { radius: (this.cfg.stateOpts && this.cfg.stateOpts.farmRadius) || states.DEFAULTS.farmRadius });
+    if (ctx.blockAt && raw && raw.self) {
+      f = states.farmStatus(ctx.blockAt, raw.self.pos, { radius: (this.cfg.stateOpts && this.cfg.stateOpts.farmRadius) || states.DEFAULTS.farmRadius });
+      try { const ts = farmwater.tillSpots(ctx.blockAt, raw.self.pos); f.till = ts.spots; f.tillCount = ts.count; } catch (_) { /* 数えない */ }
+    }
     else {
       f = { empty: 0, growing: {}, ripe: {} };
       for (const b of (raw && raw.blocks) || []) {
@@ -410,10 +425,7 @@ class GoalPath {
   }
 
   // 道筋の次が「作物が育つのを待つ」(畑の段で、耕す・植えるが残っておらず、植わっている作物がある)
-  waitingGrowth() {
-    const n = this.path && this.path.ok ? this.path.next : null;
-    return !!(n && n.how === 'farm' && !(n.till > 0) && !(n.plants > 0) && n.growing > 0);
-  }
+  waitingGrowth() { return waitOnly(this.path); }
 
   world(ctx) {
     const raw = ctx.raw;
@@ -482,7 +494,7 @@ class GoalPath {
     }
     const pos = g.pos || pl.pos;
     const d = pos ? dist3(here, pos) : 1e6;
-    return { met: d <= this.cfg.arriveDist, d, text: `${g.target}へ行く (${pos ? relDir(here, pos) : '場所が分からない'})`, textEn: `go to ${placeEn(g)} (${pos ? whereEn(here, pos) : 'location unknown'})` };
+    return { met: d <= this.cfg.arriveDist, d, text: `${pl.type === 'later' ? laterText(g.target) : `${g.target}へ行く`} (${pos ? relDir(here, pos) : '場所が分からない'})`, textEn: `go to ${placeEn(g)} (${pos ? whereEn(here, pos) : 'location unknown'})` };
   }
 
   // R2: その案は今すでに満たされているか (選んですぐ「手に入れた/着いた」にならないように)。{ met, why (2B への事実), whyEn }
@@ -588,15 +600,15 @@ class GoalPath {
           feedback.push(`${goalText(pg)}: ${path.missing && path.missing !== pg.target ? `${path.missing} の` : ''}作り方も手に入れ方も分からなかった`);
           continue;
         }
+        // もう植えてあって、あとは育つのを待つだけ → 外して聞き直す (待つ間は別のゴール)
+        if (waitOnly(path)) {
+          this.counts.waiting = (this.counts.waiting || 0) + 1;
+          this.log({ kind: 'waiting', ok: false, ...base, why: WAIT_WHY });
+          feedback.push(`${goalText(pg)}: ${WAIT_WHY}`);
+          continue;
+        }
       }
-      this.counts.goals += 1;
-      if (base.worst && pg.need) { this.counts.worstJudged += 1; if (base.worst === pg.need) this.counts.worstMatched += 1; }
-      const here = ctx.raw.self.pos;
-      this.goal = { ...pg, lastStatus: path && path.status && path.status.known ? path.status : null, needAt, setAt: tick, n: this.counts.goals, startPos: { x: here.x, y: here.y, z: here.z }, pos: pg.place ? pg.place.pos || null : null, metAt: null, best: Infinity, bestAt: tick };
-      this.path = path;
-      this.troubleRun = 0;
-      this.log({ kind: 'goal', ok: true, ...base, path: path ? this.pathRecord(path) : null });
-      return true;
+      return this.accept(ctx, tick, pg, path, { ...base, needAt });
     }
     this.retryAt = tick + this.cfg.retryAfter;
     return false;
@@ -615,6 +627,7 @@ class GoalPath {
       const planner = new Planner(this.world(ctx), { version: this.cfg.version });
       const path = planner.plan(pg.target, pg.count);
       if (!path.ok) return { ok: false, result: 'unplannable', why: `${path.missing && path.missing !== pg.target ? `${path.missing} の` : ''}作り方も手に入れ方も分からなかった`, missing: path.missing || null };
+      if (waitOnly(path)) return { ok: false, result: 'waiting', why: WAIT_WHY };
       return { ok: true, path, cost: planner.effort([{ item: path.target, count: pg.count }]) };
     }
     return { ok: true, path: null, cost: this.moveCost(ctx, pg) };
@@ -643,7 +656,9 @@ class GoalPath {
     this.goal = { ...pg, lastStatus: path && path.status && path.status.known ? path.status : null, needAt: base.needAt, setAt: tick, n: this.counts.goals, startPos: { x: here.x, y: here.y, z: here.z }, pos: pg.place ? pg.place.pos || null : null, metAt: null, best: Infinity, bestAt: tick };
     this.path = path;
     this.troubleRun = 0;
-    this.log({ kind: 'goal', ok: true, ...base, path: path ? this.pathRecord(path) : null });
+    // あとでやること (prospect.js) の候補を選んだ: どれか (summarize_run の「見込みの時刻のあと取りに行った」)
+    const later = pg.place && pg.place.type === 'later' ? { id: pg.place.laterId, kind: pg.place.laterKind } : null;
+    this.log({ kind: 'goal', ok: true, ...base, ...(later ? { later } : {}), path: path ? this.pathRecord(path) : null });
     return true;
   }
 
@@ -680,7 +695,8 @@ class GoalPath {
           this.counts.unplannable += 1;
           this.history.push({ ...x.pg, result: 'unplannable', resultText: x.why, from: tick, to: tick });
         }
-        if (x.result === 'satisfied' || x.result === 'unplannable') feedback.push(`${goalText(x.pg)}: ${x.why}`);
+        if (x.result === 'waiting') this.counts.waiting = (this.counts.waiting || 0) + 1;
+        if (x.result === 'satisfied' || x.result === 'unplannable' || x.result === 'waiting') feedback.push(`${goalText(x.pg)}: ${x.why}`);
       }
       if (!valid.length) {
         this.counts.failed += list.length ? 0 : 1;
@@ -772,13 +788,14 @@ class GoalPath {
 
   finish(result, tick, why, extra = {}) {
     const g = this.goal;
-    const resultText = { done: '達成した', need_unmet: `手に入れた/着いたが、${NEED_LABEL[g.need] || ''}のつらさは変わらなかった`, stuck: `進まなかった (${why})`, unplannable: '作り方も手に入れ方も分からなくなった' }[result] || result;
+    const resultText = { planted: '植えた (あとは育つのを待つ)', done: '達成した', need_unmet: `手に入れた/着いたが、${NEED_LABEL[g.need] || ''}のつらさは変わらなかった`, stuck: `進まなかった (${why})`, unplannable: '作り方も手に入れ方も分からなくなった' }[result] || result;
     const h = { kind: g.kind, target: g.target, count: g.count, give: g.give, why: g.why, need: g.need, result, resultText, from: g.setAt, to: tick };
     this.history.push(h);
     if (result === 'done') this.counts.done += 1;
     else if (result === 'need_unmet') this.counts.needUnmet += 1;
     else if (result === 'stuck') this.counts.stuck += 1;
-    this.log({ ...h, kind: result === 'done' ? 'goal_done' : 'reselect', goalKind: g.kind, result, tick, reason: why || null, needAt: g.needAt ?? null, ...extra });
+    else if (result === 'planted') this.counts.planted = (this.counts.planted || 0) + 1;
+    this.log({ ...h, kind: result === 'done' || result === 'planted' ? 'goal_done' : 'reselect', goalKind: g.kind, result, tick, reason: why || null, needAt: g.needAt ?? null, ...extra });
     this.goal = null; this.path = null; this.lastNextKey = null;
   }
 
@@ -812,6 +829,13 @@ class GoalPath {
       this.finish('unplannable', tick, this.path.missing || null);
       await this.newGoal(ctx, tick, 'unplannable'); this.refresh(ctx, tick);
       return 'unplannable';
+    }
+    // 植えて、道筋の残りが「育つのを待つ」だけになった → ゴールは済んだ扱いにして、別のゴールを選ぶ (2026-11-06)。
+    //   植えた所と育つ見込みは、あとでやること (prospect.js) に残る。育っている頃になったらゴールの候補に出る
+    if (g.kind === 'item' && this.cfg.finishOnWait !== false && this.waitingGrowth()) {
+      this.finish('planted', tick, null, { growing: this.path.next.growing, crop: this.path.next.crop });
+      await this.newGoal(ctx, tick, 'planted'); this.refresh(ctx, tick);
+      return 'planted';
     }
     if (st.d < g.best - 1e-9) { g.best = st.d; g.bestAt = tick; }
     // 作物が育つのを待っている間は「道筋が縮まなかった」「困りごとが続いた」に数えない
@@ -849,4 +873,4 @@ class GoalPath {
   }
 }
 
-module.exports = { effortFactor, rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
+module.exports = { waitOnly, WAIT_WHY, effortFactor, rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };

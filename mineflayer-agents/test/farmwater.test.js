@@ -210,13 +210,32 @@ test('planner (item: wheat / bread): 耕すなら「水 (…) → 水から4マ�
 });
 
 test('育つのを待つ: 道筋の次は「育つのを待つ (植わっている n、M2)」、goalPath.waitingGrowth は true', () => {
-  const W = { inventory: [{ name: 'wheat_seeds', count: 3 }], visibleBlocks: ['grass', 'water'], visibleMobs: [], knownBlocks: ['wheat'], stations: {}, farm: { growing: { wheat: 3 } }, cropPlaces: { wheat: { id: 'M2', d: 5 } } };
+  const W = { inventory: [], visibleBlocks: ['grass', 'water'], visibleMobs: [], knownBlocks: ['wheat'], stations: {}, farm: { growing: { wheat: 3 } }, cropPlaces: { wheat: { id: 'M2', d: 5 } } };
   const p = new Planner(W).plan('wheat', 3);
   assert.match(pathText(p), /次: 育つのを待つ \(植わっている wheat 3、M2\)/);
   assert.match(pathEn(p).next, /wait for it to grow \(3 wheat planted, M2\)/);
   assert.strictEqual(GoalPath.prototype.waitingGrowth.call({ path: p }), true);
   const q = new Planner({ ...W, farm: {} }).plan('wheat', 3);
   assert.strictEqual(GoalPath.prototype.waitingGrowth.call({ path: q }), false);
+});
+
+test('耕せるだけ植える: 持っている種の数まで・空いている耕地 + 水の近くの耕せるマスの数まで (要る数より多くても)', () => {
+  const base = { visibleBlocks: ['grass', 'water'], visibleMobs: [], knownBlocks: [], stations: {}, water: { where: 'visible', ready: true } };
+  const inv = [{ name: 'wheat_seeds', count: 7 }, { name: 'wooden_hoe', count: 1 }];
+  // 種 7・耕せるマス 10・空き 0 → 7 植える (要るのは 3)
+  let f = new Planner({ ...base, inventory: inv, farm: { empty: 0, tillCount: 10 } }).plan('wheat', 3).steps.find((s) => s.how === 'farm');
+  assert.strictEqual(f.plants, 7); assert.strictEqual(f.till, 7);
+  // 耕せるマス 4・空き 1 → 5 植える (耕す 4)
+  f = new Planner({ ...base, inventory: inv, farm: { empty: 1, tillCount: 4 } }).plan('wheat', 3).steps.find((s) => s.how === 'farm');
+  assert.strictEqual(f.plants, 5); assert.strictEqual(f.till, 4);
+  // 植わっている 3 (要る数を満たす) でも、種があれば植える。種が無ければ待つ
+  f = new Planner({ ...base, inventory: inv, farm: { growing: { wheat: 3 }, empty: 0, tillCount: 10 } }).plan('wheat', 3).steps.find((s) => s.how === 'farm');
+  assert.strictEqual(f.plants, 7); assert.strictEqual(f.growing, 3);
+  const w = new Planner({ ...base, inventory: [{ name: 'wooden_hoe', count: 1 }], farm: { growing: { wheat: 3 }, tillCount: 10 } }).plan('wheat', 3);
+  assert.strictEqual(GoalPath.prototype.waitingGrowth.call({ path: w }), true);
+  // 種が要る数より少ない → 要る数 (足りない種を手に入れる道筋)
+  f = new Planner({ ...base, inventory: [{ name: 'wheat_seeds', count: 1 }, { name: 'wooden_hoe', count: 1 }], farm: { tillCount: 10 } }).plan('wheat', 3).steps.find((s) => s.how === 'farm');
+  assert.strictEqual(f.plants, 3);
 });
 
 test('jev.pathMatch: 耕す段に farmland_spot のクワ、水の段に覚えている水場への go_to', () => {

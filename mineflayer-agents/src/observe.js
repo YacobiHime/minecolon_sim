@@ -159,6 +159,8 @@ function collectRaw(bot, opts = {}) {
       timeOfDay: bot.time ? bot.time.timeOfDay : 6000,
       phase: timePhase(bot.time ? bot.time.timeOfDay : 6000),
       day: bot.time && Number.isFinite(bot.time.day) ? bot.time.day : null,
+      // ゲーム内の通しの時刻 (ワールドの age、tick)。あとでやること (prospect.js) の時刻に使う。/time set で変わらず、倍速でもゲーム内の時間で進む
+      age: bot.time && Number.isFinite(bot.time.age) ? bot.time.age : null,
       held: bot.heldItem ? bot.heldItem.name : null,
       vehicle: bot.vehicle ? (bot.vehicle.name || 'vehicle') : null,
       level: bot.experience && Number.isFinite(bot.experience.level) ? bot.experience.level : null,

@@ -117,6 +117,17 @@ function digTimeText(ms) {
 // 右クリックで開く・動く物 (この上に置こうとすると、置かずに開いてしまう)
 const INTERACTIVE = /^(furnace|blast_furnace|smoker|crafting_table|chest|trapped_chest|barrel|ender_chest|anvil|enchanting_table|hopper|dispenser|dropper|lever|note_block|loom|lectern|brewing_stand|cartography_table|grindstone|smithing_table|stonecutter|bell|cake)$|_(bed|door|trapdoor|button|fence_gate|sign|shulker_box)$/;
 
+// 落ちている物へ近づく距離: ふつうは 0.8。耕地・作物の上の物は 1.5 (耕地には乗らない (unstuck.avoidFarmland)。隣に立てば拾える)
+const ON_FARM = /^(farmland|wheat|carrots|potatoes|beetroots)$/;
+function pickRange(bot, p) {
+  try {
+    const b = bot.blockAt(new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)));
+    const under = bot.blockAt(new Vec3(Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z)));
+    if ((b && ON_FARM.test(b.name)) || (under && under.name === 'farmland')) return 1.5;
+  } catch (_) { /* ふつう */ }
+  return 0.8;
+}
+
 async function pickUpNear(bot, pos, waitMs = 1500) {
   // 倒した動物の落とし物は少し遅れて出る (死ぬ動きのあと)。出るまで最大 waitMs 待つ
   let drops = [];
@@ -127,7 +138,7 @@ async function pickUpNear(bot, pos, waitMs = 1500) {
   } while (!drops.length && Date.now() - t0 < waitMs);
   for (const d of drops.slice(0, 3)) {
     try {
-      await withTimeout(gotoGoal(bot, new goals.GoalNear(d.position.x, d.position.y, d.position.z, 0.8)), 6000, () => haltPath(bot));
+      await withTimeout(gotoGoal(bot, new goals.GoalNear(d.position.x, d.position.y, d.position.z, pickRange(bot, d.position))), 6000, () => haltPath(bot));
     } catch (_) { /* 拾えなくても次へ */ }
   }
   await sleep(300);
@@ -361,7 +372,7 @@ const handlers = {
       const e = find();
       if (!e) break;
       try {
-        await withTimeout(gotoGoal(bot, new goals.GoalNear(e.position.x, e.position.y, e.position.z, 0.8)), ctx.perTargetMs ?? 15000, () => haltPath(bot));
+        await withTimeout(gotoGoal(bot, new goals.GoalNear(e.position.x, e.position.y, e.position.z, pickRange(bot, e.position))), ctx.perTargetMs ?? 15000, () => haltPath(bot));
       } catch (er) { err = pathErr(er); }
       await sleep(500);
       if (invCount(bot, ch.item) > before) break;
@@ -388,6 +399,8 @@ const handlers = {
       const tb = bot.blockAt(t);
       const below = bot.blockAt(t.offset(0, -1, 0));
       if (!tb || !below || !REPLACEABLE.has(tb.name) || below.boundingBox !== 'block' || INTERACTIVE.test(below.name)) continue;
+      // 耕地の上には置かない (仕様: 耕地の上に固いブロックがあると土に戻る。2026-11-06 の実行で、置いた土で耕地が3回土に戻った)
+      if (below.name === 'farmland') continue;
       const above = bot.blockAt(t.offset(0, 1, 0));
       if (above && above.boundingBox === 'block') continue;
       if (!faceReachable(bot, below, new Vec3(0, 1, 0))) continue; // 見えない面・届かない所には置かない
@@ -563,8 +576,9 @@ const handlers = {
       await sleep(200);
       noteContainer(ctx, fb.position, fb.name, furnaceItems(furnace)); // 入れたままの物を覚える (furnace_take の候補)
       furnace.close();
-      if (!took) return { ok: false, msg: `${ch.item}を${n}個入れたが、まだ焼けていない (入れたまま)`, smelt: { input: ch.item, n, took: 0 } };
-      return { ok: true, msg: `${ch.item}を焼いて${outName}を${took}個取り出した${took < n ? ' (残りは入れたまま)' : ''}`, smelt: { input: ch.item, n, took, output: outName } };
+      const at = { x: fb.position.x, y: fb.position.y, z: fb.position.z }; // あとでやること (入れたままの物の焼き上がり) の場所
+      if (!took) return { ok: false, msg: `${ch.item}を${n}個入れたが、まだ焼けていない (入れたまま)`, smelt: { input: ch.item, n, took: 0, output: ch.output || null, at } };
+      return { ok: true, msg: `${ch.item}を焼いて${outName}を${took}個取り出した${took < n ? ' (残りは入れたまま)' : ''}`, smelt: { input: ch.item, n, took, output: outName, at } };
     } catch (e) {
       try { if (furnace) furnace.close(); } catch (_) { /* ignore */ }
       return { ok: false, msg: `焼けなかった: ${String(e.message).slice(0, 50)}` };
@@ -651,7 +665,10 @@ Object.assign(handlers, penHandlers({ gotoGoal, haltPath, pathErr }));
 async function executeAction(bot, resolved, ctx) {
   const h = handlers[resolved.action];
   if (!h) return { ok: false, msg: `実行できない行動: ${resolved.action}` };
-  const ms = (ctx.timeouts && ctx.timeouts[resolved.action]) || DEFAULT_TIMEOUTS[resolved.action] || 30000;
+  let ms = (ctx.timeouts && ctx.timeouts[resolved.action]) || DEFAULT_TIMEOUTS[resolved.action] || 30000;
+  // 続けて耕す・植える (use_on の count > 1) は1マスごとに時間を足す
+  const cnt = resolved.choice && resolved.choice.count;
+  if (resolved.action === 'use_on' && cnt > 1) ms += (cnt - 1) * (ctx.useOnEachMs ?? 8000);
   const signal = { aborted: false };
   try {
     return await withTimeout(h(bot, resolved.choice || {}, { ...ctx, arg: resolved.arg, signal }), ms, () => {

@@ -6,6 +6,7 @@ const path = require('path');
 const { relDir, dist3 } = require('./util');
 const en = require('./en');
 const places = require('./places');
+const { Prospects } = require('./prospect');
 
 const DEFAULT_LIMITS = {
   places: 40, // 覚えておく場所の数 (古いものから忘れる)
@@ -62,6 +63,21 @@ class Memory {
     // 出現地点 (全員に共通の場所の呼び方の基準。places.js)。agent が出現したときに入れる。heardPlaces: 聞いた話から場所を覚えるか
     this.origin = opts.origin || null;
     this.heardPlaces = opts.heardPlaces !== false;
+    // あとでやること (prospect.js)。中身は extra.prospects に入れて一緒に保存する。gameNow: 今のゲーム内の時刻 (ワールドの age、tick。agent が入れる)
+    this.prospectCfg = opts.prospect || {};
+    this.gameNow = null;
+  }
+
+  get prospects() {
+    if (!this._prospects || this._prospects.store !== this.extra) this._prospects = new Prospects(this.extra, this.prospectCfg);
+    return this._prospects;
+  }
+
+  // あとでやることの文 (プロンプト用)。places: M 番号の付いた場所 (同じ番号で呼ぶため)
+  laterTexts(here, places = null, lang = 'ja') {
+    if (!Number.isFinite(this.gameNow) || !Array.isArray(this.extra.prospects) || !this.extra.prospects.length) return [];
+    const opt = { here, places: places || this.placesForPrompt(here) };
+    return lang === 'en' ? this.prospects.textsEn(this.gameNow, opt) : this.prospects.textsJa(this.gameNow, opt);
   }
 
   // 共通の呼び方 (出現地点から北東に120m)。origin が無ければ null
@@ -321,6 +337,8 @@ class Memory {
     if (hd.length) out.heard = hd.map((h) => `${h.from} said${h.global ? ' to everyone' : ''}「${h.text}」 (${agoEn(this.tick - h.t)}${h.at ? `, ${en.phaseEn(h.at)}` : ''})`).join(' ');
     const kn = this.knowledge.slice(-maxTaught);
     if (kn.length) out.taught = kn.map((k) => `from ${k.from}: 「${k.text}」`).join(' ');
+    const later = this.laterTexts(here, places, 'en');
+    if (later.length) out.later = later; // あとでやること (prospect.js)
     return out;
   }
 
@@ -340,6 +358,8 @@ class Memory {
       if (hd.length) lines.push('聞いた話: ' + hd.map((h) => `${h.from}は${h.global ? '全員に' : ''}「${h.text}」と言っていた (${ago(h.t)}${h.at ? '・' + h.at : ''})`).join(' '));
       const kn = chosen.filter((c) => c.kind === 'knowledge').map((c) => c.x);
       if (kn.length) lines.push('教わったこと: ' + kn.map((k) => `${k.from}から(${ago(k.t)}${k.at ? '・' + k.at : ''})「${k.text}」`).join(' '));
+      const later = this.laterTexts(here, places);
+      if (later.length) lines.push('あとでやること: ' + later.join(' / '));
       return lines.join('\n');
     }
     const places = opts.places || this.placesForPrompt(here);
@@ -350,6 +370,8 @@ class Memory {
       : 'まだ何もしていない'));
     const hd = this.heard.slice(-L.promptHeard);
     lines.push('前に聞いた話: ' + (hd.length ? hd.map((h) => `${h.from}「${h.text}」`).join(' ') : 'なし'));
+    const later = this.laterTexts(here, places);
+    if (later.length) lines.push('あとでやること: ' + later.join(' / '));
     return lines.join('\n');
   }
 }

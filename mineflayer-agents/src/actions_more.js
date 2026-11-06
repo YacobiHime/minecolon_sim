@@ -70,7 +70,7 @@ function useTargets(raw, ctx = {}) {
   //   耕す行き先 (name: farmland_spot): 水から4マス以内 (同じ高さか1つ上) の耕せるマス。見えている所 (farmland_spot) と、
   //   覚えている・聞いた水場の近く (farmland_spot@M3)。クワ・シャベルとだけ組にする (till: true)
   const extra = (ctx.farmTargets || []).filter((t) => !blocks.some((b) => b.name === t.name && b.pos && t.pos && Math.abs(b.pos.x - t.pos.x) + Math.abs(b.pos.y - t.pos.y) + Math.abs(b.pos.z - t.pos.z) === 0))
-    .map((t) => ({ kind: 'block', name: t.name, idName: t.idName || null, pos: t.pos, till: t.name === SPOT, label: `${t.name}${t.note ? `(${t.note})` : ''} ${relDir(here, t.pos)}`, labelEn: `${t.name}${t.noteEn ? ` (${t.noteEn})` : ''} (${whereEn(here, t.pos)})` }));
+    .map((t) => ({ kind: 'block', name: t.name, idName: t.idName || null, pos: t.pos, till: t.name === SPOT, tillCount: t.tillCount ?? null, emptyCount: t.emptyCount ?? null, label: `${t.name}${t.note ? `(${t.note})` : ''} ${relDir(here, t.pos)}`, labelEn: `${t.name}${t.noteEn ? ` (${t.noteEn})` : ''} (${whereEn(here, t.pos)})` }));
   return [...blocks, ...extra, ...ents];
 }
 
@@ -97,6 +97,21 @@ function rankPairs(na, nb) {
   const out = [];
   for (let s = 0; s <= na + nb - 2; s++) for (let b = 0; b <= s; b++) { const a = s - b; if (a < na && b < nb) out.push([a, b]); }
   return out;
+}
+
+// 畑の種 (耕地に使うと植わる物)
+const SEEDS = /^(wheat_seeds|beetroot_seeds|carrot|potato)$/;
+const invN = (inv, name) => inv.filter((i) => i.name === name).reduce((s, i) => s + i.count, 0);
+// 1回の use_on で続けて耕す・植えるマスの数 (1 = 続けない)。
+//   耕す (クワ・シャベル × farmland_spot): 持っている種の数 − 空いている耕地 (少なくとも1)。水から4マス以内の耕せるマスの数 (tillCount) と tillMax まで
+//   植える (種 × 空いている耕地 farmland@empty): 持っている種の数と空いている耕地の数 (emptyCount) と plantMax まで
+function farmCount(inv, it, t, ctx = {}) {
+  if (t.till && TILL_TOOL.test(it) && Number.isFinite(t.tillCount)) {
+    const seeds = inv.filter((i) => SEEDS.test(i.name)).reduce((s, i) => s + i.count, 0);
+    return Math.max(1, Math.min(ctx.tillMax ?? 8, t.tillCount, seeds - (t.emptyCount || 0)));
+  }
+  if (t.name === 'farmland' && SEEDS.test(it) && Number.isFinite(t.emptyCount)) return Math.max(1, Math.min(ctx.plantMax ?? 8, t.emptyCount, invN(inv, it)));
+  return 1;
 }
 
 // on(name): この設定でその行動を使うか。blocked: 続けて失敗した "action:arg"
@@ -127,7 +142,11 @@ function moreActions(raw, ctx = {}, on = () => true) {
       if (t.till ? !TILL_TOOL.test(it) : (TILL_TOOL.test(it) && (TILLABLE.test(t.name) || t.name === 'farmland'))) continue;
       const id = `${it}>${t.idName || t.name}`;
       if (!ok('use_on', id)) continue;
-      ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に`, labelEn: `${it === HAND ? 'bare hand' : it} on ${t.labelEn}`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null, ...(t.till ? { till: true } : {}) });
+      const n = farmCount(inv, it, t, ctx);
+      const more = n > 1 ? `(続けて${n}マスまで)` : '';
+      const moreEn = n > 1 ? ` (up to ${n} blocks in a row)` : '';
+      ch.push({ id, label: `${it === HAND ? '素手' : it}を${t.label}に${more}`, labelEn: `${it === HAND ? 'bare hand' : it} on ${t.labelEn}${moreEn}`, item: it, target: t.name, targetKind: t.kind, pos: t.pos, entityId: t.entityId ?? null,
+        ...(t.till ? { till: true } : {}), ...(n > 1 ? { count: n } : {}) });
       if (ch.length >= maxN) break;
     }
     if (ch.length) out.push({ name: 'use_on', desc: '持ち物(か素手)を見えているブロックか生き物に使う (右クリック。近くへ歩いて狙う)', descEn: 'use an item (or bare hand) on a visible block or creature (right click; walks close and aims)', argType: 'choice', choices: ch });
@@ -337,4 +356,4 @@ function hasInputs(inv, t) {
 
 const MORE_ACTIONS = ['use_on', 'use_item', 'dismount', 'chest_put', 'chest_take', 'furnace_take', 'trade', 'enchant', 'brew', 'anvil', 'follow', 'give', 'call', 'lure', 'enclose'];
 
-module.exports = { lureChoices, encloseChoices, encloseNeed, FENCE_ITEM, WALL_BLOCK, GATE_ITEM, ENCLOSE_SIZES, moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };
+module.exports = { farmCount, SEEDS, lureChoices, encloseChoices, encloseNeed, FENCE_ITEM, WALL_BLOCK, GATE_ITEM, ENCLOSE_SIZES, moreActions, useTargets, rankPairs, byCount, tradeText, hasInputs, posKey, MORE_ACTIONS, CONTAINER, FURNACE, TRADER, BREW_INGREDIENT, ENCHANTABLE, POTION, HAND, MAX_CHOICES };

@@ -733,8 +733,47 @@ function farmStats(all, loops) {
     harvest: harvest.length, bread: bread.length,
     hoeOnFarmland: useOn.filter((r) => /_hoe>farmland(@|$)/.test(r.arg || '')).length,
     growWait: loops.filter((r) => r.growWait).length,
+    // 続けて耕す・植える (result.farm.n): 耕したマス・植えた本数の合計と、2マス以上続けた回数
+    tillBlocks: sum(tilled.map((r) => (r.result.farm && r.result.farm.n) || 1)), plantBlocks: sum(planted.map((r) => (r.result.farm && r.result.farm.n) || 1)),
+    batched: useOn.filter((r) => r.result.farm && r.result.farm.n > 1).length,
+    revertedCause: countBy(reverted, revertCause),
     perAgent: byAgent,
   };
+}
+
+// 耕地が土に戻った原因の見立て (記録にある材料だけ): 真上に固い物 (block_on_top)・自分か人が上か隣に立っていた (stood_on)・材料が無い (unknown)
+function revertCause(r) {
+  if (r.above && !/^(air|cave_air|void_air|wheat|carrots|potatoes|beetroots)$/.test(r.above)) return 'block_on_top';
+  if (r.selfOnTop || (r.near || []).some((x) => x.d <= 1.2 && x.dy >= 0.5 && x.dy <= 2)) return 'stood_on';
+  if (r.above === undefined && r.near === undefined) return 'unknown_old_record';
+  return 'unknown';
+}
+
+// あとでやること (prospect.js。event prospect): 足した数 (種類ごと)・見込みの時刻になった数・済んだ (取った/取り出した/無くなった)・
+//   見込みの時刻のあとに取った数と、見込みの時刻から取るまでの時間 (ゲーム内の分)・あとでやることの候補をゴールに選んだ数
+function prospectStats(all) {
+  const ev = all.filter((r) => r.event === 'prospect');
+  const added = ev.filter((r) => r.op === 'add');
+  const done = ev.filter((r) => r.op === 'done');
+  const got = done.filter((r) => (r.how === 'harvested' || r.how === 'taken'));
+  const after = got.filter((r) => r.afterDue);
+  const over = after.map((r) => r.overdueMin).filter(Number.isFinite);
+  const goals = all.filter((r) => r.event === 'goal_path' && r.kind === 'goal' && r.ok && r.later);
+  return {
+    added: added.length, byKind: countBy(added, (r) => r.kind), merged: ev.filter((r) => r.op === 'merge').length,
+    due: ev.filter((r) => r.op === 'due').length, dueByKind: countBy(ev.filter((r) => r.op === 'due'), (r) => r.kind),
+    ripeSeen: ev.filter((r) => r.op === 'ripe_seen').length,
+    done: countBy(done, (r) => r.how), collected: got.length, collectedAfterDue: after.length,
+    overdueMin: over.length ? { p50: pct(over, 50), max: Math.max(...over) } : null,
+    sinceStartMin: got.length ? { p50: pct(got.map((r) => r.sinceStartMin).filter(Number.isFinite), 50) } : null,
+    laterGoals: goals.length, laterGoalsByKind: countBy(goals, (r) => r.later.kind),
+  };
+}
+
+// 発言の中の M 番号を共通の呼び方に置き換えた (event m_replaced): 置き換えた文の数・M 番号の数・経路 (chat / board)
+function mRefStats(all) {
+  const ev = all.filter((r) => r.event === 'm_replaced');
+  return { texts: ev.length, refs: sum(ev.map((r) => r.n || 0)), byVia: countBy(ev, (r) => r.via), examples: ev.slice(0, 3).map((r) => `${r._name || ''}: 「${r.original}」→「${r.replaced}」`) };
 }
 
 function main() {
@@ -820,6 +859,8 @@ function main() {
     voiceReach: voiceReach(all),
     placeShare: placeShareStats(all),
     farm: farmStats(all, loops),
+    prospects: prospectStats(all),
+    mRefs: mRefStats(all),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
@@ -902,6 +943,10 @@ function main() {
       if (Object.keys(pr.decidedBy).length) console.log(`  ゴールの選び方で決めた点 ${JSON.stringify(pr.decidedBy)}`);
       const fm = out.farm;
       if (fm.till || fm.plant || fm.harvest || fm.bread || fm.reverted) console.log(`畑: 耕した ${fm.till} 回 (水から4マス以内 ${fm.tillNearWater}/${fm.tillNearWaterKnown}${fm.tillNearWaterRate != null ? ` = ${Math.round(fm.tillNearWaterRate * 100)}%` : ''})・植えた ${fm.plant}・耕地が土に戻った ${fm.reverted}・収穫した ${fm.harvest}・パンを作った ${fm.bread}・クワを耕地に ${fm.hoeOnFarmland}・育つのを待った判断 ${fm.growWait}`);
+      if (fm.till || fm.plant) console.log(`  耕したマス ${fm.tillBlocks}・植えた本数 ${fm.plantBlocks} (続けて2マス以上 ${fm.batched} 回)・土に戻った原因の見立て ${JSON.stringify(fm.revertedCause)}`);
+      const ps = out.prospects;
+      if (ps.added) console.log(`あとでやること: ${ps.added} 件 ${JSON.stringify(ps.byKind)} (まとめた ${ps.merged})・見込みの時刻になった ${ps.due}・育ちきったのを見た ${ps.ripeSeen}・済んだ ${JSON.stringify(ps.done)}・見込みの時刻のあとに取った ${ps.collectedAfterDue}${ps.overdueMin ? ` (見込みから p50 ${ps.overdueMin.p50}分・最大 ${ps.overdueMin.max}分)` : ''}・候補をゴールに選んだ ${ps.laterGoals}`);
+      if (out.mRefs.texts) console.log(`発言の M 番号を共通の呼び方に置き換えた: ${out.mRefs.texts} 文・${out.mRefs.refs} 個 ${JSON.stringify(out.mRefs.byVia)}`);
       console.log(`ほかの人が拾った・壊したことを結果に足した ${out.others.appended} 回`);
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
     }

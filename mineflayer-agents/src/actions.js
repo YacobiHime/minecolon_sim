@@ -209,7 +209,7 @@ function listActions(raw, ctx = {}) {
       if (!outName || blocked.has(`smelt:${i.name}`)) continue;
       const f = fuelFor(raw.inventory, i.name);
       if (!f) continue;
-      sm.push({ id: i.name, label: `${i.name}x${i.count} → ${outName} (燃料 ${f.name})`, labelEn: `${i.name} x${i.count} -> ${outName} (fuel ${f.name})`, item: i.name, fuel: f.name, burns: f.burns, furnace: furnace.nearest });
+      sm.push({ id: i.name, label: `${i.name}x${i.count} → ${outName} (燃料 ${f.name})`, labelEn: `${i.name} x${i.count} -> ${outName} (fuel ${f.name})`, item: i.name, output: outName, fuel: f.name, burns: f.burns, furnace: furnace.nearest });
     }
     if (sm.length) out.push({ name: 'smelt', desc: `かまど (${relDir(here, furnace.nearest)}) で焼く。焼けるまで最大30秒待つ`, descEn: `smelt in the furnace (${whereEn(here, furnace.nearest)}); waits up to 30 seconds for it`, argType: 'choice', choices: sm });
   }

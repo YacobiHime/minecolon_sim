@@ -74,7 +74,7 @@ function tillSpots(blockAt, center, { radius = 8, down = 3, up = 2, keep = 4, hy
     }
   }
   spots.sort((a, b) => a.d - b.d);
-  return { spots: spots.slice(0, keep), water: water.size, tillable };
+  return { spots: spots.slice(0, keep), water: water.size, tillable, count: spots.length }; // count: 水から4マス以内の耕せるマスの数 (keep で切る前)
 }
 
 // 見えているブロック (raw.blocks) だけから、水から4マス以内の耕せるマス (blockAt が無いとき)

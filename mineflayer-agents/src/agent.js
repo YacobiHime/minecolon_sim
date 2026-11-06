@@ -27,6 +27,7 @@ const { farmStatus } = require('./states');
 const farmwater = require('./farmwater');
 const { SharedExplore } = require('./explored');
 const { PlayerCache, playerDistance, peopleOf } = require('./people');
+const { replaceMRefs } = require('./places');
 const { Reflect } = require('./reflect');
 const { llmOptsFor } = require('./llm_provider');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
@@ -96,7 +97,7 @@ const GROW_WAIT_ACTS = /^(wait|look_around):/;
 function farmTargets(raw, memPlaces, farm, cfg) {
   const out = [];
   if (farm) {
-    if (farm.emptyPos && farm.emptyPos.length) out.push({ name: 'farmland', idName: 'farmland@empty', pos: farm.emptyPos[0], note: '空いている', noteEn: 'empty' });
+    if (farm.emptyPos && farm.emptyPos.length) out.push({ name: 'farmland', idName: 'farmland@empty', pos: farm.emptyPos[0], note: `空いている。近くの空いている耕地 ${farm.empty}`, noteEn: `empty; ${farm.empty} empty farmland nearby`, emptyCount: farm.empty });
     for (const [crop, ps] of Object.entries(farm.cropPos || {})) {
       const r = ps.find((q) => q.ripe);
       if (r) out.push({ name: crop, idName: `${crop}@ripe`, pos: r, note: '育ちきった', noteEn: 'fully grown' });
@@ -111,7 +112,9 @@ function farmTargets(raw, memPlaces, farm, cfg) {
   const spots = farm && Array.isArray(farm.till) ? farm.till : farmwater.tillSpotsFromRaw(raw);
   if (spots.length) {
     const s0 = spots[0];
-    out.push({ name: farmwater.SPOT, idName: farmwater.SPOT, pos: { x: s0.x, y: s0.y, z: s0.z }, note: `水から4マス以内の${s0.name}`, noteEn: `${s0.name} within 4 blocks of water` });
+    const tc = farm && Number.isFinite(farm.tillCount) ? farm.tillCount : null;
+    out.push({ name: farmwater.SPOT, idName: farmwater.SPOT, pos: { x: s0.x, y: s0.y, z: s0.z }, note: `水から4マス以内の${s0.name}${tc ? `。近くの耕せるマス ${tc}` : ''}`, noteEn: `${s0.name} within 4 blocks of water${tc ? `; ${tc} tillable blocks nearby` : ''}`,
+      tillCount: tc, emptyCount: farm ? farm.empty || 0 : 0 });
   }
   // 覚えている・聞いた水場の近く (着いてから、水から4マス以内の耕せるマスを探す)。見えている水場の近くに耕せる所があるときは出さない
   const waterFar = (cfg.act && cfg.act.waterRadius) ?? 96;
@@ -481,7 +484,7 @@ class Agent {
   async doBroadcast(ctx) {
     if (!this.talker || !this.board) return { ok: false, msg: '全体に言う仕組みがない' };
     const r = await this.talker.broadcast(this.talkCtx(ctx));
-    const say = r.say ? r.say.replace(/\s+/g, ' ').trim().slice(0, this.boardCfg.textMax) : '';
+    const say = r.say ? this.refPlaces(r.say.replace(/\s+/g, ' ').trim(), { via: 'board' }).slice(0, this.boardCfg.textMax) : '';
     this.recorder.write({ event: 'board', kind: 'broadcast', loop: this.memory.tick, say: say || null, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
     if (!say) return { ok: false, msg: '全体に言うことが出てこなかった' };
     this.sendBoard(boardLine.say(say));
@@ -503,7 +506,7 @@ class Agent {
     for (const e of raw.entities) if (e.kind !== 'player' && e.kind !== 'item' && !mobs.has(e.name)) mobs.set(e.name, e);
     for (const e of [...mobs.values()].slice(0, 4)) seen.push(`${e.name}: ${relDir(here, e.pos)}${ref(e.pos) ? `・${ref(e.pos)}` : ''}`);
     const r = await this.talker.reportFind({ ...this.talkCtx(ctx), seenText: seen.join('\n'), hereText: ref(here) });
-    const say = r.say ? r.say.replace(/\s+/g, ' ').trim().slice(0, this.boardCfg.textMax) : '';
+    const say = r.say ? this.refPlaces(r.say.replace(/\s+/g, ' ').trim(), { via: 'board' }).slice(0, this.boardCfg.textMax) : '';
     this.recorder.write({ event: 'board', kind: 'report_find', loop: this.memory.tick, say: say || null, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
     if (!say) return { ok: false, msg: '知らせることが出てこなかった' };
     this.sendBoard(boardLine.find(say));
@@ -532,6 +535,7 @@ class Agent {
       const sh = hereChest ? this.doShareChest({ pos: hereChest.nearest }) : null;
       if (sh && sh.ok) pr.spec.chest = sh.chest; else pr.spec = { type: 'text' };
     }
+    pr.text = this.refPlaces(pr.text, { via: 'board' });
     const id = `${me}#${this.memory.tick}`;
     const n = this.aliveCount();
     this.sendBoard(boardLine.propose({ id, n, spec: pr.spec, text: pr.text }));
@@ -804,9 +808,9 @@ class Agent {
     return c;
   }
 
-  chat(text, { force = false } = {}) {
+  chat(text, { force = false, places = null } = {}) {
     const now = Date.now();
-    const t = String(text).replace(/\s+/g, ' ').trim().slice(0, 100);
+    const t = this.refPlaces(String(text).replace(/\s+/g, ' ').trim(), { places, via: 'chat' }).slice(0, 100);
     if (!t) return false;
     if (!force && t === this.lastChat.text && now - this.lastChat.t < 30000) return false;
     if (!force && now - this.lastChat.t < this.cfg.loop.chatMinIntervalMs) return false;
@@ -996,8 +1000,9 @@ class Agent {
     this.talking = true;
     const tctx = this.talkCtx(ctx, plannedText);
     const loop = this.memory.tick;
+    const placesAt = this.lastMemPlaces || null; // 文を作ったときの M 番号 (置き換えに使う)
     this.talker.talk(tctx).then((r) => {
-      const said = r.say && this.chat(r.say) ? r.say : null;
+      const said = r.say && this.chat(r.say, { places: placesAt }) ? r.say : null;
       this.recorder.write({ event: 'talk', loop, talkP, threshold: Number(thr.toFixed(3)), say: said, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
       if (said) this.log(`[${this.cfg.persona.name}] say「${said}」 (talk ${talkP.toFixed(2)})`);
     }).catch(() => {}).finally(() => { this.talking = false; });
@@ -1014,6 +1019,9 @@ class Agent {
     const hutKeys = this.base && this.help.hut !== false ? new Set(hutSlots(this.base, (cfg.world && cfg.world.hut) || {}).map((s) => `${s.x},${s.y},${s.z}`)) : null;
     const raw = collectRaw(bot, { ...cfg.perception, playerCache: this.playerCache, isNotable: this.isNotable, heard, craft: this.craftInfo(), exclude: hutKeys });
     raw.hut = this.hutView();
+    // ゲーム内の時刻 (ワールドの age、tick)。あとでやること (prospect.js) の「何分前・あと何分」はこれで数える
+    const gameNow = Number.isFinite(raw.self.age) ? raw.self.age : (Number.isFinite(raw.self.day) ? raw.self.day * 24000 + (raw.self.timeOfDay || 0) : null);
+    this.memory.gameNow = gameNow;
     const ex = this.extras();
     raw.foodCount = raw.inventory.filter((i) => ex.foods.has(i.name)).reduce((s, i) => s + i.count, 0);
     const cell0 = this.memory.cellOf(raw.self.pos);
@@ -1057,11 +1065,22 @@ class Agent {
       if (bot && typeof bot.blockAt === 'function') {
         const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z));
         farm = farmStatus(at, raw.self.pos);
-        farm.till = farmwater.tillSpots(at, raw.self.pos).spots; // 水から4マス以内の耕せるマス (use_on の farmland_spot・道筋の水の段)
+        const ts = farmwater.tillSpots(at, raw.self.pos);
+        farm.till = ts.spots; // 水から4マス以内の耕せるマス (use_on の farmland_spot・道筋の水の段)
+        farm.tillCount = ts.count; // その数 (耕す・植える数。planner の畑の段と use_on の続けて耕す数)
       }
     } catch (_) { farm = null; }
     raw.farm = farm; // 観察の文 (近くの耕地の様子) に使う
-    this.checkTilled(bot, tick); // 耕した所が土に戻ったか (記録 farmland_reverted)
+    this.checkTilled(bot, tick, raw); // 耕した所が土に戻ったか (記録 farmland_reverted)
+    this.lastMemPlaces = memPlacesNow; // 発言の中の M 番号を共通の呼び方に置き換えるとき (refPlaces) に使う
+    // あとでやること: 近くの作物の育ちを見て見込みを直す・見込みの時刻になったものを記録する
+    if (Number.isFinite(gameNow)) {
+      const pr = this.memory.prospects;
+      const evs = [];
+      try { if (bot && typeof bot.blockAt === 'function') evs.push(...pr.observeCrops((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos, gameNow, tick)); } catch (_) { /* 見えない */ }
+      evs.push(...pr.tick(gameNow, tick));
+      for (const e of evs) this.recorder.write({ event: 'prospect', ...e, gameTime: gameNow });
+    }
     const { allCells, others } = this.exploreShare(tick, raw);
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
@@ -1103,7 +1122,7 @@ class Agent {
     if (this.reflect) {
       const reason = this.reflect.due({ tick, timeOfDay: raw.self.timeOfDay, day: raw.self.day, canSleep: ctx.actions.some((a) => a.name === 'sleep') });
       if (reason) {
-        const pol = await this.reflect.run({ persona: cfg.persona, socialText }, tick, reason);
+        const pol = await this.reflect.run({ persona: cfg.persona, socialText, laterText: this.memory.laterTexts(raw.self.pos, memPlacesNow).join('\n') }, tick, reason);
         reflected = reason;
         if (pol) this.log(`[${cfg.persona.name}] 振り返り (${reason}): ${pol.text} / ${pol.why || ''}`);
       }
@@ -1128,6 +1147,8 @@ class Agent {
         later: (o) => this.social.needsModel.later(o), // 先のつらさ (anticipate.js)
         board: bview ? bview.goal : null,
         _farm: farm || undefined, origin: this.memory.origin || null,
+        // あとでやることのうち見込みの時刻を過ぎたもの (場所の候補 type: later)。取りに行くかは 2B が選ぶ
+        laterPlaces: Number.isFinite(gameNow) ? this.memory.prospects.goalCandidates(gameNow, { here: raw.self.pos, places: memPlacesNow }) : [],
       }, tick, { troubles });
       this.lastGave = [];
       ctx.progress = this.goalPath.planText();
@@ -1205,6 +1226,7 @@ class Agent {
     const after = nochange.snapshot({ inventory: inv, pos: bot.entity.position, hutFilled: this.trueHutFilled() });
     const stateChanged = nochange.changed(before, after);
     const ev = this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
+    this.noteProspects(resolved, result, raw.inventory, inv, tick);
     // 作物が育つのを待っている間の 待つ・見回す は「変わらなかった」に数えない (育つのは目に見えないので)
     const growWait = !!(this.goalPath && this.goalPath.waitingGrowth()) && GROW_WAIT_ACTS.test(key);
     ev.nc = !stateChanged && !growWait; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
@@ -1313,9 +1335,47 @@ class Agent {
     return { met };
   }
 
+  // 行動の結果から、あとでやること (prospect.js) を足す・済んだにする。記録は event 'prospect'
+  //   植えた (result.farm.plant) → crop。かまどに入れたまま (result.smelt の took < n) → smelt。取り出した → 済んだ。
+  //   動物に好きな餌 (result.bred) → breed_again (大人のとき)、子どもが生まれた → grow_up。作物が持ち物に増えた → その近くの crop は済んだ
+  noteProspects(resolved, result, invBefore, invAfter, tick) {
+    const now = this.memory.gameNow;
+    if (!Number.isFinite(now) || !result) return;
+    const pr = this.memory.prospects;
+    const out = [];
+    const add = (kind, o) => { const r = pr.add(kind, { ...o, now, loop: tick }); if (r) out.push({ op: r.merged ? 'merge' : 'add', id: r.item.id, kind, what: r.item.what, n: o.n, total: r.item.n, pos: r.item.pos, dueMin: r.item.dueMin, dueMax: r.item.dueMax, start: r.item.start, loop: tick }); };
+    const fm = result.farm;
+    if (result.ok && fm && fm.plant && fm.pos) add('crop', { pos: fm.pos, n: fm.n || 1, what: { crop: fm.plant, ...(fm.wet != null ? { wet: fm.wet } : {}) } });
+    const sm = result.smelt;
+    if (sm && sm.at) {
+      if (sm.took > 0) out.push(...pr.furnaceTaken(sm.at, now, tick));
+      if (sm.n - (sm.took || 0) > 0) add('smelt', { pos: sm.at, n: sm.n - (sm.took || 0), what: { input: sm.input, ...(sm.output ? { output: sm.output } : {}) } });
+    }
+    if (result.ok && result.furnace && result.furnace.at && result.furnace.taken > 0) out.push(...pr.furnaceTaken(result.furnace.at, now, tick));
+    const br = result.bred;
+    if (br && br.pos) {
+      if (br.adult) add('breed_again', { pos: br.pos, n: 1, what: { animal: br.animal } });
+      if (br.babies > 0) add('grow_up', { pos: br.pos, n: br.babies, what: { animal: br.animal } });
+    }
+    const gained = {};
+    const cnt = (l) => { const m = {}; for (const i of l || []) m[i.name] = (m[i.name] || 0) + i.count; return m; };
+    const a = cnt(invBefore); const b = cnt(invAfter);
+    for (const k of Object.keys(b)) if (b[k] > (a[k] || 0)) gained[k] = b[k] - (a[k] || 0);
+    if (Object.keys(gained).length && /^(collect|use_on|pick_up)$/.test(resolved.action) && this.bot && this.bot.entity) out.push(...pr.harvested(this.bot.entity.position, gained, now, tick));
+    for (const e of out) this.recorder.write({ event: 'prospect', ...e, gameTime: now, action: resolved.action, arg: resolved.arg });
+  }
+
+  // 発言の中の M 番号 (自分だけの覚えている場所の番号) を、相手に通じる共通の呼び方 (places.js: 出現地点から北東に40m) に置き換える。
+  //   places: その文を作ったときの覚えている場所 (M 番号の付いた一覧)。置き換えたら記録 (event m_replaced: 元の文と置き換え後)
+  refPlaces(text, { places = null, via = 'chat' } = {}) {
+    const r = replaceMRefs(text, places || this.lastMemPlaces || [], this.memory.origin);
+    if (r.n) this.recorder.write({ event: 'm_replaced', via, loop: this.memory.tick, original: String(text), replaced: r.text, n: r.n, ids: r.ids });
+    return r.text;
+  }
+
   // 耕した所 (act_more が memory.extra.tilled に入れる) が土に戻ったかを見る。戻っていたら記録 (farmland_reverted) して一覧から外す。
   //   読み込まれていない所 (blockAt が null) はそのまま残す。耕地でも土でもない物になっていたら外すだけ
-  checkTilled(bot, tick) {
+  checkTilled(bot, tick, raw = null) {
     const ex = this.memory.extra || {};
     const list = ex.tilled;
     if (!Array.isArray(list) || !list.length || !bot || typeof bot.blockAt !== 'function') return;
@@ -1327,7 +1387,15 @@ class Agent {
       if (b.name === 'dirt') {
         let wet = null;
         try { wet = farmwater.waterWithin((x, y, z) => bot.blockAt(new Vec3(x, y, z)), p); } catch (_) { wet = null; }
-        this.recorder.write({ event: 'farmland_reverted', loop: tick, pos: { x: p.x, y: p.y, z: p.z }, tilledAt: p.t ?? null, nearWater: wet });
+        // 原因を調べる材料: 真上のブロック (固いブロックを置くと土に戻る)・近くの人 (踏む・跳ぶ)・自分の位置 (上に立っているか)・直前の自分の行動
+        let above = null;
+        try { const ab = bot.blockAt(new Vec3(p.x, p.y + 1, p.z)); above = ab ? ab.name : null; } catch (_) { above = null; }
+        const me = bot.entity ? bot.entity.position : null;
+        const near = raw ? peopleOf(raw).filter((e) => e.pos && Math.hypot(e.pos.x - (p.x + 0.5), e.pos.z - (p.z + 0.5)) <= 3).map((e) => ({ name: e.name, d: Math.round(Math.hypot(e.pos.x - (p.x + 0.5), e.pos.z - (p.z + 0.5)) * 10) / 10, dy: Math.round((e.pos.y - p.y) * 10) / 10 })) : [];
+        const last = this.memory.events[this.memory.events.length - 1] || null;
+        this.recorder.write({ event: 'farmland_reverted', loop: tick, pos: { x: p.x, y: p.y, z: p.z }, tilledAt: p.t ?? null, nearWater: wet, above,
+          selfOnTop: !!(me && Math.floor(me.x) === p.x && Math.floor(me.z) === p.z && me.y - p.y >= 0.9 && me.y - p.y <= 2), selfD: me ? Math.round(Math.hypot(me.x - (p.x + 0.5), me.z - (p.z + 0.5)) * 10) / 10 : null,
+          near, lastAction: last ? `${last.action}:${last.arg}` : null });
       }
     }
     ex.tilled = keep;
