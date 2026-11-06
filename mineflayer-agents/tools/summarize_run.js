@@ -337,8 +337,21 @@ function goalSelectStats(all, n = 12) {
     rules: countBy(goals, (r) => r.select.rule || '-'),
     notFirst: goals.filter((r) => r.select.chosen > 0).length,
     jevTokens: sum(goals.map((r) => (r.select.jev ? r.select.jev.inputTokens : 0))),
+    effortChanged: goals.filter((r) => r.select.effortChanged).length, // 手間で割らなければ別の案だった
+    calls: twoBCallStats(ev),
     examples,
   };
+}
+
+// ゴール選びの 2B の呼び出し (毎回の記録): 入力のトークン (p50/p90/max)・出力が切れた・文脈あふれ・欄を削った・成功
+function twoBCallStats(ev) {
+  const calls = ev.filter((r) => (r.kind === 'proposals' || r.kind === 'goal' || r.kind === 'unplannable' || r.kind === 'satisfied') && (r.promptChars != null || r.error));
+  const overflow = ev.filter((r) => r.kind === 'prompt_overflow').length;
+  const pt = calls.map((r) => r.promptTokens).filter(Number.isFinite).sort((a, b) => a - b);
+  const q = (f) => (pt.length ? pt[Math.min(pt.length - 1, Math.floor(f * pt.length))] : null);
+  return { calls: calls.length + overflow, ok: calls.filter((r) => r.ok).length, truncated: calls.filter((r) => r.truncated || r.finishReason === 'length').length,
+    overflow, httpErrors: calls.filter((r) => r.error).length, trimmed: calls.filter((r) => r.fit && r.fit.applied && r.fit.applied.length).length,
+    promptTokens: { p50: q(0.5), p90: q(0.9), max: pt.length ? pt[pt.length - 1] : null } };
 }
 
 function countBy(rows, f) { const m = {}; for (const r of rows) { const k = f(r); m[k] = (m[k] || 0) + 1; } return m; }
