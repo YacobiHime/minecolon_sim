@@ -292,7 +292,7 @@ test('GoalPath (R1): 案を k 個 → 満たされている案を外す → Jev 
     return { r: { ok: true, answers, ms: 100 }, inputTokens: 600 }; } };
   const ev = [];
   const order = new Order({ enabled: true, seed: 3 });
-  const gp = new GoalPath({ llm, jev, order, log: (e) => ev.push(e), cfg: { select: { enabled: true, k: 3 } } });
+  const gp = new GoalPath({ llm, jev, order, log: (e) => ev.push(e), cfg: { select: { enabled: true, k: 3, effort: { alpha: 0 } } } });
   const pressing = () => [{ need: 'sleep', distress: 2.4, ratio: 1.5, textEn: 'sleepy' }, { need: 'curiosity', distress: 0.5, ratio: 1.1, textEn: 'want to see places I have never been' }];
   await gp.update(gctx(rawWith([{ name: 'jungle_log', count: 2 }]), { pressing }), 1);
   assert.strictEqual(gp.goal.target, 'white_bed');
@@ -384,7 +384,7 @@ test('GoalPath (R1): 先のつらさ (夜・この先の食べ物) も 案 × �
     for (const k of Object.keys(questions)) answers[k] = { type: 'noul', noul: /p1_curiosity/.test(k) ? 0.9 : /p2_later_night/.test(k) ? 0.9 : 0.1 };
     return { r: { ok: true, answers, ms: 100 }, inputTokens: 700 }; } };
   const ev = [];
-  const gp = new GoalPath({ llm, jev, log: (e) => ev.push(e), cfg: { select: { enabled: true, k: 2 } } });
+  const gp = new GoalPath({ llm, jev, log: (e) => ev.push(e), cfg: { select: { enabled: true, k: 2, effort: { alpha: 0 } } } });
   const pressing = () => [{ need: 'curiosity', distress: 0.8, ratio: 1.1, textEn: 'want to see places I have never been' }];
   const later = () => [{ need: 'night', later: true, distress: 1.8, ratio: 1.5, text: 'あと2分ほどで夜', textEn: 'about 2 minutes until night; I have no weapon; anxious that night is coming' }];
   await gp.update(gctx(rawWith(), { pressing, later }), 1);

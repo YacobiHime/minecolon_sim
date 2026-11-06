@@ -511,7 +511,13 @@
       "_comment_later": "先のつらさ (needs.anticipate) も 案 × 先の欲求 (夜・この先の食べ物) の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。laterMinRatio 未満の先のつらさは入れない。どちらの点で決まったかは event の select.decidedBy (now: いまの点だけでも同じ案 / later: 先の点で案が変わった / later_only: いまつらい欲求が無い)",
       "later": true,
       "laterNeeds": 2,
-      "laterMinRatio": 0.5
+      "laterMinRatio": 0.5,
+      "effort": {
+        "_comment": "手間で割る (2026-11-06): 点 = (Σ つらさ × P) ÷ (1 + alpha × 手間)。手間 = planner の手間 (物: 持ち物を引いたあとの手間の和、状態: planState の effort)、人・場所: 距離 × perMeter (見えない人は unseenPerson)。alpha 0 で手間を見ない。record: select.formula・scores[].cost/effort/factor/noEffort・effortChanged",
+        "alpha": 0.04,
+        "perMeter": 0.0625,
+        "unseenPerson": 6
+      }
     }
   },
   "reflect": {

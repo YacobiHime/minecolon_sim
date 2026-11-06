@@ -74,17 +74,23 @@ class Talker {
   }
 
   // 提案 (propose)。ctx.items: 物の名前の候補、ctx.chests: 共有のチェストの id、ctx.hereChest: 近くに共有でないチェストがあるか
+  //   ctx.itemEffort: 物の名前 → 手間の言葉 (小/中/大。自分がその物を手に入れる道筋の手間。goalpath の候補から)
+  //   共有のチェストが無い (近くのチェストも無い) ときは kind: rule を出さない
   proposeMessages(ctx) {
     const chestLine = [...(ctx.chests || []).map((c) => `${c.id}${c.text ? ` (${c.text})` : ''}`), ...(ctx.hereChest ? ['here (近くのチェスト。まだ共有ではない。提案すると共有になる)'] : [])];
+    const rule = hasChest(ctx);
+    const eff = ctx.itemEffort || {};
     return [
       { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
         PLACE_FACT,
-        '全員に向けて提案を1つ書く。提案は全員に届き、聞いた人はそれぞれ賛成するかを決める。賛成が集まると、kind: rule は全員の「取り決め」に、kind: project は全員の「共同の目標」になる。',
-        'rule が物を共有のチェストに入れる取り決めなら item にその物、chest にそのチェストを書く。project が物を何個そろえる目標なら item と count を書く。当てはまらない欄は空の文字列にする。どちらでもなければ kind: other。',
+        rule ? '全員に向けて提案を1つ書く。提案は全員に届き、聞いた人はそれぞれ賛成するかを決める。賛成が集まると、kind: rule は全員の「取り決め」に、kind: project は全員の「共同の目標」になる。'
+          : '全員に向けて提案を1つ書く。提案は全員に届き、聞いた人はそれぞれ賛成するかを決める。賛成が集まると、kind: project は全員の「共同の目標」になる。',
+        rule ? 'rule が物を共有のチェストに入れる取り決めなら item にその物、chest にそのチェストを書く。project が物を何個そろえる (集める・作る) 目標なら item と count を書く。当てはまらない欄は空の文字列にする。どちらでもなければ kind: other。'
+          : 'project が物を何個そろえる (集める・作る) 目標なら item と count を書く。当てはまらない欄は空の文字列にする。そうでなければ kind: other。',
         'say に提案の文を短い日本語(40字以内)で書く。JSON {"kind":"...","item":"...","chest":"...","count":1,"say":"..."} だけを出力する。'].join('\n') },
       { role: 'user', content: [...this.contextLines(ctx),
-        `## 物の名前\n${(ctx.items || []).join(', ') || 'なし'}`,
-        `## チェスト\n${chestLine.join('\n') || 'なし'}`,
+        `## 物の名前 (手間: 自分が手に入れるときの手間)\n${(ctx.items || []).map((n) => (eff[n] ? `${n} (手間: ${eff[n]})` : n)).join(', ') || 'なし'}`,
+        rule ? `## チェスト\n${chestLine.join('\n')}` : '## チェスト\n共有のチェストはまだない',
         '提案を JSON で。'].filter(Boolean).join('\n') },
     ];
   }
@@ -126,10 +132,12 @@ class Talker {
   answer(ctx) { return this.run('answer', this.answerMessages(ctx)); }
 }
 
+function hasChest(ctx) { return !!((ctx.chests && ctx.chests.length) || ctx.hereChest); }
+
 function proposeSchema(ctx) {
   const chests = ['', ...(ctx.chests || []).map((c) => c.id), ...(ctx.hereChest ? ['here'] : [])];
   return { type: 'object', properties: {
-    kind: { type: 'string', enum: ['rule', 'project', 'other'] },
+    kind: { type: 'string', enum: hasChest(ctx) ? ['rule', 'project', 'other'] : ['project', 'other'] },
     item: { type: 'string', enum: ['', ...new Set(ctx.items || [])] },
     chest: { type: 'string', enum: [...new Set(chests)] },
     count: { type: 'integer', minimum: 1, maximum: 64 },
@@ -139,6 +147,8 @@ function proposeSchema(ctx) {
 
 // 2B の出力 → { spec: { type: rule|project|text, item, chest, count }, text } | null。
 //   rule は物とチェストが両方あるときだけ構造にする (chest: here は agent が共有にしてから id に置き換える)。project は物があるとき。ほかは文だけ
+const GATHER = /集め|集めよ|そろえ|揃え|貯め|ためよ|作ろ|つくろ|取ろ|とろう|手に入れよ|持ち寄|みんなで.*(取|作|集)/;
+
 function parseProposal(text, ctx = {}) {
   let o = null;
   try { const s = String(text); o = JSON.parse(s.slice(s.indexOf('{'), s.lastIndexOf('}') + 1)); } catch (_) { return null; }
@@ -148,8 +158,11 @@ function parseProposal(text, ctx = {}) {
   const chests = new Set([...(ctx.chests || []).map((c) => c.id), ...(ctx.hereChest ? ['here'] : [])]);
   const item = typeof o.item === 'string' && items.has(o.item) ? o.item : '';
   const chest = typeof o.chest === 'string' && chests.has(o.chest) ? o.chest : '';
+  const count = Math.max(1, Math.min(64, Math.floor(Number(o.count)) || 1));
   if (o.kind === 'rule' && item && chest) return { spec: { type: 'rule', item, chest }, text: say };
-  if (o.kind === 'project' && item) return { spec: { type: 'project', item, count: Math.max(1, Math.min(64, Math.floor(Number(o.count)) || 1)) }, text: say };
+  if (o.kind === 'project' && item) return { spec: { type: 'project', item, count }, text: say };
+  // 物があって「集めよう・そろえよう・作ろう」の形 (チェストの無い rule・other) は共同の目標にする
+  if (item && (o.kind === 'rule' || GATHER.test(say))) return { spec: { type: 'project', item, count }, text: say, kindAsked: o.kind || null, kindFixed: true };
   return { spec: { type: 'text' }, text: say, kindAsked: o.kind || null };
 }
 

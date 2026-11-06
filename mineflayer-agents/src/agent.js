@@ -27,7 +27,7 @@ const { farmStatus } = require('./states');
 const { SharedExplore } = require('./explored');
 const { Reflect } = require('./reflect');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
-const { isPlaceableBlockItem } = require('./planner');
+const { isPlaceableBlockItem, Planner, effortWord, EFFORT_EN } = require('./planner');
 const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
 const { Board, DEFAULTS: BOARD_DEFAULTS, parseLine, line: boardLine, chestLabelJa } = require('./board');
@@ -390,7 +390,7 @@ class Agent {
       this.recorder.write({ event: 'board', kind: 'seen', from: m.from, to: me, msgKind: m.kind, pid: m.pid || null, text: m.text, why: m.why, hit: m.hit, loop: tick });
     }
     const open = this.board.openFor(me, this.boardAsked);
-    const en0 = this.board.stateEn({ me, tick, here, shown, open, relationEn: (n) => this.social.relationWord(n, { lang: 'en' }) });
+    const en0 = this.board.stateEn({ me, tick, here, shown, open, relationEn: (n) => this.social.relationWord(n, { lang: 'en' }), effortEn: (item, count) => this.effortEnOf(raw, item, count) });
     const text = this.board.textJa({ tick, here, shown, relDir });
     // ゴール候補: 取り決め (物 → 共有のチェスト) と共同の目標 (その物と材料 → いちばん近い共有のチェスト) への貢献
     const chests = [...this.board.chests.values()].map((c) => ({ id: c.id, items: c.items, known: c.known, pos: c.pos }));
@@ -480,7 +480,7 @@ class Agent {
     const items = [...new Set([...raw.inventory.map((i) => i.name), ...((this.goalPath && this.goalPath.lastItemNames) || []), ...this.boardNames().filter((n) => /^[a-z0-9_]+$/.test(n)),
       ...[...this.board.chests.values()].flatMap((c) => c.items.map((i) => i.name))])].slice(0, 60);
     const chests = [...this.board.chests.values()].map((c) => ({ id: c.id, text: `${relDir(raw.self.pos, c.pos)}・${this.board.chestItemsText(c, 'ja')}` }));
-    const r = await this.talker.propose({ ...this.talkCtx(ctx), items, chests, hereChest: !!hereChest });
+    const r = await this.talker.propose({ ...this.talkCtx(ctx), items, chests, hereChest: !!hereChest, itemEffort: (this.goalPath && this.goalPath.lastItemEffort) || {} });
     const pr = r.proposal;
     const rec = { event: 'board', kind: 'propose', loop: this.memory.tick, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error };
     if (!pr) { this.recorder.write({ ...rec, ok: false }); return { ok: false, msg: '提案することが出てこなかった' }; }
@@ -496,6 +496,17 @@ class Agent {
     this.recorder.write({ ...rec, ok: true, id, n, need: this.board.proposals.get(id) ? this.board.need(this.board.proposals.get(id)) : null, spec: pr.spec, text: pr.text });
     this.log(`[${me}] 提案 ${id}「${pr.text}」 ${JSON.stringify(pr.spec)}`);
     return { ok: true, msg: `全員に「${pr.text}」と提案した`, proposal: { id, spec: pr.spec, text: pr.text } };
+  }
+
+  // 自分が item を count 個手に入れる手間の言葉 (英語。Jev の賛成の質問の state 用。数値は出さない)
+  effortEnOf(raw, item, count = 1) {
+    try {
+      const kinds = new Set(this.memory.places.map((q) => q.kind));
+      const pl = new Planner({ inventory: raw.inventory, visibleBlocks: raw.blocks.map((b) => b.name), visibleMobs: raw.entities.filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name),
+        knownBlocks: [...kinds], stations: { crafting_table: !!raw.tableNearby || kinds.has('crafting_table'), furnace: raw.blocks.some((b) => b.name === 'furnace') || kinds.has('furnace') } });
+      const w = effortWord(pl.effort([{ item, count }]));
+      return w ? (EFFORT_EN[w] || w) : null;
+    } catch (_) { return null; }
   }
 
   // ここのチェストを共有にする (全員に知らせる。中身を知っていれば中身も)

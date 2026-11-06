@@ -284,7 +284,8 @@ class Board {
 
   // Jev の state に足すもの。here: 自分の位置、relationEn(name): 関係の言葉、me
   //   返り値 { state: { board, agreements, projects, shared_chests, broken_agreements }, open: { q1: 文 }, openMap: { q1: 提案の id }, breakers: [名前], shown }
-  stateEn({ me = this.me, tick = 0, here = null, shown = [], open = [], relationEn = () => 'stranger', personalRel = true } = {}) {
+  //   effortEn(item, count): 自分がその物を手に入れる手間の言葉 (none/small/medium/large)。提案の物に事実として添える
+  stateEn({ me = this.me, tick = 0, here = null, shown = [], open = [], relationEn = () => 'stranger', personalRel = true, effortEn = null } = {}) {
     const st = {};
     if (shown.length) st.board = shown.map((m) => (m.kind === 'propose' ? `${m.from} proposed to everyone「${m.text}」` : m.kind === 'find' ? `${m.from} reported a find to everyone「${m.text}」` : `${m.from} said to everyone「${m.text}」`) + ` (${agoEn(tick - m.tick)})`);
     const ag = this.agreed().filter((p) => p.spec.type !== 'project').slice(-this.cfg.maxAgreements);
@@ -302,7 +303,8 @@ class Board {
     open.forEach((p, i) => {
       const q = `q${i + 1}`;
       const body = p.spec.type === 'rule' && this.chests.has(p.spec.chest) ? `${this.ruleTextEn(p)}「${p.text}」` : p.spec.type === 'project' ? `everyone makes or gathers ${p.spec.item} x${p.spec.count}「${p.text}」` : `「${p.text}」`;
-      openOut[q] = `${p.by} proposes: ${body} (${en.countWord(p.yes.size)} agreed so far; ${personalRel ? `you and ${p.by}: ${relationEn(p.by)}` : ''})`;
+      const ef = effortEn && p.spec && p.spec.item ? effortEn(p.spec.item, p.spec.type === 'project' ? p.spec.count : 1) : null;
+      openOut[q] = `${p.by} proposes: ${body} (${en.countWord(p.yes.size)} agreed so far; ${personalRel ? `you and ${p.by}: ${relationEn(p.by)}` : ''}${ef ? `; effort for you to get ${p.spec.item}${p.spec.type === 'project' ? ` x${p.spec.count}` : ''}: ${ef}` : ''})`;
       openMap[q] = p.id;
     });
     return { state: st, open: openOut, openMap, breakers: [...new Set(br.map((b) => b.who))] };

@@ -12,7 +12,7 @@
 //   たどれない物 (レシピも入手元も分からない) は、その旨を添えて 2B に選び直させる (maxTries 回まで)。
 // 研究方針: 仕様・事実は見せるが、どう使うかは書かない。評価語を指示に入れない。数値はここで持ち、モデルには言葉だけ。
 const { LLMDecider } = require('./deciders/llm');
-const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn, FARM_CROPS } = require('./planner');
+const { Planner, pathText, stepText, remaining, GROUND, pathEn, stepTextEn, nextTextEn, FARM_CROPS, effortWord, EFFORT_EN } = require('./planner');
 const states = require('./states');
 const { dir8 } = require('./vocab');
 const { itemCandidates, personCandidates, placeCandidates } = require('./vocab');
@@ -57,7 +57,10 @@ const DEFAULTS = {
   //   つらい欲求が無いとき (no_pressing_need) は Jev を呼ばず、2B が先に書いた案
   //   later: 先のつらさ (anticipate.js: 夜・この先の食べ物) も 案 × 先の欲求 の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。
   //     laterMinRatio: しきい値に対する割合がこれ未満の先のつらさは入れない。laterNeeds: いくつまで
-  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.5 },
+  //   effort: 手間で割る (2026-11-06)。点 = (Σ つらさ × P) ÷ (1 + alpha × 手間)。手間 = planner の手間 (物: effort、状態: planState の effort)、
+  //     人・場所: 距離 × perMeter (見えない人は unseenPerson)。alpha: 0 で手間を見ない
+  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.5,
+    effort: { alpha: 0.04, perMeter: 1 / 16, unseenPerson: 6 } },
 };
 const KINDS = ['item', 'person', 'place', 'state'];
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
@@ -91,10 +94,12 @@ function proposalsSchema(cands, k, opts = {}) {
   return { type: 'object', properties: { goals: { type: 'array', items: goalSchema(cands, opts), minItems: k, maxItems: k } }, required: ['goals'], additionalProperties: false };
 }
 
-// 案ごとの点 = Σ_欲求 つらさ^power × P(満たされる)。P[i] = { need: p }。needs = [{ need, distress }]
+// 案ごとの点 = Σ_欲求 つらさ^power × P(満たされる) ÷ (1 + alpha × 手間)。P[i] = { need: p }。needs = [{ need, distress }]。costs[i] = 手間 (無ければ割らない)
 //   同点 (最大との差 ≤ tieEps) は先に書かれた案 (rule: tie_first)。全部の P < lowP なら rule: all_low (onAllLow: first なら最初の案)
-function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best' } = {}) {
-  const scores = P.map((row) => Math.round(needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * 1000) / 1000);
+function effortFactor(cost, alpha) { return Number.isFinite(cost) && alpha > 0 ? 1 / (1 + alpha * Math.max(0, cost)) : 1; }
+function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null) {
+  const alpha = effort && Number.isFinite(effort.alpha) ? effort.alpha : 0;
+  const scores = P.map((row, i) => Math.round(needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
   const allLow = P.every((row) => needs.every((x) => (row[x.need] || 0) < lowP));
   if (allLow && onAllLow === 'first') return { index: 0, scores, rule: 'all_low_first' };
   const best = Math.max(...scores);
@@ -212,6 +217,7 @@ class GoalPath {
     const raw = ctx.raw;
     const c = this.rawCandidates(ctx);
     this.lastItemNames = c.items.map((x) => x.name); // 提案 (propose) の物の候補にも使う
+    this.lastItemEffort = Object.fromEntries(c.items.filter((x) => x.effort).map((x) => [x.name, x.effort])); // 提案の物の名前に添える手間
     // R2: もう満たされている候補。場所: もう着いている所は外す。人: もう近くにいる人は「もう近くにいる」を付ける (渡すゴールはありうる)
     //   物・状態: 「もう持っている n」「もう n ある」を事実として付ける (vocab / states)。2B が選んだ数で満たされていれば goalpath が外す
     if (raw) {
@@ -578,14 +584,30 @@ class GoalPath {
     if (pg.kind === 'state') {
       const path = this.planStateGoal(ctx, { ...pg });
       if (!path.ok) return { ok: false, result: 'unplannable', why: `${path.missing || ''} の手に入れ方が分からなかった`, missing: path.missing || null };
-      return { ok: true, path };
+      return { ok: true, path, cost: path.effort };
     }
     if (pg.kind === 'item') {
-      const path = this.planItem(ctx, pg.target, pg.count);
+      const planner = new Planner(this.world(ctx), { version: this.cfg.version });
+      const path = planner.plan(pg.target, pg.count);
       if (!path.ok) return { ok: false, result: 'unplannable', why: `${path.missing && path.missing !== pg.target ? `${path.missing} の` : ''}作り方も手に入れ方も分からなかった`, missing: path.missing || null };
-      return { ok: true, path };
+      return { ok: true, path, cost: planner.effort([{ item: path.target, count: pg.count }]) };
     }
-    return { ok: true, path: null };
+    return { ok: true, path: null, cost: this.moveCost(ctx, pg) };
+  }
+
+  // 人・場所の手間: 距離 × perMeter (見えない人は unseenPerson)
+  moveCost(ctx, pg) {
+    const ef = this.cfg.select.effort || {};
+    const per = ef.perMeter ?? 1 / 16;
+    const raw = ctx.raw;
+    if (!raw) return null;
+    if (pg.kind === 'person') {
+      const e = (raw.entities || []).find((x) => x.kind === 'player' && x.name === pg.target);
+      return e ? e.d * per : (ef.unseenPerson ?? 6);
+    }
+    const pl = pg.place || {};
+    if (pl.type === 'dir') return this.cfg.farDist * per;
+    return pl.pos ? dist3(raw.self.pos, pl.pos) * per : null;
   }
 
   // ゴールを決めたことにする (newGoal と newGoalSelect で同じ)
@@ -698,12 +720,18 @@ class GoalPath {
       ...needs.map((x) => [x.need, pv(`p${i + 1}_${NEED_EN[x.need] || x.need}`)]),
       ...later.map((x) => [`later_${x.need}`, pv(`p${i + 1}_later_${LATER_EN[x.need]}`)]),
     ]));
-    const out = selectScores(P, all, sc);
-    const nowOnly = needs.length ? selectScores(P, needs, sc) : null;
-    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }) : null;
+    const costs = valid.map((v) => (Number.isFinite(v.cost) ? v.cost : null));
+    const out = selectScores(P, all, sc, costs);
+    const noEffort = selectScores(P, all, { ...sc, effort: null });
+    const nowOnly = needs.length ? selectScores(P, needs, sc, costs) : null;
+    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs) : null;
+    const alpha = (sc.effort && sc.effort.alpha) || 0;
+    record.formula = alpha > 0 ? `score = sum(distress * P) / (1 + ${alpha} * cost)` : 'score = sum(distress * P)';
     record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, P: Object.fromEntries(Object.entries(P[i]).map(([kk, vv]) => [kk, Math.round(vv * 1000) / 1000])),
-      now: nowOnly ? nowOnly.scores[i] : 0, later: laterOnly ? laterOnly.scores[i] : 0, score: out.scores[i] }));
+      now: nowOnly ? nowOnly.scores[i] : 0, later: laterOnly ? laterOnly.scores[i] : 0, cost: costs[i] == null ? null : Math.round(costs[i] * 100) / 100,
+      effort: costs[i] == null ? null : effortWord(costs[i]), factor: Math.round(effortFactor(costs[i], alpha) * 1000) / 1000, noEffort: noEffort.scores[i], score: out.scores[i] }));
     record.chosen = out.index; record.rule = out.rule;
+    record.effortChanged = noEffort.index !== out.index; // 手間で割らなければ別の案だった
     record.decidedBy = !nowOnly ? 'later_only' : (laterOnly && nowOnly.index !== out.index ? 'later' : 'now');
     record.nowChoice = nowOnly ? nowOnly.index : null;
     return { index: out.index, record };
@@ -794,4 +822,4 @@ class GoalPath {
   }
 }
 
-module.exports = { rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
+module.exports = { effortFactor, rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
