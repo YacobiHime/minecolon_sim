@@ -23,7 +23,10 @@ class TokenRatio {
 // llama-server の「request (4136 tokens) exceeds the available context size (4096 tokens)」から数を取る
 function overflowTokens(msg) {
   const m = String(msg || '').match(/request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)/);
-  return m ? { request: Number(m[1]), ctx: Number(m[2]) } : null;
+  if (m) return { request: Number(m[1]), ctx: Number(m[2]) };
+  // OpenAI の形: "maximum context length is 8192 tokens. However, your messages resulted in 9000 tokens"
+  const o = String(msg || '').match(/maximum context length is (\d+) tokens[\s\S]*?resulted in (\d+) tokens/);
+  return o ? { request: Number(o[2]), ctx: Number(o[1]) } : null;
 }
 
 function charsOf(messages) { return messages.reduce((s, m) => s + String(m.content || '').length, 0); }

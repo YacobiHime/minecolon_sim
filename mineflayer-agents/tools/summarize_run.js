@@ -833,6 +833,8 @@ function main() {
   out.brief = scale.briefPerAgent(agents, { clusters: out.clusters, deathsPerAgent: out.survival.perAgent, intervals: out.decisions.intervalSec });
   out.load = { monitor: isDir ? scale.monitorStats(target) : null, twoBLatency: runJson ? runJson.twoBLatency || null : null,
     disconnects: runJson ? (typeof runJson.disconnects === 'number' ? runJson.disconnects : runJson.disconnects ? runJson.disconnects.n : null) : null, procs: runJson ? runJson.procs || 1 : null };
+  // 文を作る LLM の提供元・役ごとの使用量と費用 (run.json の usage.llm。古い記録には無い)
+  out.llm = runJson && runJson.usage && runJson.usage.llm ? llmUsageSummary(runJson.usage.llm) : null;
   console.log(JSON.stringify(out, null, 2));
   if (args.includes('--text')) {
     console.log('\n--- 週次報告用 ---');
@@ -958,8 +960,31 @@ function main() {
       if (nx.asked) console.log(`  道筋の次の一手が今すぐできる (P≥0.7) ${nx.can}/${nx.asked} (${nx.canRate})、できない (P<0.3) ${nx.cannot}。できるとき道筋どおり ${nx.whenCan.step}・近づく ${nx.whenCan.approach}・ほか ${nx.whenCan.other}`);
     }
     console.log(`2B の呼び出し ${out.twoB.calls} 回 (平均 ${out.twoB.avgPromptChars} 文字)`);
+    for (const l of llmUsageLines(out.llm)) console.log(l);
     console.log(`Jev 入力 ${out.jev.inputTokens} トークン (1判断 ${out.jev.inputTokensPerDecision}・呼び出し ${out.jev.callsPerDecision} 回、1呼び出し ${out.jev.inputTokensPerCall})、推定 $${out.jev.costUsd} (100万トークン $${JEV_USD_PER_MTOK})`);
   }
 }
 
-main();
+// usage.llm → { costUsd, maxUsd, exceeded, byProvider, byRole, providers }
+function llmUsageSummary(l) {
+  const pick = (u) => ({ calls: u.calls, errors: u.errors, rateLimited: u.rateLimited, retries: u.retries, promptTokens: u.promptTokens, cachedTokens: u.cachedTokens,
+    completionTokens: u.completionTokens, reasoningTokens: u.reasoningTokens, avgMs: u.avgMs ?? (u.calls ? Math.round(u.ms / u.calls) : 0), costUsd: u.costUsd, unpriced: u.unpriced });
+  const map = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, u]) => [k, pick(u)]));
+  return { costUsd: l.costUsd, maxUsd: l.maxUsd ?? null, exceeded: !!l.exceeded, byProvider: map(l.byProvider), byRole: map(l.byRole), providers: l.providers || {} };
+}
+
+function llmUsageLines(l) {
+  if (!l) return [];
+  const out = [`文を作る LLM: 費用 $${l.costUsd}${l.maxUsd != null ? ` (上限 $${l.maxUsd}${l.exceeded ? '、上限で止めた' : ''})` : ''}`];
+  const line = (k, u) => `  ${k}: ${u.calls} 回 (失敗 ${u.errors}・429 ${u.rateLimited}・再試行 ${u.retries})、入力 ${u.promptTokens} (キャッシュ ${u.cachedTokens})・出力 ${u.completionTokens}${u.reasoningTokens ? ` (推論 ${u.reasoningTokens})` : ''} トークン、平均 ${u.avgMs}ms、$${u.costUsd}`;
+  for (const [k, u] of Object.entries(l.byProvider)) {
+    const p = l.providers[k];
+    out.push(`${line(k, u)}${p ? ` [${p.model}、料金 ${p.priced === true ? `入力 $${p.pricing.inputPerMTok}・出力 $${p.pricing.outputPerMTok} / 100万トークン` : '未設定'}]` : ''}`);
+  }
+  for (const [k, u] of Object.entries(l.byRole)) out.push(line(k, u));
+  return out;
+}
+
+if (require.main === module) main();
+
+module.exports = { llmUsageSummary, llmUsageLines };

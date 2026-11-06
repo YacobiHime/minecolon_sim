@@ -4,6 +4,8 @@
 // mode 'talk' : 話す内容だけ ({say}) — 会話担当と行動担当を分ける構成 (split.js) で使う
 const { parseDecision } = require('../parse');
 const { systemPrompt, userPrompt } = require('../prompt');
+const { Semaphore } = require('../jev_client');
+const { loadProviderKey, costOf, redact, strictSchema } = require('../llm_provider');
 
 // constrainArgs=true なら、行動ごとに arg の候補まで文法で縛る (anyOf)。2B でも一覧にない引数を出せない
 // think=true なら、行動の前に短い考え ("think") を書かせる (小さいモデルの判断を助ける。出力が数十トークン増える)
@@ -48,23 +50,94 @@ const LLM_STATS = {
   reset() { this.all = []; this.since = 0; },
 };
 
+// 提供元・役ごとの使用量と費用 (プロセスの中の全員でまとめる)。maxUsd を超えたら exceeded を立て、以後の呼び出しは投げずに失敗にする
+function emptyUse() {
+  return { calls: 0, errors: 0, rateLimited: 0, retries: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, reasoningTokens: 0, ms: 0, costUsd: 0, unpriced: 0 };
+}
+const LLM_USAGE = {
+  byProvider: {}, byRole: {}, totalUsd: 0, maxUsd: null, exceeded: false, listeners: [], providers: {},
+  onExceeded(fn) { this.listeners.push(fn); },
+  add(r) {
+    const key = `${r.provider}/${r.role}`;
+    for (const [m, k] of [[this.byProvider, r.provider], [this.byRole, key]]) {
+      const u = (m[k] = m[k] || emptyUse());
+      u.calls += 1;
+      if (r.error) u.errors += 1;
+      u.rateLimited += r.rateLimited || 0;
+      u.retries += r.retries || 0;
+      for (const f of ['promptTokens', 'cachedTokens', 'completionTokens', 'reasoningTokens', 'ms']) u[f] += r[f] || 0;
+      u.costUsd += r.costUsd || 0;
+      if (r.priced === false && !r.error) u.unpriced += 1;
+    }
+    if (r.pricing) this.providers[r.provider] = { model: r.model, pricing: r.pricing };
+    this.totalUsd += r.costUsd || 0;
+    this.check();
+  },
+  check() {
+    if (!this.exceeded && this.maxUsd != null && this.totalUsd >= this.maxUsd) {
+      this.exceeded = true;
+      for (const fn of this.listeners) { try { fn(this.summary()); } catch (_) { /* ignore */ } }
+    }
+  },
+  summary() {
+    const fix = (o) => Object.fromEntries(Object.entries(o).map(([k, u]) => [k, { ...u, costUsd: Number(u.costUsd.toFixed(6)), avgMs: u.calls ? Math.round(u.ms / u.calls) : 0 }]));
+    const providers = Object.fromEntries(Object.entries(this.providers).map(([k, v]) => [k, { model: v.model, pricing: v.pricing,
+      priced: v.pricing && v.pricing.inputPerMTok != null && v.pricing.outputPerMTok != null ? true : '未設定' }]));
+    return { byProvider: fix(this.byProvider), byRole: fix(this.byRole), providers, costUsd: Number(this.totalUsd.toFixed(6)), maxUsd: this.maxUsd, exceeded: this.exceeded };
+  },
+  reset() { this.byProvider = {}; this.byRole = {}; this.totalUsd = 0; this.maxUsd = null; this.exceeded = false; this.listeners = []; this.providers = {}; },
+};
+
+// 同時に投げる数の上限を提供元 (baseUrl + model) ごとにプロセスで1つ共有する
+const SEMS = new Map();
+function semFor(key, n) {
+  if (!(n > 0)) return null;
+  if (!SEMS.has(key)) SEMS.set(key, new Semaphore(n));
+  return SEMS.get(key);
+}
+
+// base URL → chat completions の URL。".../v1" で終わればそのまま、そうでなければ /v1 を足す (今までの local の書き方)
+function chatUrl(baseUrl) {
+  const b = String(baseUrl).replace(/\/+$/, '');
+  if (/\/chat\/completions$/.test(b)) return b;
+  return /\/v\d+$/.test(b) ? `${b}/chat/completions` : `${b}/v1/chat/completions`;
+}
+
 class LLMDecider {
   constructor(opts = {}) {
     this.kind = 'llm';
+    this.provider = opts.provider || 'local';
+    this.role = opts.role || null;
+    this.apiStyle = opts.apiStyle || 'llamacpp';
     this.baseUrl = (opts.baseUrl || process.env.LLM_BASE_URL || 'http://127.0.0.1:18081').replace(/\/+$/, '');
     this.model = opts.model || process.env.LLM_MODEL || 'gemma-4-e2b';
     this.temperature = opts.temperature ?? 0.4;
+    this.sendTemperature = opts.sendTemperature ?? true; // false: temperature を送らない (受け付けないモデル)。400 で断られたら自動で false にする
     this.maxTokens = opts.maxTokens ?? (opts.think ? 160 : 96);
     this.timeoutMs = opts.timeoutMs ?? 60000;
     // constrained: llama-server の json_schema (文法の制約) で、壊れた JSON と一覧にない action を出せなくする
     this.constrained = opts.constrained ?? true;
+    // structured: json_schema (そのまま) | json_schema_strict (OpenAI の strict に通る形に直す) | json_object | none
+    this.structured = opts.structured || 'json_schema';
+    this.tokenParam = opts.tokenParam || 'max_tokens';
+    this.reasoningEffort = opts.reasoningEffort ?? null;
+    this.reasoningExtraTokens = opts.reasoningExtraTokens ?? 0;
+    this.ctxTokens = opts.ctxTokens ?? null;
+    this.pricing = opts.pricing || null;
+    this.maxRetries = opts.maxRetries ?? 0;
+    this.sem = semFor(`${this.baseUrl}|${this.model}`, opts.maxConcurrent ?? 0);
+    this.sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.constrainArgs = opts.constrainArgs ?? true;
     this.think = opts.think ?? false;
     this.allowSay = opts.allowSay ?? true;
     this.mode = opts.mode || 'act';
     this.retries = opts.retries ?? 0;
     this.fetch = opts.fetch || globalThis.fetch;
-    this.apiKey = opts.apiKey || process.env.LLM_API_KEY || '';
+    let key = opts.apiKey || '';
+    if (!key && opts.apiKeyVars) key = loadProviderKey(opts) || '';
+    if (!key && this.provider === 'local') key = process.env.LLM_API_KEY || '';
+    // キーは列挙されない所に置く (JSON.stringify・console.log で出ないように)
+    Object.defineProperty(this, 'apiKey', { value: key, enumerable: false, writable: true });
   }
 
   buildMessages(ctx) {
@@ -80,38 +153,107 @@ class LLMDecider {
     ];
   }
 
+  // 送る本文。提供元ごとの違い (出力の上限の名前・推論・構造化出力・temperature) をここで吸収する
+  buildBody(messages, schema, opts = {}) {
+    let maxTok = opts.maxTokens ?? this.maxTokens;
+    const reasoning = this.reasoningEffort && this.reasoningEffort !== 'none';
+    if (reasoning) maxTok += this.reasoningExtraTokens;
+    const body = { model: this.model, messages, stream: false };
+    body[this.tokenParam] = maxTok;
+    if (this.sendTemperature) body.temperature = opts.temperature ?? this.temperature;
+    if (this.reasoningEffort) body.reasoning_effort = this.reasoningEffort;
+    if (this.constrained && schema && this.structured !== 'none') {
+      if (this.structured === 'json_object') {
+        body.response_format = { type: 'json_object' };
+        body.messages = [...messages.slice(0, -1), { ...messages[messages.length - 1], content: `${messages[messages.length - 1].content}\n出力の JSON schema: ${JSON.stringify(schema)}` }];
+      } else {
+        const s = this.structured === 'json_schema_strict' ? strictSchema(schema) : schema;
+        body.response_format = { type: 'json_schema', json_schema: { name: 'decision', schema: s, strict: true } };
+      }
+    }
+    return body;
+  }
+
   // opts: { maxTokens, temperature } (この呼び出しだけ変える。ゴールの案を k 個出すときなど)
   async complete(messages, schema, opts = {}) {
-    const body = { model: this.model, messages, temperature: opts.temperature ?? this.temperature, max_tokens: opts.maxTokens ?? this.maxTokens, stream: false };
-    if (this.constrained && schema) body.response_format = { type: 'json_schema', json_schema: { name: 'decision', schema, strict: true } };
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), this.timeoutMs);
+    if (LLM_USAGE.exceeded) {
+      LLM_USAGE.add({ provider: this.provider, role: this.role || 'other', error: true });
+      throw new Error(`LLM の費用が上限 $${LLM_USAGE.maxUsd} に達したので呼ばない`);
+    }
     const t0 = Date.now();
-    let stat = { ms: null, serverMs: null, waitMs: null, error: true };
+    if (this.sem) await this.sem.acquire();
+    const queueMs = Date.now() - t0;
+    let stat = { ms: null, serverMs: null, waitMs: null, error: true, provider: this.provider };
+    let retries = 0; let rateLimited = 0; let triedSchema = false;
+    const use = { provider: this.provider, role: this.role || 'other', model: this.model, pricing: this.pricing, error: true, ms: 0 };
     try {
-      const res = await this.fetch(`${this.baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) },
-        body: JSON.stringify(body),
-        signal: ac.signal,
-      });
-      if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      const d = await res.json();
-      const ms = Date.now() - t0;
-      const serverMs = d.timings && Number.isFinite(d.timings.prompt_ms) ? Math.round((d.timings.prompt_ms || 0) + (d.timings.predicted_ms || 0)) : null;
-      stat = { ms, serverMs, waitMs: serverMs == null ? null : Math.max(0, ms - serverMs), error: false };
-      return {
-        text: d.choices?.[0]?.message?.content ?? '',
-        finishReason: d.choices?.[0]?.finish_reason ?? null, // 'length' = 出力が max_tokens か文脈の上限で切れた
-        promptTokens: d.usage?.prompt_tokens ?? null,
-        completionTokens: d.usage?.completion_tokens ?? null,
-        cachedTokens: d.timings?.cache_n ?? d.usage?.prompt_tokens_details?.cached_tokens ?? null,
-        ms, serverMs, waitMs: stat.waitMs,
-      };
+      for (let attempt = 0; ; attempt++) {
+        const body = this.buildBody(messages, schema, opts);
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), this.timeoutMs);
+        let res;
+        try {
+          res = await this.fetch(chatUrl(this.baseUrl), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}) },
+            body: JSON.stringify(body),
+            signal: ac.signal,
+          });
+        } catch (e) {
+          clearTimeout(timer);
+          if (attempt < this.maxRetries) { retries += 1; await this.sleep(500 * 2 ** attempt); continue; }
+          throw new Error(`LLM 接続失敗: ${e.name === 'AbortError' ? 'timeout' : redact(e.message, this.apiKey)}`);
+        }
+        clearTimeout(timer);
+        if (res.status === 429 || res.status >= 500) {
+          if (res.status === 429) rateLimited += 1;
+          if (attempt < this.maxRetries) {
+            const ra = Number(res.headers && res.headers.get ? res.headers.get('retry-after') : NaN);
+            retries += 1;
+            try { await res.text(); } catch (_) { /* ignore */ }
+            await this.sleep(Number.isFinite(ra) && ra > 0 ? Math.min(60000, ra * 1000) : Math.min(30000, 1000 * 2 ** attempt));
+            continue;
+          }
+        }
+        if (!res.ok) {
+          const detail = redact((await res.text()).slice(0, 300), this.apiKey);
+          // 受け付けない引数を外して1回だけやり直す (temperature・構造化出力の schema)
+          if (res.status === 400 && this.sendTemperature && /temperature/i.test(detail) && /unsupported|not support|does not support|only the default/i.test(detail)) {
+            this.sendTemperature = false; continue;
+          }
+          if (res.status === 400 && !triedSchema && /^json_schema/.test(this.structured) && schema && /response_format|json_schema|schema/i.test(detail) && !/exceeds the available context/.test(detail)) {
+            this.structured = 'json_object'; triedSchema = true; continue;
+          }
+          throw new Error(`LLM HTTP ${res.status}: ${detail}`);
+        }
+        const d = await res.json();
+        const ms = Date.now() - t0;
+        const serverMs = d.timings && Number.isFinite(d.timings.prompt_ms) ? Math.round((d.timings.prompt_ms || 0) + (d.timings.predicted_ms || 0)) : null;
+        stat = { ms, serverMs, waitMs: serverMs == null ? null : Math.max(0, ms - serverMs), error: false, provider: this.provider };
+        const msg = d.choices?.[0]?.message || {};
+        const promptTokens = d.usage?.prompt_tokens ?? null;
+        const completionTokens = d.usage?.completion_tokens ?? null;
+        const reasoningTokens = d.usage?.completion_tokens_details?.reasoning_tokens ?? null;
+        const cachedTokens = d.timings?.cache_n ?? d.usage?.prompt_tokens_details?.cached_tokens ?? null;
+        // llama-server の cache_n はキャッシュに当たったトークン (費用は 0 なので区別しない)
+        const cost = costOf(this.pricing, { promptTokens, cachedTokens: d.usage?.prompt_tokens_details?.cached_tokens ?? 0, completionTokens });
+        Object.assign(use, { error: false, promptTokens, cachedTokens: d.usage?.prompt_tokens_details?.cached_tokens ?? 0, completionTokens, reasoningTokens, ms, costUsd: cost.usd, priced: cost.priced });
+        return {
+          text: msg.content ?? '',
+          refusal: msg.refusal ?? null,
+          finishReason: d.choices?.[0]?.finish_reason ?? null, // 'length' = 出力が max_tokens か文脈の上限で切れた
+          promptTokens, completionTokens, reasoningTokens, cachedTokens,
+          ms, serverMs, waitMs: stat.waitMs, queueMs, retries, rateLimited,
+          provider: this.provider, model: this.model, costUsd: cost.usd,
+        };
+      }
     } finally {
-      clearTimeout(timer);
+      if (this.sem) this.sem.release();
       if (stat.ms == null) stat.ms = Date.now() - t0;
       LLM_STATS.add(stat);
+      use.ms = use.ms || stat.ms;
+      use.retries = retries; use.rateLimited = rateLimited;
+      LLM_USAGE.add(use);
     }
   }
 
@@ -148,4 +290,4 @@ class LLMDecider {
   }
 }
 
-module.exports = { LLMDecider, decisionSchema, LLM_STATS };
+module.exports = { LLMDecider, decisionSchema, LLM_STATS, LLM_USAGE, chatUrl };

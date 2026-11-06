@@ -3,6 +3,8 @@
 // 1回の実行 (run.js の1プロセス = 全エージェント) で1つを共有し、Jev の入力トークンの上限を持つ。
 // 上限を超えたら exceeded を立てる (エージェントはそれを見て止まる)。
 
+const { LLM_USAGE } = require('./deciders/llm');
+
 const JEV_USD_PER_MTOK = 0.042; // 入力 100万トークンあたり (出力は無料。docs.typesafe.ai/models、2026-11-03 確認)
 
 // レスポンスに使用量がないときの推定: CJK (かな・漢字など) は1文字1トークン、それ以外は4文字1トークン
@@ -30,6 +32,8 @@ class UsageMeter {
     this.twoB = emptyTwoB();
     this.exceeded = false;
     this.listeners = [];
+    // 文を作る LLM の提供元・役ごとの使用量と費用 (deciders/llm.js の LLM_USAGE。プロセスで1つ)
+    this.llm = opts.llmUsage || LLM_USAGE;
   }
 
   onExceeded(fn) { this.listeners.push(fn); }
@@ -96,6 +100,7 @@ class UsageMeter {
         callsPerDecision: j.decisions ? Number((j.decisionCalls / j.decisions).toFixed(3)) : null,
         inputTokensPerDecision: j.decisions ? Math.round(j.decisionInputTokens / j.decisions) : null, avgMs: j.calls ? Math.round(j.ms / j.calls) : 0, costUsd: Number(((j.inputTokens / 1e6) * JEV_USD_PER_MTOK).toFixed(6)), maxInputTokens: this.maxJevInputTokens, exceeded: this.exceeded },
       twoB: { ...this.twoB, avgPromptChars: this.twoB.calls ? Math.round(this.twoB.promptChars / this.twoB.calls) : 0 },
+      llm: this.llm && this.llm.summary ? this.llm.summary() : (this.llm || null),
     };
   }
 }
@@ -121,7 +126,25 @@ function mergeUsageSummaries(list, { maxInputTokens = null } = {}) {
       if (mx) dst.maxPromptTokens = mx;
     }
   }
-  const m = new UsageMeter({ maxJevInputTokens: maxInputTokens ?? Math.max(0, ...list.filter(Boolean).map((u) => (u.jev && u.jev.maxInputTokens) || 0)) });
+  // 文を作る LLM: 提供元ごと・役ごとの数を足す
+  const llm = { byProvider: {}, byRole: {}, providers: {}, costUsd: 0, maxUsd: null, exceeded: false };
+  for (const u of list.filter(Boolean)) {
+    const l = u.llm;
+    if (!l) continue;
+    for (const g of ['byProvider', 'byRole']) {
+      for (const [k, v] of Object.entries(l[g] || {})) {
+        const dst = (llm[g][k] = llm[g][k] || {});
+        for (const [f, x] of Object.entries(v)) if (typeof x === 'number' && f !== 'avgMs') dst[f] = (dst[f] || 0) + x;
+      }
+    }
+    Object.assign(llm.providers, l.providers || {});
+    llm.costUsd += l.costUsd || 0;
+    if (l.maxUsd != null) llm.maxUsd = l.maxUsd;
+    llm.exceeded = llm.exceeded || !!l.exceeded;
+  }
+  for (const g of ['byProvider', 'byRole']) for (const v of Object.values(llm[g])) { v.costUsd = Number((v.costUsd || 0).toFixed(6)); v.avgMs = v.calls ? Math.round(v.ms / v.calls) : 0; }
+  llm.costUsd = Number(llm.costUsd.toFixed(6));
+  const m = new UsageMeter({ llmUsage: llm, maxJevInputTokens: maxInputTokens ?? Math.max(0, ...list.filter(Boolean).map((u) => (u.jev && u.jev.maxInputTokens) || 0)) });
   m.jev = jev;
   m.twoB = twoB;
   m.exceeded = exceeded;

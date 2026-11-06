@@ -2,6 +2,7 @@
 // 発言を作る 2B (Gemma 4 E2B、llama-server)。行動は Jev が決め、話すべきとき (Jev の Noul が閾値を超えたとき)
 // と、人に聞かれて答えるときだけ呼ぶ。呼び出しの回数とプロンプトの長さを UsageMeter と記録に残す。
 const { LLMDecider } = require('./deciders/llm');
+const { KIND_ROLE } = require('./llm_provider');
 
 const SAY_SCHEMA = { type: 'object', properties: { say: { type: 'string', maxLength: 60 } }, required: ['say'], additionalProperties: false };
 
@@ -17,9 +18,19 @@ function personaLines(persona) {
 
 class Talker {
   constructor(opts = {}) {
-    this.llm = opts.llm || new LLMDecider({ ...(opts.llmOpts || {}), mode: 'talk', maxTokens: opts.maxTokens ?? (opts.llmOpts || {}).maxTokens ?? 64 });
+    // 役ごと (talk・answer・broadcast) に LLM を持つ。opts.llm (1つ) を渡せば全部それ。
+    // opts.llmOptsFor(role) で役ごとの opts (llm_provider.llmOptsFor)、無ければ opts.llmOpts を全部の役に
+    const mk = (o) => new LLMDecider({ ...o, mode: 'talk', maxTokens: opts.maxTokens ?? o.maxTokens ?? 64 });
+    this.llms = {};
+    for (const role of ['talk', 'answer', 'broadcast']) {
+      this.llms[role] = opts.llm || mk(opts.llmOptsFor ? opts.llmOptsFor(role) : { ...(opts.llmOpts || {}), role });
+    }
+    this.llm = this.llms.talk;
     this.meter = opts.meter || null;
-    this.kind = `2B(${this.llm.model})`;
+    const names = [...new Set(Object.values(this.llms).map((l) => `${l.provider || 'local'}(${l.model})`))];
+    // 全部 local なら今までと同じ書き方 (記録の talker)
+    this.kind = names.length === 1 && (this.llm.provider || 'local') === 'local' ? `2B(${this.llm.model})`
+      : names.length === 1 ? names[0] : Object.entries(this.llms).map(([r, l]) => `${r}=${l.provider}(${l.model})`).join(',');
   }
 
   // 話す内容を作る。ctx = { persona, goal, plan (自分のゴールと今の手順), socialText, nearText, heardText, memText, plannedAction }
@@ -111,11 +122,13 @@ class Talker {
     const t0 = Date.now();
     let r = null;
     let error = null;
-    try { r = await this.llm.complete(messages, schema, kind === 'propose' ? { maxTokens: 160 } : undefined); } catch (e) { error = e.message; }
+    const llm = this.llms[KIND_ROLE[kind] || 'talk'] || this.llm;
+    try { r = await llm.complete(messages, schema, kind === 'propose' ? { maxTokens: 160 } : undefined); } catch (e) { error = e.message; }
     const ms = Date.now() - t0;
     let say = '';
     if (r) { const m = r.text.match(/"say"\s*:\s*"([^"]*)/); say = m ? m[1].trim() : ''; }
-    const rec = { kind, promptChars, promptTokens: r ? r.promptTokens : null, completionTokens: r ? r.completionTokens : null, ms, error, rawOutput: r ? r.text : null, say };
+    const rec = { kind, provider: llm.provider || 'local', promptChars, promptTokens: r ? r.promptTokens : null, completionTokens: r ? r.completionTokens : null,
+      ...(r && r.reasoningTokens ? { reasoningTokens: r.reasoningTokens } : {}), ...(r && r.costUsd ? { costUsd: r.costUsd } : {}), ms, error, rawOutput: r ? r.text : null, say };
     if (this.meter) this.meter.addTwoB(rec);
     return rec;
   }

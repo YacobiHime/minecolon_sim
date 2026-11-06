@@ -12,6 +12,9 @@
 // 記録は runs/<時刻>/<名前>-<時刻>.jsonl (1人1ファイル) と runs/<時刻>/run.json (実行の合計)。
 // LLM (2B) の窓口は --llm か環境変数 LLM_BASE_URL (既定 http://127.0.0.1:18081)。
 // Jev の API キーは環境変数 TYPESAFE_API_KEY か /root/.config/typesafe.env (表示・記録しない)。
+// 文を作る LLM の提供元 (src/llm_provider.js): --llm-provider local|luna (既定の提供元)、--llm-roles goal=luna,reflect=luna (役ごと)、
+//   --llm-model M・--llm-base-url URL (--llm-provider の提供元に)、--max-llm-usd X (費用の上限。全プロセスの合計)。
+//   luna の API キーは環境変数 LUNA_API_KEY (無ければ OPENAI_API_KEY) か /root/.config/luna.env (表示・記録しない)。
 const fs = require('fs');
 const path = require('path');
 const { loadConfig, deepMerge } = require('./src/config');
@@ -23,7 +26,8 @@ const { JevClient } = require('./src/jev_client');
 const { sleep } = require('./src/util');
 const { Monitor } = require('./src/monitor');
 const { mergeUsageSummaries } = require('./src/usage');
-const { LLM_STATS } = require('./src/deciders/llm');
+const { LLM_STATS, LLM_USAGE } = require('./src/deciders/llm');
+const llmProvider = require('./src/llm_provider');
 
 function parseArgs(argv) {
   const a = {};
@@ -83,6 +87,8 @@ async function runParent(args, base, n, procs) {
   const stagger = Number(args['stagger-ms'] || 1500);
   const passArgs = process.argv.slice(2).filter((_, i, arr) => !['--procs'].includes(arr[i]) && !(i > 0 && arr[i - 1] === '--procs'));
   const used = parts.map(() => 0);
+  const usd = parts.map(() => 0);
+  const capUsd = base.llm && base.llm.maxUsd != null ? Number(base.llm.maxUsd) : null;
   let stopped = false;
   const children = parts.map(([from, to], k) => {
     const c = fork(__filename, [...passArgs, '--child', String(k + 1), '--agent-from', String(from), '--agent-to', String(to), '--agents', String(n),
@@ -90,10 +96,14 @@ async function runParent(args, base, n, procs) {
     c.on('message', (m) => {
       if (!m || m.type !== 'usage') return;
       used[k] = m.jevInputTokens || 0;
+      usd[k] = m.llmUsd || 0;
       const total = used.reduce((x, y) => x + y, 0);
-      if (!stopped && total >= cap) {
+      const totalUsd = usd.reduce((x, y) => x + y, 0);
+      const why = total >= cap ? `Jev の入力トークンが全プロセスの合計で上限 ${cap} に達した: ${total}`
+        : capUsd != null && totalUsd >= capUsd ? `LLM の費用が全プロセスの合計で上限 $${capUsd} に達した: $${totalUsd.toFixed(4)}` : null;
+      if (!stopped && why) {
         stopped = true;
-        console.log(`stopping (Jev の入力トークンが全プロセスの合計で上限 ${cap} に達した: ${total})...`);
+        console.log(`stopping (${why})...`);
         for (const cc of children) { try { cc.send({ type: 'stop' }); } catch (_) { /* ignore */ } }
       }
     });
@@ -122,7 +132,8 @@ async function runParent(args, base, n, procs) {
 async function main() {
   const args = parseArgs(process.argv);
   if (!args.config) {
-    console.error('usage: node run.js --config <file> [--agents N] [--minutes N] [--llm URL] [--decider llm|split|jev|random] [--max-jev-tokens N]');
+    console.error('usage: node run.js --config <file> [--agents N] [--minutes N] [--llm URL] [--decider llm|split|jev|random] [--max-jev-tokens N]\n'
+      + '         [--llm-provider local|luna] [--llm-roles goal=luna,reflect=luna] [--llm-model M] [--llm-base-url URL] [--max-llm-usd X]');
     process.exit(2);
   }
   const ov = {};
@@ -132,6 +143,8 @@ async function main() {
   if (llmUrl || args.decider) ov.decider = { ...(args.decider ? { type: args.decider } : {}), ...(llmUrl ? { llm: { baseUrl: llmUrl } } : {}) };
   if (args['max-jev-tokens']) ov.usage = { maxJevInputTokens: Number(args['max-jev-tokens']) };
   if (args['random-talk']) ov.decider = { ...(ov.decider || {}), talkP: Number(args['random-talk']) };
+  const llmOv = llmOverrides(args);
+  if (llmOv) ov.llm = llmOv;
   // 並べ方の種: --seed か config の order.seed。どちらも無ければここで決め、子プロセスにも --seed で渡す (記録の start と run.json に残る)
   if (args.seed != null) ov.order = { seed: Number(args.seed) >>> 0 };
   const base = loadConfig(args.config, ov);
@@ -140,6 +153,10 @@ async function main() {
     args.seed = String(base.order.seed);
     process.argv.push('--seed', args.seed);
   }
+  // 使う提供元の API キーがあるか (キーそのものは出さない)
+  const keys = llmProvider.checkKeys(base);
+  for (const k of keys) if (!k.ok) { console.error(`${k.error}。役 ${k.roles.join(',')} がこの提供元を使う。--llm-provider local で動かすか、README の「LLM の提供元」を見ること`); process.exit(2); }
+  if (!args.child) console.log(`LLM: ${llmProvider.ROLES.map((r) => { const o = llmProvider.llmOptsFor(base, r); return `${r}=${o.provider}(${o.model})`; }).join(' ')}${base.llm && base.llm.maxUsd != null ? ` 上限 $${base.llm.maxUsd}` : ''}`);
   const n = Math.max(1, Number(args.agents || base.agents || 1));
   // 既定は 5人ずつ (20人なら4プロセス)。1プロセスに20人だとイベントループが 1〜2 秒止まり、keepalive で切断された (2026-11-04 の試験)
   const procs = Math.max(1, args.procs ? Number(args.procs) : Math.ceil(n / 5));
@@ -162,7 +179,8 @@ async function main() {
     }
   }
   const talker = base.talk && base.talk.enabled === false ? null
-    : new Talker({ llmOpts: { ...base.decider.llm, ...(base.talk && base.talk.llm ? base.talk.llm : {}) }, meter });
+    : new Talker({ llmOptsFor: (role) => llmProvider.llmOptsFor(base, role, (base.talk && base.talk.llm) || {}), meter });
+  if (base.llm && base.llm.maxUsd != null) LLM_USAGE.maxUsd = Number(base.llm.maxUsd);
 
   const agents = [];
   // 実行の名簿 (全プロセスの全員)。全体チャットの提案で「生きている人数」を数えるのに使う (board.js)
@@ -173,12 +191,13 @@ async function main() {
     cfg.roster = roster;
     const name = cfg.persona.name;
     cfg.memory = { ...cfg.memory, file: base.memory.perRun ? path.join(path.dirname(base.memory.file), stamp, `${name}.json`) : path.join(path.dirname(base.memory.file), `${name}.json`) };
-    const decider = createDecider(cfg.decider, {}, { meter, jevClient });
+    const decider = createDecider(cfg.decider, {}, { meter, jevClient, llmOpts: llmProvider.llmOptsFor(cfg, 'act') });
     agents.push(new Agent(cfg, { decider, meter, talker, recordDir: runDir, recordStamp: stamp }));
   }
 
   const stopAll = (why) => { console.log(`stopping (${why})...`); for (const a of agents) a.stop(); };
   meter.onExceeded((u) => stopAll(`Jev の入力トークンが上限 ${u.jev.maxInputTokens} に達した`));
+  LLM_USAGE.onExceeded((u) => stopAll(`LLM の費用が上限 $${u.maxUsd} に達した ($${u.costUsd})`));
   process.on('SIGINT', () => stopAll('SIGINT'));
   process.on('SIGTERM', () => stopAll('SIGTERM'));
   process.on('unhandledRejection', (e) => console.log('unhandledRejection:', e && e.message));
@@ -186,7 +205,7 @@ async function main() {
   let usageTimer = null;
   if (child && process.send) {
     process.on('message', (m) => { if (m && m.type === 'stop') stopAll('親から'); });
-    usageTimer = setInterval(() => { try { process.send({ type: 'usage', jevInputTokens: meter.jev.inputTokens }); } catch (_) { /* ignore */ } }, 5000);
+    usageTimer = setInterval(() => { try { process.send({ type: 'usage', jevInputTokens: meter.jev.inputTokens, llmUsd: LLM_USAGE.totalUsd }); } catch (_) { /* ignore */ } }, 5000);
   }
 
   // 切断を数える (run の途中で end/kicked になった人。接続の再試行で捨てた bot は数えない)
@@ -217,7 +236,7 @@ async function main() {
   for (const a of ready) a.plannedEnd = t0 + a.cfg.loop.minutes * 60000;
   const results = await Promise.all(ready.map((a) => a.run({ runId: stamp, agents: n })));
   if (monitor) monitor.stop();
-  if (usageTimer) { clearInterval(usageTimer); try { process.send({ type: 'usage', jevInputTokens: meter.jev.inputTokens }); } catch (_) { /* ignore */ } }
+  if (usageTimer) { clearInterval(usageTimer); try { process.send({ type: 'usage', jevInputTokens: meter.jev.inputTokens, llmUsd: LLM_USAGE.totalUsd }); } catch (_) { /* ignore */ } }
   const summary = { runId: stamp, config: path.resolve(args.config), order: base.order || null, agents: n, connected: ready.length, ...(child ? { proc: child, agentRange: [from, to] } : {}), decider: decType,
     minutes: Math.round((Date.now() - t0) / 600) / 100, results, disconnects, usage: meter.summary(), twoBLatency: LLM_STATS.total(),
     ...(child ? { twoBLatencyRaw: { ms: LLM_STATS.all.map((r) => r.ms), waitMs: LLM_STATS.all.map((r) => r.waitMs), serverMs: LLM_STATS.all.map((r) => r.serverMs) } } : {}) };
@@ -226,6 +245,27 @@ async function main() {
   setTimeout(() => process.exit(0), 500);
 }
 
+// --llm-provider / --llm-roles / --llm-model / --llm-base-url / --max-llm-usd → config の llm に重ねる分 (無ければ null)
+function llmOverrides(args) {
+  const o = {};
+  if (args['llm-provider']) o.provider = args['llm-provider'];
+  if (args['llm-roles']) {
+    o.roles = {};
+    for (const kv of String(args['llm-roles']).split(',').filter(Boolean)) {
+      const [r, p] = kv.split('=');
+      if (!llmProvider.ROLES.includes(r) || !p) throw new Error(`--llm-roles の書き方: goal=luna,talk=local (役は ${llmProvider.ROLES.join('|')})`);
+      o.roles[r] = p;
+    }
+  }
+  const target = args['llm-provider'] || null;
+  if (args['llm-model'] || args['llm-base-url']) {
+    if (!target) throw new Error('--llm-model・--llm-base-url は --llm-provider と一緒に使う (どの提供元の設定か)');
+    o.providers = { [target]: { ...(args['llm-model'] ? { model: args['llm-model'] } : {}), ...(args['llm-base-url'] ? { baseUrl: args['llm-base-url'] } : {}) } };
+  }
+  if (args['max-llm-usd'] != null) o.maxUsd = Number(args['max-llm-usd']);
+  return Object.keys(o).length ? o : null;
+}
+
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
 
-module.exports = { splitAgents, connectWithRetry, personaFor, parseArgs };
+module.exports = { splitAgents, connectWithRetry, personaFor, parseArgs, llmOverrides };

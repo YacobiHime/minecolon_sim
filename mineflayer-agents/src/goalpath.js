@@ -202,6 +202,10 @@ class GoalPath {
     this.jev = opts.jev || null; // JevDecider (call(state, questions, stage) を使う)。select.enabled のときに要る
     this.order = opts.order || null; // Order (order.js)。候補の並べ方を毎回変える
     this.llm = opts.llm || new LLMDecider({ ...(opts.llmOpts || {}), mode: 'talk', maxTokens: this.cfg.maxTokens, temperature: this.cfg.temperature });
+    // 文脈の上限 (promptfit) は提供元の ctxTokens (llm_provider.js)。local は goalPath.prompt.ctxTokens (llama-server の1スロット) があればそれ
+    const userCtx = opts.cfg && opts.cfg.prompt && opts.cfg.prompt.ctxTokens;
+    const prov = this.llm.provider || 'local';
+    if (this.llm.ctxTokens && (prov !== 'local' || !userCtx)) this.cfg.prompt.ctxTokens = this.llm.ctxTokens;
     this.meter = opts.meter || null;
     this.log = opts.log || (() => {});
     this.goal = null;

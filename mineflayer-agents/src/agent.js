@@ -28,6 +28,7 @@ const farmwater = require('./farmwater');
 const { SharedExplore } = require('./explored');
 const { PlayerCache, playerDistance, peopleOf } = require('./people');
 const { Reflect } = require('./reflect');
+const { llmOptsFor } = require('./llm_provider');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
 const { isPlaceableBlockItem, Planner, effortWord, EFFORT_EN } = require('./planner');
 const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
@@ -271,7 +272,7 @@ class Agent {
     this.order = new Order({ enabled: oc.shuffle === true, seed: agentSeed(this.runSeed ?? 0, cfg.persona.name) });
     this.goalAt = null;
     this.selfGoal = this.help.selfGoal
-      ? new SelfGoal({ cfg: cfg.selfGoal || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.selfGoal && cfg.selfGoal.llm) || {}) }, meter })
+      ? new SelfGoal({ cfg: cfg.selfGoal || {}, llmOpts: llmOptsFor(cfg, 'goal', (cfg.selfGoal && cfg.selfGoal.llm) || {}), meter })
       : null;
     this.lastGoalDoneP = null;
     // 踏破したマスを runs/<id>/explored/ に書き出す (cfg.act.explore.shared。explored.js)。読んで判断に使うのは scope: 'all' のときだけ (exploreShare。既定 self)
@@ -290,19 +291,19 @@ class Agent {
     this.others = this.othersCfg.enabled === false ? null : new OthersLog(this.othersCfg);
     // ゴール → 逆向きの手順 → 1段ずつ (help.goalPlan。goalplan.js)
     this.goalPlan = this.help.goalPlan
-      ? new GoalPlan({ cfg: cfg.goalPlan || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.goalPlan && cfg.goalPlan.llm) || {}) }, meter,
+      ? new GoalPlan({ cfg: cfg.goalPlan || {}, llmOpts: llmOptsFor(cfg, 'goal', (cfg.goalPlan && cfg.goalPlan.llm) || {}), meter,
         jev: decider && decider.kind === 'jev' ? decider : null, log: (e) => this.recorder.write({ event: 'goal_plan', ...e }) })
       : null;
     // ゴール (2B) → 道筋 (planner) → 行動 (Jev) (help.goalPath。goalpath.js)。goalPlan より先に見る
     if (this.help.goalPath) {
       this.goalPlan = null;
-      this.goalPath = new GoalPath({ cfg: cfg.goalPath || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.goalPath && cfg.goalPath.llm) || {}) }, meter,
+      this.goalPath = new GoalPath({ cfg: cfg.goalPath || {}, llmOpts: llmOptsFor(cfg, 'goal', (cfg.goalPath && cfg.goalPath.llm) || {}), meter,
         jev: decider && decider.kind === 'jev' ? decider : null, order: this.order,
         log: (e) => { this.recorder.write({ event: 'goal_path', ...e }); if (this.reflect) this.reflect.noteGoal(e); } });
     } else this.goalPath = null;
     // 振り返りと方針 (cfg.reflect。reflect.js)。ゴール (help.goalPath) と一緒に使う
     this.reflect = cfg.reflect && cfg.reflect.enabled !== false && this.goalPath
-      ? new Reflect({ cfg: cfg.reflect, llmOpts: { ...cfg.decider.llm, ...((cfg.reflect && cfg.reflect.llm) || {}) }, meter, log: (e) => this.recorder.write({ event: 'reflect', ...e }) })
+      ? new Reflect({ cfg: cfg.reflect, llmOpts: llmOptsFor(cfg, 'reflect', (cfg.reflect && cfg.reflect.llm) || {}), meter, log: (e) => this.recorder.write({ event: 'reflect', ...e }) })
       : null;
     this.homeSpot = null; // 拠点が無いとき: 最後にベッドかチェストを置いた所
     this.baseSeen = null; // 最後に見た拠点の様子 { site, tick }

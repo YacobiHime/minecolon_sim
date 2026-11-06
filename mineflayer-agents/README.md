@@ -408,3 +408,47 @@ summarize_run (20人向けに足したもの): 集まり (16m 以内でつなが
 判断の間隔・関係の行列 (好感の初期値 50 からの変化。会っていない所は「.」、列は名前の先頭3文字)・上がった/下がった組とお互いに変わった組・
 人ごとの1行の要約 (判断・成功率・多かった行動・死んだ回数・集まりに居た割合と一緒の相手・持ち物)・負荷 (monitor と 2B の待ち)。
 2人組の距離 (190 組) は JSON の `pairDistance.perPair` にだけ残し、文章には全体の数だけを出す。
+
+## LLM の提供元 (local = 2B / luna = gpt-6-luna) (`src/llm_provider.js`)
+
+文を作る役 (発言・ゴールの案・振り返り・答え・全体チャット) の LLM を切り替える。記憶とメンタルモデルはハーネスが持ち、行動は Jev が選ぶ形は変わらない。
+
+- **local** (既定): llama.cpp の llama-server の Gemma 4 E2B (OpenAI 互換)。窓口は今まで通り `--llm URL` (`decider.llm.baseUrl`)。費用 0。
+- **luna**: OpenAI の `gpt-6-luna` (Chat Completions、`https://api.openai.com/v1`)。料金は入力 $0.10・キャッシュ済み入力 $0.01・出力 $0.50 / 100万トークン
+  (入力が 272K を超える呼び出しは入力 2倍・出力 1.5倍。developers.openai.com/api/docs/models/gpt-6-luna、2026-11-06 確認)。
+  送り方: `max_completion_tokens`・`reasoning_effort: none` (既定。推論を使うと出力の上限に `reasoningExtraTokens` を足す)・
+  `response_format: json_schema` (strict。文字列の長さの制約は外す)。temperature か schema を 400 で断られたら外して送り直す (以後も外す)。
+  429・5xx は retry-after (無ければ 1, 2, 4… 秒) で 4 回まで再試行、同時に投げるのは 1プロセス 8 本まで (`--procs 4` なら全体で 32 本)。
+  promptfit の上限 (`ctxTokens`) は 272,000 (local は `goalPath.prompt.ctxTokens` = 8192)。
+
+### API キーの渡し方
+
+```bash
+install -m 600 /dev/null /root/.config/luna.env
+# エディタで1行書く (echo で書くとシェルの履歴に残る)
+#   LUNA_API_KEY=sk-...
+```
+
+環境変数 `LUNA_API_KEY` (無ければ `OPENAI_API_KEY`) があればそちらを使う。別のファイルは `LUNA_ENV_FILE=/path`。
+キーは表示・ログ・記録 (run.json・jsonl) に出さず、サーバーのエラーの文に入っていても `***` に消す。キーのファイルが無くても local だけなら今まで通り動く
+(luna を使う役があるのにキーが無ければ、run.js は接続の前に止まる)。
+
+### 切り替え方
+
+```bash
+# 全部 luna
+node mineflayer-agents/run.js --config mineflayer-agents/configs/survival_3days.json --agents 20 --procs 4 \
+  --llm http://192.168.15.30:18081 --max-jev-tokens 45000000 --llm-provider luna --max-llm-usd 2
+# ゴールの案と振り返りだけ luna、ほか (発言・答え・全体チャット) は 2B
+node mineflayer-agents/run.js ... --llm http://192.168.15.30:18081 --llm-roles goal=luna,reflect=luna --max-llm-usd 1
+# 2B に戻す: --llm-provider / --llm-roles を付けない (config の llm.provider: local が既定)
+# luna の経路を 2B で試す (キーは何でもよい。llama-server は見ない)
+LUNA_API_KEY=dummy node mineflayer-agents/run.js ... --llm-provider luna --llm-base-url http://192.168.15.30:18081/v1 --llm-model gemma-4-e2b
+```
+
+- 役: `goal` (ゴールの案・goalPlan・selfGoal)、`talk` (近くの発言)、`reflect` (振り返り)、`answer` (答え)、`broadcast` (全体・提案・【発見】)、`act` (`--decider llm|split` の行動)。
+- config では `llm: { provider, roles: { goal: 'luna', ... }, providers: { luna: { model, baseUrl, reasoningEffort, maxConcurrent, ctxTokens, pricing } }, maxUsd }`。
+  `--llm-model`・`--llm-base-url` は `--llm-provider` の提供元の設定を変える。料金が分からない提供元は `pricing: { inputPerMTok: null, outputPerMTok: null }` (費用 0 として数え「未設定」と残す)。
+- **使用量と費用**: run.json の `usage.llm` に提供元ごと (`byProvider`) と 提供元/役ごと (`byRole`、例 `luna/goal`) の呼び出し・失敗・429・再試行・
+  入力 (うちキャッシュ)・出力 (うち推論) トークン・待ち時間・費用。`summarize_run.js --text` に「文を作る LLM: 費用 $…」の行。
+  `--max-llm-usd X` (config `llm.maxUsd`) を全プロセスの合計で超えたら全員を止め、それ以降の呼び出しは投げない。

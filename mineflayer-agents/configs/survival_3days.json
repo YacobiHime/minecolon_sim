@@ -579,6 +579,13 @@
     "moveDist": 8,
     "blockTol": 1
   },
+  "llm": {
+    "_comment": "文を作る LLM の提供元 (src/llm_provider.js、README の「LLM の提供元」)。provider: local (llama.cpp の 2B) | luna (gpt-6-luna)。roles: 役ごと {goal, talk, reflect, answer, broadcast, act} (無い役は provider)。providers.<名前>: baseUrl・model・ctxTokens・pricing などを上書き。maxUsd: 費用の上限 (全員の合計、null で無し)",
+    "provider": "local",
+    "roles": {},
+    "providers": {},
+    "maxUsd": null
+  },
   "decider": {
     "type": "jev",
     "jev": {
