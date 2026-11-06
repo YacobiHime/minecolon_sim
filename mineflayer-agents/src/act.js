@@ -14,7 +14,7 @@ const unstuck = require('./unstuck');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
-const DEFAULT_TIMEOUTS = { broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
+const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 15000, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
   attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS };
 const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
 const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
@@ -622,6 +622,7 @@ const handlers = {
 
   // 全体チャット・提案・共有のチェスト (board.js)。中身を 2B に書かせて送る部分は agent が持つ
   async broadcast(_bot, _ch, ctx) { return ctx.broadcast ? ctx.broadcast() : { ok: false, msg: '全体に言う仕組みがない' }; },
+  async report_find(_bot, _ch, ctx) { return ctx.reportFind ? ctx.reportFind() : { ok: false, msg: '全体に知らせる仕組みがない' }; },
   async propose(_bot, _ch, ctx) { return ctx.propose ? ctx.propose() : { ok: false, msg: '提案する仕組みがない' }; },
   async share_chest(_bot, ch, ctx) { return ctx.shareChest ? ctx.shareChest(ch) : { ok: false, msg: '共有にする仕組みがない' }; },
 

@@ -639,6 +639,7 @@
   },
   "act": {
     "enable": [
+      "report_find",
       "attack",
       "flee",
       "smelt",
@@ -682,7 +683,13 @@
       "far": 80,
       "randomMin": 15,
       "randomMax": 60,
-      "maxRing": 6
+      "maxRing": 6,
+      "_comment_share": "shared: 踏破したマスと今いる所を同じ実行の全員で分け合う (runs/<id>/explored/、shareEvery 判断ごとに書いて読む。src/explored.js)。scope: all で「まだ行っていない」「行ったか」を全員の踏破で決める (self: 自分だけ)。extra: 近さだけで選ばない候補 (拠点から離れる方・踏破したマスが少ない方・人の少ない方。行き先は far m 先) を足す。sectorRing: 方角ごとに数えるマスの範囲",
+      "shared": true,
+      "shareEvery": 5,
+      "scope": "all",
+      "extra": true,
+      "sectorRing": 12
     },
     "followMs": 30000,
     "_comment_more": "use_on: 持ち物(と素手) x 見えている対象 (近いブロック5種+目印4種+生き物4種)。maxUseChoices で上限。craftables: all = レシピのある物すべて、placeable: .* = 持っているブロックすべて",

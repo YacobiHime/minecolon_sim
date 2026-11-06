@@ -90,9 +90,9 @@ function listActions(raw, ctx = {}) {
     if (go.length >= 5) break;
   }
   for (const p of memPlaces) {
-    if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`) || collectable.has(p.kind)) continue;
+    if ((p.d !== undefined && p.d < 3) || blocked.has(`go_to:${p.id}`) || (collectable.has(p.kind) && !p.from)) continue; // 聞いた場所は遠くても出す
     if (p.pos && !reachable(p.pos)) continue;
-    go.push({ id: p.id, label: p.label, labelEn: `${p.id}=${kindEn(p.kind)} (${p.pos ? whereEn(here, p.pos) : 'location unknown'})`, pos: p.pos, kind: p.kind, fromMemory: true });
+    go.push({ id: p.id, label: p.label, labelEn: `${p.id}=${kindEn(p.kind)} (${p.pos ? whereEn(here, p.pos) : 'location unknown'}${p.from ? `; ${p.from} said so` : ''})`, pos: p.pos, kind: p.kind, fromMemory: true });
   }
   for (const e of raw.entities.filter((x) => x.kind === 'player')) {
     go.push({ id: e.name, label: `プレイヤー${e.name} ${relDir(here, e.pos)}`, labelEn: `player ${e.name} (${whereEn(here, e.pos)})`, pos: e.pos, player: e.name });
@@ -250,6 +250,7 @@ function listActions(raw, ctx = {}) {
   // 全体チャット・提案・共有のチェスト (board.js)。cfg.board.enabled で、act.enable に入れたものだけ。説明は「全員に届く」などの事実だけ
   const bd = ctx.board || null;
   if (bd) {
+    if (on('report_find')) out.push({ name: 'report_find', desc: '見つけた物と場所を全員に知らせる (【発見】の行で近くにいない人にも届く。言うことはこのあと考える)', descEn: 'tell everyone about something found and where it is (reaches everyone, near or far; what to say is worked out next)', argType: 'none' });
     if (on('broadcast')) out.push({ name: 'broadcast', desc: '全員に届く声で何か言う (近くにいない人にも届く。言うことはこのあと考える)', descEn: 'say something that reaches everyone, near or far (what to say is worked out next)', argType: 'none' });
     if (on('propose') && !bd.proposedRecently) out.push({ name: 'propose', desc: '全員に提案する (全員に届き、それぞれが賛成するかを決める。賛成が集まると取り決めか共同の目標になる。中身はこのあと考える)', descEn: 'propose something to everyone (it reaches every person; each decides whether to agree; with enough agreement it becomes an agreement or a shared project; what to propose is worked out next)', argType: 'none' });
     const cont = raw.blocks.filter((b) => /^(chest|trapped_chest|barrel)$/.test(b.name) && b.nearest.d <= (ctx.visionRadius ?? 16)).sort((a, b) => a.nearest.d - b.nearest.d)[0];

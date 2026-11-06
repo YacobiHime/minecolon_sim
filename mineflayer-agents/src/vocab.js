@@ -7,6 +7,7 @@
 //       先にたどった道筋 (planner) から言葉にした事実 (入手元が見えるか・まれに落ちるか・作業台/かまど/道具が要るか・手間 小/中/大)。
 //   「この欲求にはこの物」という対応はここでは作らない (2B が選ぶ)。
 //   人: 知っている人・見えている人。場所: 拠点・覚えている場所 (M番号)・8方位の遠く (行ったことがあるか)。
+const { commonRef } = require('./places');
 const { index, Planner, GROUND, VOCAB_MIN_CHANCE, effortWord, CROP_BLOCKS, EFFORT_EN, FARM } = require('./planner');
 const { dir8En } = require('./en');
 const { jaName, WOOD, COLOR } = require('./names_ja');
@@ -200,7 +201,7 @@ function personCandidates(people) {
 }
 
 // 場所: 拠点・覚えている場所 (M番号、拠点以外)・8方位の遠く。cellAt(x, z) → 行ったマス | null
-function placeCandidates({ here, base = null, baseLabel = null, places = [], cellAt = null, far = 48, maxPlaces = 4 } = {}) {
+function placeCandidates({ here, base = null, baseLabel = null, places = [], cellAt = null, far = 48, maxPlaces = 4, origin = null } = {}) {
   const out = [];
   if (base) out.push({ name: '拠点', desc: baseLabel || '自分の拠点', descEn: 'my base', pos: base, type: 'base' });
   for (const p of places.filter((q) => q.kind !== '拠点').slice(0, maxPlaces)) out.push({ name: p.id, desc: p.label, descEn: `a remembered place: ${p.kind}`, pos: p.pos, type: 'memory' });
@@ -208,7 +209,8 @@ function placeCandidates({ here, base = null, baseLabel = null, places = [], cel
     const l = Math.hypot(dx, dz);
     const x = here ? here.x + (dx / l) * far : 0; const z = here ? here.z + (dz / l) * far : 0;
     const c = cellAt && here ? cellAt(x, z) : null;
-    out.push({ name: `${ja}の方`, desc: c ? `${far}mほど先・行ったことがある` : `${far}mほど先・行ったことがない`, descEn: `far to the ${id}; ${c ? 'been there before' : 'never been there'}`, dir: id, vec: [dx / l, dz / l], type: 'dir' });
+    const ref = origin && here ? commonRef({ x, z }, origin) : null;
+    out.push({ name: `${ja}の方`, desc: `${far}mほど先${ref ? ` (${ref})` : ''}・${c ? '行ったことがある' : '行ったことがない'}`, descEn: `far to the ${id}; ${c ? 'been there before' : 'never been there'}`, dir: id, vec: [dx / l, dz / l], type: 'dir' });
   }
   return out;
 }

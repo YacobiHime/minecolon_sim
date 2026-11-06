@@ -5,6 +5,7 @@
 // プロセスをまたぐ共有: サーバーの全体チャット (bot.chat)。行の頭に【…】の印を付け、全員が同じ行を受け取って
 //   それぞれの Board に同じように積む (近くの声は印なしの行。agent.onChat が印のある行を近くの声から外す)。
 //   【全体】文                                  broadcast (中身は 2B)
+//   【発見】文                                  report_find: 見つけた物と場所 (中身は 2B。聞いた人は文の中の場所を覚える)
 //   【提案 id n=N rule:item>chest】文           propose。spec は rule:item>chest | project:item*count | text
 //   【賛成 id】 / 【反対 id】                     vote (Jev の noul から)
 //   【共有 chestId@x,y,z】                      share_chest (ここのチェストを共有にする)
@@ -33,7 +34,7 @@ const DEFAULTS = {
   textMax: 60, // 発言・提案の文の長さ
 };
 
-const TAG = /^【(全体|提案|賛成|反対|共有|箱|置いた)([^】]*)】(.*)$/;
+const TAG = /^【(全体|発見|提案|賛成|反対|共有|箱|置いた)([^】]*)】(.*)$/;
 const ID_RE = /^[A-Za-z0-9_-]+#\d+$/;
 const CHEST_RE = /^[A-Za-z0-9_-]+-\d+$/;
 const ITEM_RE = /^[a-z0-9_]+$/;
@@ -56,6 +57,7 @@ function specStr(spec) {
 }
 const line = {
   say: (text) => `【全体】${clean(text)}`,
+  find: (text) => `【発見】${clean(text)}`,
   propose: ({ id, n, spec, text }) => `【提案 ${id} n=${n} ${specStr(spec)}】${clean(text)}`,
   vote: (id, yes) => `【${yes ? '賛成' : '反対'} ${id}】`,
   share: (chestId, pos) => `【共有 ${chestId}@${posStr(pos)}】`,
@@ -70,6 +72,7 @@ function parseLine(text) {
   const [, tag, headRaw, body] = m;
   const head = headRaw.trim().split(/\s+/).filter(Boolean);
   if (tag === '全体') return body.trim() ? { type: 'say', text: body.trim() } : null;
+  if (tag === '発見') return body.trim() ? { type: 'say', text: body.trim(), find: true } : null;
   if (tag === '賛成' || tag === '反対') return ID_RE.test(head[0] || '') ? { type: 'vote', id: head[0], yes: tag === '賛成' } : null;
   if (tag === '提案') {
     const [id, nTok, specTok = 'text'] = head;
@@ -120,7 +123,7 @@ class Board {
     const out = [];
     if (!msg || !from) return out;
     if (msg.type === 'say') {
-      const m = { seq: ++this.seq, t, tick, from, text: clean(msg.text, this.cfg.textMax * 2), kind: 'say' };
+      const m = { seq: ++this.seq, t, tick, from, text: clean(msg.text, this.cfg.textMax * 2), kind: msg.find ? 'find' : 'say' };
       this.messages.push(m); this.trim();
       out.push({ type: 'message', m });
     } else if (msg.type === 'propose') {
@@ -283,7 +286,7 @@ class Board {
   //   返り値 { state: { board, agreements, projects, shared_chests, broken_agreements }, open: { q1: 文 }, openMap: { q1: 提案の id }, breakers: [名前], shown }
   stateEn({ me = this.me, tick = 0, here = null, shown = [], open = [], relationEn = () => 'stranger', personalRel = true } = {}) {
     const st = {};
-    if (shown.length) st.board = shown.map((m) => (m.kind === 'propose' ? `${m.from} proposed to everyone「${m.text}」` : `${m.from} said to everyone「${m.text}」`) + ` (${agoEn(tick - m.tick)})`);
+    if (shown.length) st.board = shown.map((m) => (m.kind === 'propose' ? `${m.from} proposed to everyone「${m.text}」` : m.kind === 'find' ? `${m.from} reported a find to everyone「${m.text}」` : `${m.from} said to everyone「${m.text}」`) + ` (${agoEn(tick - m.tick)})`);
     const ag = this.agreed().filter((p) => p.spec.type !== 'project').slice(-this.cfg.maxAgreements);
     if (ag.length) st.agreements = ag.map((p) => this.agreementEn(p));
     const pj = this.agreedProjects().slice(-this.cfg.maxProjects);
@@ -308,7 +311,7 @@ class Board {
   // 2B に見せる日本語 (talker・ゴール選び)
   textJa({ tick = 0, here = null, shown = [], relDir = null } = {}) {
     const lines = [];
-    if (shown.length) lines.push(`## 全体に届いた話\n${shown.map((m) => `${m.from}${m.kind === 'propose' ? 'の提案' : ''}「${m.text}」`).join('\n')}`);
+    if (shown.length) lines.push(`## 全体に届いた話\n${shown.map((m) => `${m.from}${m.kind === 'propose' ? 'の提案' : m.kind === 'find' ? 'の発見' : ''}「${m.text}」`).join('\n')}`);
     const ag = this.agreed().filter((p) => p.spec.type !== 'project').slice(-this.cfg.maxAgreements);
     if (ag.length) lines.push(`## 取り決め\n${ag.map((p) => `- ${p.text} (${p.by}の提案、賛成 ${p.yes.size})`).join('\n')}`);
     const pj = this.agreedProjects().slice(-this.cfg.maxProjects);

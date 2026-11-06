@@ -24,6 +24,7 @@ const { SelfGoal } = require('./selfgoal');
 const { GoalPlan } = require('./goalplan');
 const { GoalPath } = require('./goalpath');
 const { farmStatus } = require('./states');
+const { SharedExplore } = require('./explored');
 const { Reflect } = require('./reflect');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
 const { isPlaceableBlockItem } = require('./planner');
@@ -131,7 +132,8 @@ function buildContext(raw, memory, cfg, extra = {}) {
     collectExclude: collectExcludeOf(cfg),
     useOnSkip: cfg.act.useOnPlaceable === false ? (n) => isPlaceableBlockItem(n, (cfg.server && cfg.server.version) || undefined) : null,
     visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
-    explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick },
+    explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick,
+      allCells: extra.allCells || null, others: extra.others || null, base: extra.base || null },
     board: extra.boardActs || null,
     farmTargets: farmTargets(raw, memPlaces, extra.farm || null, cfg),
   });
@@ -246,6 +248,9 @@ class Agent {
       ? new SelfGoal({ cfg: cfg.selfGoal || {}, llmOpts: { ...cfg.decider.llm, ...((cfg.selfGoal && cfg.selfGoal.llm) || {}) }, meter })
       : null;
     this.lastGoalDoneP = null;
+    // 踏破したマスを同じ実行の全員で分け合う (cfg.act.explore.shared。explored.js)。scope: 'all' で explore の「行ったか」を全員の踏破で決める
+    const exc = (cfg.act && cfg.act.explore) || {};
+    this.sharedExplore = exc.shared && recordDir ? new SharedExplore({ dir: require('path').join(recordDir, 'explored'), name: cfg.persona.name, writeEvery: exc.shareEvery ?? 5, readEvery: exc.shareEvery ?? 5 }) : null;
     this.deaths = [];
     // 動けない状態の見張りと回復 (cfg.unstuck。unstuck.js)
     this.unstuckCfg = { ...unstuck.UNSTUCK_DEFAULTS, ...(cfg.unstuck || {}) };
@@ -311,6 +316,11 @@ class Agent {
     const me = this.cfg.persona.name;
     const tick = this.memory.tick;
     const evs = this.board.receive(from, m, { t: Date.now(), tick });
+    // 【発見】の行は、state に出るかに関係なく、文の中の場所を覚える (聞いた場所。go_to の候補)
+    if (m.find && from !== me) {
+      const got = this.memory.learnPlaces(from, m.text);
+      if (got.length) this.recorder.write({ event: 'heard_place', from, to: me, text: m.text, places: got, loop: tick });
+    }
     for (const ev of evs) {
       if (ev.type === 'agreed') {
         const p = ev.p;
@@ -436,6 +446,28 @@ class Agent {
     this.social.onSpoke(this.memory.tick);
     this.log(`[${this.cfg.persona.name}] 全体に「${say}」`);
     return { ok: true, msg: `全員に「${say}」と言った`, said: say };
+  }
+
+  // 見つけた物と場所を全員に (【発見】)。2B に見せるのは、見えている目印・生き物と覚えている場所の、自分からの方角と共通の呼び方 (事実だけ)
+  async doReportFind(ctx) {
+    if (!this.talker || !this.board) return { ok: false, msg: '全体に知らせる仕組みがない' };
+    const raw = ctx.raw;
+    const here = raw.self.pos;
+    const ref = (p) => this.memory.commonRef(p);
+    const seen = [];
+    for (const b of raw.blocks.filter((x) => x.notable).slice(0, 6)) seen.push(`${b.name}: ${relDir(here, b.nearest)}${ref(b.nearest) ? `・${ref(b.nearest)}` : ''}`);
+    const mobs = new Map();
+    for (const e of raw.entities) if (e.kind !== 'player' && e.kind !== 'item' && !mobs.has(e.name)) mobs.set(e.name, e);
+    for (const e of [...mobs.values()].slice(0, 4)) seen.push(`${e.name}: ${relDir(here, e.pos)}${ref(e.pos) ? `・${ref(e.pos)}` : ''}`);
+    const r = await this.talker.reportFind({ ...this.talkCtx(ctx), seenText: seen.join('\n'), hereText: ref(here) });
+    const say = r.say ? r.say.replace(/\s+/g, ' ').trim().slice(0, this.boardCfg.textMax) : '';
+    this.recorder.write({ event: 'board', kind: 'report_find', loop: this.memory.tick, say: say || null, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
+    if (!say) return { ok: false, msg: '知らせることが出てこなかった' };
+    this.sendBoard(boardLine.find(say));
+    this.memory.noteHeard('自分', say, 0.1, { global: true });
+    this.social.onSpoke(this.memory.tick);
+    this.log(`[${this.cfg.persona.name}] 発見「${say}」`);
+    return { ok: true, msg: `全員に発見「${say}」を知らせた`, said: say };
   }
 
   async doPropose(ctx) {
@@ -650,6 +682,11 @@ class Agent {
         // returningPos で止まらないように (LOSWhenPlacingBlocks = false)・竹は乗らずに壊す・押し戻しと path_reset を数える
         unstuck.setupPathfinder(bot, mv, this.unstuckCfg);
         try { await Promise.race([bot.waitForChunksToLoad(), sleep(10000)]); } catch (_) { /* ignore */ }
+        // 全員に共通の場所の呼び方の基準 (places.js): 設定 world.origin {x,y,z} か、出現地点 (world spawn)
+        if (!this.memory.origin) {
+          const o = (this.cfg.world && this.cfg.world.origin) || bot.spawnPoint || bot.entity.position;
+          this.memory.origin = { x: Math.round(o.x), y: Math.round(o.y), z: Math.round(o.z) };
+        }
         if (!again) this.setupBase();
         this.watchOthers();
         resolve();
@@ -948,7 +985,14 @@ class Agent {
     // 近くの畑 (空いている耕地・植わっている作物)。use_on の対象・planner の world.farm に使う
     let farm = null;
     try { farm = bot && typeof bot.blockAt === 'function' ? farmStatus((x, y, z) => bot.blockAt(new Vec3(x, y, z)), raw.self.pos) : null; } catch (_) { farm = null; }
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
+    let allCells = null; let others = null;
+    if (this.sharedExplore) {
+      this.sharedExplore.publish(tick, this.memory.cells, raw.self.pos);
+      this.sharedExplore.load(tick);
+      allCells = this.sharedExplore.merge(this.memory.cells);
+      others = this.sharedExplore.positions();
+    }
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
       boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
@@ -1012,7 +1056,7 @@ class Agent {
         pressing: (o) => this.social.needsModel.pressing(o),
         later: (o) => this.social.needsModel.later(o), // 先のつらさ (anticipate.js)
         board: bview ? bview.goal : null,
-        _farm: farm || undefined,
+        _farm: farm || undefined, origin: this.memory.origin || null,
       }, tick, { troubles });
       this.lastGave = [];
       ctx.progress = this.goalPath.planText();
@@ -1054,7 +1098,7 @@ class Agent {
       ...cfg.act, visionRadius: cfg.perception.visionRadius, memory: this.memory, chat: (t, o) => this.chat(t, o),
       base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
       setBase: () => this.setBase(),
-      broadcast: () => this.doBroadcast(ctx), propose: () => this.doPropose(ctx), shareChest: (ch) => this.doShareChest(ch),
+      broadcast: () => this.doBroadcast(ctx), reportFind: () => this.doReportFind(ctx), propose: () => this.doPropose(ctx), shareChest: (ch) => this.doShareChest(ch),
     });
     this.afterBoardAction(resolved, result);
     const actMs = Date.now() - tAct;

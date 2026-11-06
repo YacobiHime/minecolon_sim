@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { relDir, dist3 } = require('./util');
 const en = require('./en');
+const places = require('./places');
 
 const DEFAULT_LIMITS = {
   places: 40, // 覚えておく場所の数 (古いものから忘れる)
@@ -55,7 +56,13 @@ class Memory {
     this.extra = {}; // ほかの部品の状態 (社会性など) を一緒に保存する
     this.tick = 0; // ループの番号 (時刻の代わり)
     this.forgotten = 0; // 忘れた件数 (記録用)
+    // 出現地点 (全員に共通の場所の呼び方の基準。places.js)。agent が出現したときに入れる。heardPlaces: 聞いた話から場所を覚えるか
+    this.origin = opts.origin || null;
+    this.heardPlaces = opts.heardPlaces !== false;
   }
+
+  // 共通の呼び方 (出現地点から北東に120m)。origin が無ければ null
+  commonRef(pos, opts = {}) { return places.commonRef(pos, this.origin, opts); }
 
   static load(file, opts = {}) {
     const m = new Memory({ ...opts, file });
@@ -97,6 +104,8 @@ class Memory {
     }
     p.lastSeen = this.tick;
     p.n += 1;
+    // from: 人から聞いた場所 (自分では見ていない)。自分で見たら消す
+    if (opts.from) { if (p.n === 1) p.from = opts.from; } else delete p.from;
     if (opts.keep) p.keep = true;
     if (opts.imp != null) p.imp = opts.imp;
     this.enforceLimits();
@@ -129,8 +138,22 @@ class Memory {
     if (opts.global) h.global = true;
     if (opts.at) h.at = opts.at;
     this.heard.push(h);
+    // 話に出た場所 (共通の呼び方・座標) を、話した人から聞いた場所として覚える (go_to の候補になる)
+    const got = from !== '自分' ? this.learnPlaces(from, text) : [];
+    if (got.length) h.places = got;
     this.enforceLimits();
     return h;
+  }
+
+  // 文の中の場所を from から聞いた場所として覚える。返り値 [{ kind, x, y, z, how }]
+  learnPlaces(from, text) {
+    if (!this.heardPlaces || !/\d/.test(String(text))) return [];
+    const out = [];
+    for (const pl of places.parsePlaces(text, this.origin)) {
+      const q = this.notePlace(pl.kind || '聞いた場所', pl.pos, { from, imp: 0.6 });
+      out.push({ kind: q.kind, x: q.x, y: q.y, z: q.z, how: pl.how });
+    }
+    return out;
   }
 
   // 人から教わったこと。誰から・いつ (ループ番号と、ゲーム内の時刻の言葉) を付けて残す
@@ -225,7 +248,11 @@ class Memory {
       .map((p) => ({ ...p, d: dist3(p, here) }))
       .sort((a, b) => (!!b.keep - !!a.keep) || (a.d - b.d)) // 忘れない場所 (拠点) は必ず入れる
       .slice(0, this.limits.promptPlaces)
-      .map((p, i) => ({ id: `M${i + 1}`, kind: p.kind, pos: { x: p.x, y: p.y, z: p.z }, d: Math.round(p.d), label: `${p.kind} ${relDir(here, p)}` }));
+      .map((p, i) => {
+        const ref = this.origin ? this.commonRef(p) : null;
+        return { id: `M${i + 1}`, kind: p.kind, pos: { x: p.x, y: p.y, z: p.z }, d: Math.round(p.d), from: p.from || null,
+          label: `${p.kind}${p.from ? `(${p.from}が言っていた所)` : ''} ${relDir(here, p)}${ref ? `・${ref}` : ''}` };
+      });
   }
 
   // 記憶の選び方 (promptItems > 0): 場所は近い順に promptPlaces まで、残りの枠を
@@ -252,7 +279,7 @@ class Memory {
     const { maxPlaces = 4, maxEvents = 5, maxHeard = 3, maxTaught = 2 } = opts;
     const places = (opts.places || this.placesForPrompt(here)).slice(0, maxPlaces);
     const out = {};
-    out.places = places.length ? places.map((p) => `${p.id}=${en.placeKindEn(p.kind)} (${en.whereEn(here, p.pos)})`).join('; ') : 'none';
+    out.places = places.length ? places.map((p) => `${p.id}=${en.placeKindEn(p.kind)} (${en.whereEn(here, p.pos)}${p.from ? `; ${p.from} said so` : ''})`).join('; ') : 'none';
     const evs = this.events.slice(-maxEvents);
     out.recent = evs.length ? evs.map((e) => e.en || en.resultEn({ action: e.action, arg: e.arg, ok: e.ok, msg: e.msg })) : 'nothing yet';
     const hd = this.heard.filter((h) => h.from !== '自分').slice(-maxHeard);

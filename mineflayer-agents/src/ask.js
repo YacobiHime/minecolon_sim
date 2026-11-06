@@ -1,4 +1,5 @@
 'use strict';
+const places = require('./places');
 // 周りに聞く仕組み (方針メモ 14章)。bot に依存しない部分。
 //   困ったことに気づく: 同じ行動・引数が直近 failWindow 回で failRepeat 回失敗 (段階1の④の検出を流用)
 //   → 行動の一覧に「ask (近くの人に聞く)」を足す
@@ -93,7 +94,7 @@ function relevantMemories(memory, question, { hints = [], max = 5 } = {}) {
     if (names.some((n) => k.about.includes(n) || k.text.includes(n)) || acts.some((a) => k.about.includes(a))) items.push({ kind: 'knowledge', text: `${k.from}に聞いた: ${k.text}` });
   }
   for (const p of memory.places) {
-    if (names.some((n) => p.kind.includes(n) || n.includes(p.kind))) items.push({ kind: 'place', text: `${p.kind}を(${p.x},${p.y},${p.z})あたりで見た` });
+    if (names.some((n) => p.kind.includes(n) || n.includes(p.kind))) items.push({ kind: 'place', text: `${p.kind}を${memory.origin ? `${places.commonRef(p, memory.origin)} ` : ''}(${p.x},${p.y},${p.z})あたりで${p.from ? `見たと${p.from}が言っていた` : '見た'}` });
   }
   for (const h of hints) {
     if (names.some((n) => h.includes(n)) || (acts.includes('build') && /小屋|build/.test(h)) || (acts.includes('hunt') && /hunt|肉/.test(h))) items.push({ kind: 'hint', text: h });

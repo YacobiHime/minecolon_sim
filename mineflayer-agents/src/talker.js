@@ -5,6 +5,9 @@ const { LLMDecider } = require('./deciders/llm');
 
 const SAY_SCHEMA = { type: 'object', properties: { say: { type: 'string', maxLength: 60 } }, required: ['say'], additionalProperties: false };
 
+// 場所の言い方の事実 (どう言うとよいかは書かない)
+const PLACE_FACT = '場所の言い方: 出現地点 (全員が最初に出た所) からの方角と距離 (「出現地点から北東に120m」の形) は、誰が聞いても同じ所を指す。M1 などの番号は自分の記憶の中だけの番号。';
+
 function personaLines(persona) {
   return [
     `あなたは Minecraft の世界にいる「${persona.name}」。${persona.personality || ''}`,
@@ -23,6 +26,7 @@ class Talker {
   talkMessages(ctx) {
     return [
       { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
+        PLACE_FACT,
         '近くの人に話しかける。短い日本語(30字以内)で、自分の気持ちと関係に合った言い方にする。JSON {"say":"..."} だけを出力する。'].join('\n') },
       { role: 'user', content: [
         `## 体と心・人間関係\n${ctx.socialText || 'なし'}`,
@@ -40,9 +44,22 @@ class Talker {
   answerMessages(ctx) {
     return [
       { role: 'system', content: [...personaLines(ctx.persona),
+        PLACE_FACT,
         '人に聞かれたことに答える。下の「覚えていること」に書いてあることだけを使い、短い日本語(40字以内)で答える。',
         '書いていないことは言わない。答えが分からなければ「分からない」と言う。JSON {"say":"..."} だけを出力する。'].join('\n') },
       { role: 'user', content: `## ${ctx.from}さんの質問\n${ctx.question}\n## 覚えていること\n${ctx.memories.map((m) => `- ${m.text}`).join('\n')}\n答えを JSON で。` },
+    ];
+  }
+
+  // 見つけた物と場所を全員に (report_find。【発見】の行)。ctx.seenText: 見えている目印・生き物と、自分からの方角・共通の呼び方
+  reportFindMessages(ctx) {
+    return [
+      { role: 'system', content: [...personaLines(ctx.persona), PLACE_FACT,
+        '見つけた物と場所を、全員に届く声で知らせる (近くにいない人にも届く)。短い日本語(50字以内)。JSON {"say":"..."} だけを出力する。'].join('\n') },
+      { role: 'user', content: [...this.contextLines(ctx),
+        ctx.hereText ? `## 今いる所\n${ctx.hereText}` : '',
+        `## 今見えている物\n${ctx.seenText || 'なし'}`,
+        '知らせることを JSON で。'].filter(Boolean).join('\n') },
     ];
   }
 
@@ -50,6 +67,7 @@ class Talker {
   broadcastMessages(ctx) {
     return [
       { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
+        PLACE_FACT,
         '全員に届く声で話す (近くにいない人にも届く)。短い日本語(40字以内)で、自分の気持ちと関係に合った言い方にする。JSON {"say":"..."} だけを出力する。'].join('\n') },
       { role: 'user', content: [...this.contextLines(ctx), '全員に言うことを JSON で。'].filter(Boolean).join('\n') },
     ];
@@ -60,6 +78,7 @@ class Talker {
     const chestLine = [...(ctx.chests || []).map((c) => `${c.id}${c.text ? ` (${c.text})` : ''}`), ...(ctx.hereChest ? ['here (近くのチェスト。まだ共有ではない。提案すると共有になる)'] : [])];
     return [
       { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
+        PLACE_FACT,
         '全員に向けて提案を1つ書く。提案は全員に届き、聞いた人はそれぞれ賛成するかを決める。賛成が集まると、kind: rule は全員の「取り決め」に、kind: project は全員の「共同の目標」になる。',
         'rule が物を共有のチェストに入れる取り決めなら item にその物、chest にそのチェストを書く。project が物を何個そろえる目標なら item と count を書く。当てはまらない欄は空の文字列にする。どちらでもなければ kind: other。',
         'say に提案の文を短い日本語(40字以内)で書く。JSON {"kind":"...","item":"...","chest":"...","count":1,"say":"..."} だけを出力する。'].join('\n') },
@@ -97,6 +116,7 @@ class Talker {
 
   talk(ctx) { return this.run('talk', this.talkMessages(ctx)); }
   broadcast(ctx) { return this.run('broadcast', this.broadcastMessages(ctx)); }
+  reportFind(ctx) { return this.run('report_find', this.reportFindMessages(ctx)); }
   async propose(ctx) {
     const rec = await this.run('propose', this.proposeMessages(ctx), proposeSchema(ctx));
     rec.proposal = rec.rawOutput ? parseProposal(rec.rawOutput, ctx) : null;
@@ -133,4 +153,4 @@ function parseProposal(text, ctx = {}) {
   return { spec: { type: 'text' }, text: say, kindAsked: o.kind || null };
 }
 
-module.exports = { Talker, SAY_SCHEMA, proposeSchema, parseProposal };
+module.exports = { PLACE_FACT, Talker, SAY_SCHEMA, proposeSchema, parseProposal };

@@ -243,7 +243,7 @@ test('agent: 印のある行は近くの声に入れず全員の板に積む。�
   taro.afterBoardAction({ action: 'chest_take', arg: 'white_wool' }, { ok: true, chest: { pos: { x: 3, y: 64, z: 0 }, items: [], item: 'white_wool', n: -3 } });
   assert.strictEqual(hanako.board.breaches.length, 1);
   await Promise.all([hanako, taro, ken].map((a) => a.recorder.close()));
-  const all = fs.readdirSync(dir).flatMap((f) => rows(path.join(dir, f)));
+  const all = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')).flatMap((f) => rows(path.join(dir, f)));
   const kinds = all.filter((r) => r.event === 'board').map((r) => r.kind);
   for (const k of ['broadcast', 'propose', 'share_chest', 'seen', 'vote', 'agreed', 'comply', 'breach_known']) assert.ok(kinds.includes(k), k);
   const comply = all.filter((r) => r.kind === 'comply');
