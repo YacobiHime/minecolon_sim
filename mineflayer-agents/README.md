@@ -314,6 +314,13 @@ summarize_run の「build で置いた物」(原木・板材・そのほかの�
 - **ほかの人が拾った・壊したこと** (`others`、`src/others.js`): collect・pick_up・attack・hunt の間に近く (visionRadius) でほかの人が拾った物
   (サーバーの collect) と壊したブロック (掘っている途中の様子が見えていたマスが空気になった / すぐ壊れるブロックはすぐ近くに1人だけ居たとき。葉は除く)
   を、結果の文にそのまま足す (例: 「jungle_logを3個掘って0個拾った。Kenがjungle_logを2個拾った」)。記憶にも入る。`result.others` にも残す。
+- **使う側の声** (`toolWant`、`src/toolwant.js`・`src/toolfacts.js`。2026-11-07): 道具のやりにくさを物ごと (stone_axe など) の不満にする
+  (掘るのに時間がかかった・石を素手で取れない・道具が壊れた・耐久が少ない)。声にするかは 不満 × 言い出しやすさ (性格の表 `toolWant.voice.traits`・
+  仲の良い人が近く・同じ物を何度も頼んだ) の反応しきい値で、独り言 (文の頭に「(ひとりごと)」、`mutterRadius` m まで)・近くの人に頼む・全体に頼む。
+  文は文を作る LLM (`voice_*`)。聞いた人では物単位の刺激 (`division.items`) になり、その物を作る・渡す (渡す相手の分)・共有のチェストに入れるゴールの T に効く。
+  共有のチェストの道具の数・使う人・壊れた回数からの足りなさも同じ刺激に。先の道具切れは `needs.anticipate.tool` (耐久の残り・使う速さ・予備)。
+  道具が壊れたは entity_status 47 (自分・見えた人) と collect の持ち物の減り。記録は event `tool_voice`・`tool_want`・`tool_break`・`tool_back` と
+  毎判断の `toolWant`・`division.sItem/stock`。集計は summarize_run の `toolVoice` (`tools/toolvoice_stats.js`)。確かめ: `node tools/toolvoice_demo.js [--mock]`。
 - **1段で選ぶ**: survival は `decider.jev.twoStage.enabled: false`。代わりに use_on (`act.maxUseChoices` 12) と give (`act.maxGiveChoices` 8) を、
   近い対象 (人)・数の多い持ち物の組 (順位の和の小さい順) から上限まで並べる (意味のある組み合わせかは判断しない)。
 - **拠点**: `world.base: "self"`。最初は無く、`set_base` で自分で決める。大事さ 1 の記憶で、近くに居るあいだは新しくし続ける。
