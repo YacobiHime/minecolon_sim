@@ -96,7 +96,7 @@ test('使用量が返らないときは文字数から推定し、推定した�
   assert.strictEqual(meter.summary().jev.estimatedCalls, 1);
 });
 
-test('一覧にない選択・HTTP エラーは parseOk=false (agent が look_around に落とす)', async () => {
+test('一覧にない選択・HTTP エラーは parseOk=false (agent が代わりの行動 actions.fallbackDecision に落とす)', async () => {
   const bad = new JevDecider({ client: new JevClient({ apiKey: 'k', fetch: jevFetch(() => ({ next_action: { type: 'choice', choice: 'fly:moon' } })) }) });
   const r1 = await bad.decide(ctx());
   assert.strictEqual(r1.parseOk, false);

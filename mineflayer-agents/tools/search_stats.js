@@ -17,11 +17,15 @@ function pct(arr, p) {
 
 // 行動の分類 (前の記録と同じ物差し)
 const MAKE = new Set(['collect', 'craft', 'use_on', 'use_item', 'place', 'smelt', 'pillar', 'pick_up', 'build', 'furnace_take', 'chest_put', 'chest_take', 'enclose', 'lure', 'attack', 'hunt', 'eat', 'equip']);
+// fallback: 選び方が無効で代わりにした行動 (valid=false)。選んだ search・explore に混ぜない
+// wait: 待つ (look_around の無い設定ではここに来る)。look_around は前の記録用に残す
 function category(r, names) {
   const a = r.action; const arg = String(r.arg || '');
+  if (r.valid === false) return 'fallback';
   if (a === 'go_to') return names.has(arg) ? 'go_to_person' : /^M\d+$/.test(arg) ? 'go_to_place' : 'go_to_thing';
   if (a === 'follow') return 'follow';
   if (a === 'explore' || a === 'search' || a === 'look_around') return a;
+  if (a === 'wait') return 'wait';
   if (MAKE.has(a)) return 'make_use';
   if (['say', 'ask', 'call', 'broadcast', 'propose', 'report_find', 'give', 'share_chest'].includes(a)) return 'talk_social';
   return 'other';
@@ -44,6 +48,9 @@ function movementStats(all, { names = null, cell = 16 } = {}) {
   const cat = {};
   for (const r of loops) { const k = category(r, nm); cat[k] = (cat[k] || 0) + 1; }
   const share = Object.fromEntries(Object.entries(cat).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, { n: v, pct: n ? r1((100 * v) / n) : 0 }]));
+  // 選べなかったときに代わりにした行動の内訳 (search・explore・wait・look_around)
+  const fallbackBy = {};
+  for (const r of loops) if (r.valid === false) fallbackBy[r.action] = (fallbackBy[r.action] || 0) + 1;
   const personPct = n ? r1((100 * ((cat.go_to_person || 0) + (cat.follow || 0))) / n) : 0;
   // search
   const se = loops.filter((r) => r.action === 'search');
@@ -79,7 +86,7 @@ function movementStats(all, { names = null, cell = 16 } = {}) {
   const rw = loops.map((r) => r.jev && r.jev.reweight).filter((x) => x && x.choiceWeights);
   return {
     decisions: n,
-    share, goToPersonPlusFollowPct: personPct,
+    share, goToPersonPlusFollowPct: personPct, fallbackBy,
     search: {
       offered, n: se.length, ok: se.filter((r) => r.result.ok).length,
       moved: { sum: moved.reduce((a, b) => a + b, 0), p50: pct(moved, 50), max: moved.length ? Math.max(...moved) : null },
@@ -100,7 +107,7 @@ function lines(m) {
   const s = m.search;
   const sh = Object.entries(m.share).map(([k, v]) => `${k} ${v.pct}%`).join('・');
   return [
-    `行動の割合 (${m.decisions} 判断): ${sh} (go_to(人)+follow ${m.goToPersonPlusFollowPct}%)`,
+    `行動の割合 (${m.decisions} 判断): ${sh} (go_to(人)+follow ${m.goToPersonPlusFollowPct}%)${m.fallbackBy && Object.keys(m.fallbackBy).length ? `、選べなかったときの代わり ${Object.entries(m.fallbackBy).map(([k, v]) => `${k} ${v}`).join('・')}` : ''}`,
     `search ${s.n} 回 (出した判断 ${s.offered}、成功 ${s.ok}、続き ${s.continued})、歩いた 合計 ${s.moved.sum}m (p50 ${s.moved.p50}・最大 ${s.moved.max})、新しいマス ${s.newCell}、割り込み ${s.interrupted} (${Object.entries(s.byKind).map(([k, v]) => `${k} ${v}`).join('・') || 'なし'})、見つけた ${JSON.stringify(s.found)} (場所として覚えた ${s.placesNoted})`,
     `  割り込みの次の判断: ${Object.entries(s.after).map(([k, v]) => `${k} ${v}`).join('・') || 'なし'} ${JSON.stringify(s.afterByKind)}`,
     `近くに人 (16m) がいなかった判断 ${m.alonePct}%、踏破したマス ${m.cells.total} 個 (${m.cells.cell} 四方)、人ごと: ${Object.entries(m.perAgent).map(([k, v]) => `${k} ${v.cells}マス・1人${v.alonePct}%・人へ${v.personPct}%`).join(' / ')}`,

@@ -269,7 +269,8 @@ function listActions(raw, ctx = {}) {
   for (let i = out.length - 1; i >= 0; i--) if (out[i].argType === 'choice' && !out[i].choices.length) out.splice(i, 1);
 
   out.push({ name: 'say', desc: '近くの人に話しかける (arg に話す内容)', descEn: 'talk to people nearby', argType: 'text' });
-  out.push({ name: 'look_around', desc: '立ち止まって周りを見回す', descEn: 'stop and look around', argType: 'none' });
+  // look_around: 立ち止まって見回すだけ (見える物は毎判断の observe で決まり、向きでは変わらない)。survival_3days は act.disabled で外す
+  if (!disabled.has('look_around')) out.push({ name: 'look_around', desc: '立ち止まって周りを見回す', descEn: 'stop and look around', argType: 'none' });
   out.push({ name: 'wait', desc: '少し待つ (arg に秒数 1〜10)', descEn: 'wait a moment', argType: 'number' });
   return out;
 }
@@ -322,4 +323,19 @@ function resolveDecision(actions, action, arg) {
   return { ok: true, action: a.name, arg: c.id, choice: c, fixed };
 }
 
-module.exports = { listActions, actionsToText, resolveDecision, pillarMaterial, smeltInput, fuelFor, DIRECTIONS, HUNTABLE, MAX_PILLAR, SMELTABLE, GEAR };
+// 選び方が無効 (Jev が一覧にない物を選んだ・refusal・HTTP エラー) のときの代わりの行動。
+// look_around が一覧にあればそれ (first_setting などの古い設定は今のまま)、無ければ search → explore の先頭の候補、どちらも無ければ wait 3 秒
+function fallbackDecision(actions) {
+  const has = (n) => actions.find((a) => a.name === n);
+  if (has('look_around')) return { ok: true, action: 'look_around', arg: '' };
+  for (const n of ['search', 'explore']) {
+    const a = has(n);
+    if (a && a.choices && a.choices.length) {
+      const r = resolveDecision(actions, n, a.choices[0].id);
+      if (r.ok) return r;
+    }
+  }
+  return { ok: true, action: 'wait', arg: '3' };
+}
+
+module.exports = { listActions, actionsToText, resolveDecision, fallbackDecision, pillarMaterial, smeltInput, fuelFor, DIRECTIONS, HUNTABLE, MAX_PILLAR, SMELTABLE, GEAR };

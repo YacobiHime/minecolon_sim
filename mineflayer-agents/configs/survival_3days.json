@@ -799,9 +799,11 @@
       "propose",
       "share_chest"
     ],
+    "_comment_disabled": "look_around (立ち止まって見回す) は外す (2026-11-07 ユーザー決定: 役に立たず、重みで減らした人への移動の分が流れていた)。選べなかったときの代わりは search → explore → wait (actions.fallbackDecision)",
     "disabled": [
       "hunt",
-      "build"
+      "build",
+      "look_around"
     ],
     "fleeRadius": 12,
     "fleeDistance": 16,

@@ -9,7 +9,7 @@ const { Vec3 } = require('vec3');
 const { collectRaw, summarizeObservation, notableMatcher, observationEn } = require('./observe');
 const en = require('./en');
 const { Order, agentSeed } = require('./order');
-const { listActions, resolveDecision } = require('./actions');
+const { listActions, resolveDecision, fallbackDecision } = require('./actions');
 const { executeAction } = require('./act');
 const { Memory } = require('./memory');
 const { Recorder } = require('./recorder');
@@ -99,7 +99,7 @@ const FARM_PLACE = /^(farmland|wheat|carrots|potatoes|beetroots)$/;
 // 覚えている場所の一覧 (M 番号) に必ず1つ入れる種類 (耕す行き先 farmland_spot@M・道筋の水の段に使う)
 const PLACE_ENSURE = ['water'];
 // 作物が育つのを待つ間に、困りごと・変わらなかったに数えない行動
-const GROW_WAIT_ACTS = /^(wait|look_around):/;
+const GROW_WAIT_ACTS = /^(wait|look_around):/; // look_around の無い設定 (survival_3days) では wait だけが当たる
 function farmTargets(raw, memPlaces, farm, cfg) {
   const out = [];
   if (farm) {
@@ -1348,7 +1348,8 @@ class Agent {
     }
     let resolved = dec.parseOk ? resolveDecision(ctx.actions, dec.action, dec.arg) : { ok: false, error: dec.error || 'parse failed' };
     const valid = resolved.ok;
-    if (!valid) resolved = { ok: true, action: 'look_around', arg: '', fallback: true, error: resolved.error };
+    // 選べなかった・refusal: look_around が一覧にあればそれ、無ければ search → explore、どちらも無ければ wait (actions.fallbackDecision)
+    if (!valid) resolved = { ...fallbackDecision(ctx.actions), fallback: true, error: resolved.error };
 
     // Jev の Score を記憶の大事さと好感に (直前の出来事 = 前のループの結果と、今聞こえた話)
     if (dec.jev) {
