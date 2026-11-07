@@ -204,3 +204,33 @@ test('GoalPath: 頼みごとを聞いた人では stone_axe を作るゴール�
   assert.strictEqual(sc(b, 'oak_log'), sc(a, 'oak_log'));
   assert.ok(b.select.division.item.some((x) => x && x.item === 'stone_axe'));
 });
+
+test('summarize: 道具の不満と声の集計 (形ごと・人ごと・性格・頼みごとから作った/もらったまで・壊れた・止まった時間・共有のチェストの道具)', () => {
+  const { toolVoiceStats, textLines } = require('../tools/toolvoice_stats');
+  const T = (s) => new Date(Date.UTC(2026, 10, 7, 0, 0, s)).toISOString();
+  const all = [];
+  const add = (name, r) => all.push({ ...r, _name: name });
+  const names = { Ken: { sociability: 0.9 }, Mio: { sociability: 0.2 }, Sota: { sociability: 0.1 }, Mai: { sociability: 0.6 } };
+  for (const [n, t] of Object.entries(names)) add(n, { event: 'start', persona: { name: n, temperament: t }, ts: T(0) });
+  for (let i = 1; i <= 10; i++) for (const n of Object.keys(names)) add(n, { loop: i, action: 'wait', result: { ok: true }, ts: T(i * 10), toolWant: { d: n === 'Ken' ? 0.5 : 0.3, top: 'stone_axe' }, division: { stock: { axe: { stock: i > 5 ? 2 : 0, users: 3 } } }, social: { needs: { ant: { tool: 0.6 } } } });
+  add('Ken', { event: 'tool_voice', form: 'near', item: 'stone_axe', d: 0.5, say: 'stone_axe ある？', ts: T(20) });
+  add('Mio', { event: 'tool_voice', form: 'mutter', item: 'stone_axe', d: 0.3, say: '(石の斧ほしい)', ts: T(25) });
+  add('Sota', { event: 'tool_voice', form: 'mutter', item: 'stone_axe', d: 0.3, say: 'はぁ', ts: T(26) });
+  add('Mai', { event: 'tool_voice', form: 'all', item: 'stone_axe', d: 0.3, say: '誰か斧を', ts: T(27) });
+  add('Mai', { loop: 4, action: 'craft', arg: 'stone_axe', result: { ok: true }, ts: T(40) });
+  add('Mai', { loop: 5, action: 'give', arg: 'g1', result: { ok: true, gave: { to: 'Ken', item: 'stone_axe', n: 1 } }, ts: T(45) });
+  add('Ken', { event: 'received', from: 'Mai', item: 'stone_axe', count: 1, ts: T(46) });
+  add('Ken', { event: 'tool_want', kind: 'satisfied', item: 'stone_axe', ts: T(50) });
+  add('Ken', { event: 'tool_break', who: 'Ken', tool: 'wooden_axe', how: 'self', ts: T(30) });
+  add('Ken', { event: 'tool_back', type: 'axe', ticks: 2, ms: 16000, ts: T(46) });
+  const d = toolVoiceStats(all, { bins: 2 });
+  assert.deepStrictEqual(d.voices.byForm, { mutter: 2, near: 1, all: 1 });
+  assert.strictEqual(d.requests.n, 2);
+  assert.strictEqual(d.requests.received.p50, 26);
+  assert.strictEqual(d.requests.craftedByOther.n, 1); // Ken の頼みに Mai が作った (Mai 自身の頼みは数えない)
+  assert.strictEqual(d.requests.givenByOther.p50, 25);
+  assert.ok(d.voices.corr.sociability.requestShare > 0.5);
+  assert.strictEqual(d.breaks.self, 1); assert.strictEqual(d.breaks.down.sec.p50, 16);
+  assert.strictEqual(d.stock[1].axe.stock, 2);
+  assert.ok(textLines(d).length >= 6);
+});

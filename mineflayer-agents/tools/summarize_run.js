@@ -10,6 +10,7 @@ const { JEV_USD_PER_MTOK } = require('../src/usage');
 const scale = require('./scale_stats');
 const { parsePlaces } = require('../src/places');
 const divisionTool = require('./division_stats');
+const toolVoiceTool = require('./toolvoice_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -953,6 +954,8 @@ function main() {
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     // 分業の指標 (tools/division_stats.js。division の記録が無い前の記録にも分類表で当てる)
     division: divisionTool.divisionStats(all),
+    // 道具の不満と声 (tools/toolvoice_stats.js): 不満の推移・独り言/頼みごとの数と性格・頼みごとから作った/渡したまで・壊れた回数と止まった時間・共有のチェストの道具の数
+    toolVoice: toolVoiceTool.toolVoiceStats(all),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
     perAgent: agents,
     conversation: conversation(all, nEx),
@@ -1096,6 +1099,7 @@ function main() {
     for (const l of su.list) console.log(`  ${l}`);
     console.log(`go_to(人) ${out.goToPerson.n} 回 (着いた ${out.goToPerson.ok}) ${JSON.stringify(out.goToPerson.byPair)}`);
     for (const l of divisionTool.textLines(out.division)) console.log(l);
+    if (out.toolVoice) for (const l of toolVoiceTool.textLines(out.toolVoice)) console.log(l);
     const jc = out.jevChoice;
     if (jc && jc.p.n) {
       console.log(`Jev の選択の確率 p: p10 ${jc.p.p10}・p50 ${jc.p.p50}・p90 ${jc.p.p90} ${JSON.stringify(jc.p.hist)}、1位÷2位: p50 ${jc.ratio.p50} ${JSON.stringify(jc.ratio.hist)}`);
