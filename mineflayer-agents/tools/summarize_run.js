@@ -864,6 +864,52 @@ function mRefStats(all) {
   return { texts: ev.length, refs: sum(ev.map((r) => r.n || 0)), byVia: countBy(ev, (r) => r.via), examples: ev.slice(0, 3).map((r) => `${r._name || ''}: 「${r.original}」→「${r.replaced}」`) };
 }
 
+// 出現地点 (各自の最初の判断の位置) からの最大の水平距離 (人ごと・中央値・最大)。死んで出現地点に戻っても最大は残る
+function spawnDistanceStats(rowsByName) {
+  const per = {};
+  for (const [nm, rows] of Object.entries(rowsByName)) {
+    const st = rows.filter((r) => isStep(r) && r.pos);
+    if (!st.length) continue;
+    const o = st[0].pos;
+    per[nm] = Math.round(Math.max(...st.map((r) => Math.hypot(r.pos.x - o.x, r.pos.z - o.z))));
+  }
+  const v = Object.values(per).sort((a, b) => a - b);
+  const med = v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null;
+  return { median: med, max: v.length ? v[v.length - 1] : null, perAgent: per };
+}
+
+// 昼と夜 (timeOfDay 13000〜23000) の判断: 行動の割合・動くだけ (search・explore・go_to・follow・flee) の割合・物を作る/焼く/置くなどの成功・ゴールに着いた割合・死んだ数
+const NIGHT_MOVE = /^(search|explore|go_to|follow|flee)$/;
+const NIGHT_MAKE = /^(craft|smelt|place|use_on|chest_put|chest_take|furnace_take|enclose|sleep)$/;
+function nightStats(loops, all) {
+  const isN = (t) => t >= 13000 && t < 23000;
+  const part = (rs) => {
+    const n = rs.length || 1;
+    return { n: rs.length, move: Math.round((100 * rs.filter((r) => NIGHT_MOVE.test(r.action || '')).length) / n), makeOk: Math.round((100 * rs.filter((r) => NIGHT_MAKE.test(r.action || '') && r.result && r.result.ok).length) / n),
+      goalMet: Math.round((100 * rs.filter((r) => r.goalPath && r.goalPath.met).length) / n), top: Object.entries(countBy(rs, (r) => r.action)).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} ${Math.round((100 * v) / n)}%`).join('・') };
+  };
+  const st = loops.filter((r) => Number.isFinite(r.timeOfDay));
+  const deaths = all.filter((r) => r.event === 'death');
+  return { day: part(st.filter((r) => !isN(r.timeOfDay))), night: part(st.filter((r) => isN(r.timeOfDay))),
+    deaths: { day: deaths.filter((r) => !isN(r.timeOfDay ?? 0)).length, night: deaths.filter((r) => isN(r.timeOfDay ?? 0)).length } };
+}
+
+// 送った文に M 番号が残っていないか (talk・ask・answer・tool_voice・行動の say。記録の文は送った文)
+function mLeftStats(all) {
+  const re = /(?<![A-Za-z0-9_])M[0-9]{1,2}(?![0-9])/;
+  const texts = [];
+  for (const r of all) {
+    if (r.event === 'talk' && r.say) texts.push(['talk', r.say]);
+    else if (r.event === 'ask' && r.question) texts.push(['ask', r.question]);
+    else if (r.event === 'answer' && r.answer) texts.push(['answer', r.answer]);
+    else if (r.event === 'tool_voice' && r.say) texts.push(['tool_voice', r.say]);
+    else if (r.event === 'board' && r.say) texts.push([r.kind || 'board', r.say]);
+    else if (isStep(r) && r.say) texts.push(['say', r.say]);
+  }
+  const left = texts.filter(([, t]) => re.test(t));
+  return { texts: texts.length, left: left.length, byKind: countBy(left, ([k]) => k), examples: left.slice(0, 3).map(([k, t]) => `${k}: ${t}`) };
+}
+
 function main() {
   const args = process.argv.slice(2);
   const target = args.find((a) => !a.startsWith('--'));
@@ -952,6 +998,9 @@ function main() {
     farm: farmStats(all, loops),
     prospects: prospectStats(all),
     mRefs: mRefStats(all),
+    mLeft: mLeftStats(all),
+    spawnDistance: spawnDistanceStats(rowsByName),
+    night: nightStats(loops, all),
     pairDistance: pairDistanceStats(all),
     goToPerson: goToPersonStats(all, agents.map((a) => a.name)),
     // 分業の指標 (tools/division_stats.js。division の記録が無い前の記録にも分類表で当てる)
@@ -1053,6 +1102,11 @@ function main() {
       const ps = out.prospects;
       if (ps.added) console.log(`あとでやること: ${ps.added} 件 ${JSON.stringify(ps.byKind)} (まとめた ${ps.merged})・見込みの時刻になった ${ps.due}・育ちきったのを見た ${ps.ripeSeen}・済んだ ${JSON.stringify(ps.done)}・見込みの時刻のあとに取った ${ps.collectedAfterDue}${ps.overdueMin ? ` (見込みから p50 ${ps.overdueMin.p50}分・最大 ${ps.overdueMin.max}分)` : ''}・候補をゴールに選んだ ${ps.laterGoals}`);
       if (out.mRefs.texts) console.log(`発言の M 番号を共通の呼び方に置き換えた: ${out.mRefs.texts} 文・${out.mRefs.refs} 個 ${JSON.stringify(out.mRefs.byVia)}`);
+      console.log(`記録の発言の文に M 番号が残っている: ${out.mLeft.left}/${out.mLeft.texts} ${JSON.stringify(out.mLeft.byKind)}${out.mLeft.examples.length ? ` 例 ${out.mLeft.examples.join(' / ')}` : ''}`);
+      if (out.spawnDistance.median != null) console.log(`出現地点からの最大距離: 中央値 ${out.spawnDistance.median}m・最大 ${out.spawnDistance.max}m`);
+      const nt = out.night;
+      console.log(`昼と夜: 昼 ${nt.day.n} 判断 (動くだけ ${nt.day.move}%・作る/置くの成功 ${nt.day.makeOk}%・ゴール済み ${nt.day.goalMet}%・死 ${nt.deaths.day}) / 夜 ${nt.night.n} 判断 (動くだけ ${nt.night.move}%・作る/置くの成功 ${nt.night.makeOk}%・ゴール済み ${nt.night.goalMet}%・死 ${nt.deaths.night})`);
+      console.log(`  夜の行動: ${nt.night.top}`);
       console.log(`ほかの人が拾った・壊したことを結果に足した ${out.others.appended} 回`);
       console.log(`協力に関わる出来事: 聞いた ${out.cooperation.asked}・答えた ${out.cooperation.answered}・話した ${out.cooperation.talked}・同じ所 (${out.cooperation.near}m 以内) に居た ${out.cooperation.togetherBuckets} 回 (${out.cooperation.bucketSec}秒ごと、組 ${JSON.stringify(out.cooperation.togetherPairs)})`);
     }

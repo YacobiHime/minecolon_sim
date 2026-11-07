@@ -148,13 +148,13 @@ function chunkQuestions(groups, base, { maxQuestions = 60, maxBodyBytes = 30000 
 function effortFactor(cost, alpha) { return Number.isFinite(cost) && alpha > 0 ? 1 / (1 + alpha * Math.max(0, cost)) : 1; }
 //   division (分業。division.js): { T: [案ごとの反応の強さ], beta, gamma } があれば 点 = (Σ つらさ × P × (1 + beta × T) + gamma × T) ÷ (1 + alpha × 手間)
 //   experience (経験。experience.js): { factor: [案ごとの q ÷ m0] } があれば分子に掛ける (P_実 = P × q ÷ m0。gamma × T の項にも)
-//   value (珍しさ・大事さ。scarcity.js): { W: [[w_ij]], lambda, R: [案ごとの珍しさの係数] } があれば
-//     点 = (q ÷ m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × Σ_j w_ij × N_j) × R ÷ (1 + alpha × 手間')。N_j = Σ つらさ × P_j
+//   value (珍しさ・大事さ。scarcity.js): { W: [[w_ij]], lambda, R: [案ごとの珍しさの係数], S: [案ごとの探す要る度合い 1 − a] } があれば
+//     点 = (q ÷ m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × (1 − a_i) × Σ_j w_ij × N_j) × R ÷ (1 + alpha × 手間')。N_j = Σ つらさ × P_j
 function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null, division = null, experience = null, value = null) {
   const alpha = effort && Number.isFinite(effort.alpha) ? effort.alpha : 0;
   const N = P.map((row) => needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0));
   const lam = value && Number.isFinite(value.lambda) ? value.lambda : 0;
-  const Imp = (i) => (value && value.W && value.W[i] ? value.W[i].reduce((t, w, j) => t + (w || 0) * N[j], 0) : 0);
+  const Imp = (i) => (value && value.W && value.W[i] ? value.W[i].reduce((t, w, j) => t + (w || 0) * N[j], 0) * (value.S && Number.isFinite(value.S[i]) ? value.S[i] : 1) : 0);
   const Ri = (i) => (value && value.R && Number.isFinite(value.R[i]) ? value.R[i] : 1);
   const Ti = (i) => (division && division.T && Number.isFinite(division.T[i]) ? division.T[i] : 0);
   const beta = division && Number.isFinite(division.beta) ? division.beta : 0;
@@ -1168,8 +1168,11 @@ class GoalPath {
     const visible = new Set([...(raw.blocks || []).map((b) => b.name), ...(raw.entities || []).filter((e) => e.kind !== 'player' && e.kind !== 'item').map((e) => e.name)]);
     const rar = valid.map((v) => (v.pg.kind === 'item' && sg ? scarcity.itemRarity(v.pg.target, v.path, (n) => sg.availability(n, now), visible, vc) : { R: 1, source: null, a: null, kind: null, now: false }));
     const R = rar.map((r) => r.R);
+    // 大事さは、探す要る度合い (1 − a。a = 入手元のいつでも手に入る度合い、作る物はまだ取りに行く材料のうち a の小さいもの) を掛けて足す。
+    //   ありふれた材料 (原木・板) は大事なゴールの材料でも急がず、取りに行く物が無い (手元で作れる) 物は足さない
+    const S = rar.map((r) => (Number.isFinite(r.a) ? Math.round((1 - r.a) * 1000) / 1000 : 0));
     const usedBy = W ? W.map((row) => row.map((w, j) => (w ? `${props[j].target}${w < 1 ? `(${w})` : ''}` : null)).filter(Boolean)) : null;
-    return { W, lambda: vc.lambda, R, record: { lambda: vc.lambda, rho: vc.rho, rhoNow: vc.rhoNow, rarity: rar.map((r) => (r.source ? { source: r.source, a: r.a, kind: r.kind, now: r.now } : null)), usedBy } };
+    return { W, lambda: vc.lambda, R, S, record: { lambda: vc.lambda, rho: vc.rho, rhoNow: vc.rhoNow, rarity: rar.map((r) => (r.source ? { source: r.source, a: r.a, kind: r.kind, now: r.now } : null)), usedBy } };
   }
 
   pathRecord(p) {

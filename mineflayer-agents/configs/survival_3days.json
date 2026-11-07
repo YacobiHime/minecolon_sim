@@ -541,10 +541,10 @@
         "unseenPerson": 6,
         "_comment_scale": "手間の感じ方 (2026-11-07。planner の costScale): unseenT: まだ見ていない入手元を探す手間 × (1 − unseenT × T_探検) (division の exploring の T。好奇心・勇敢な人ほど小さく感じる)。nightTravel: 夜のあいだ、見えていない入手元・人・場所へ出かける手間 × (1 + nightTravel × 夜の危なさの見込み) (anticipate の night.risk。死んだ・傷を受けた・敵が近くに来た夜の経験で上がる)。拠点・手元でできること (作る・焼く・置く・チェスト) の手間は変わらない",
         "unseenT": 0.6,
-        "nightTravel": 2
+        "nightTravel": 4
       },
       "value": {
-        "_comment": "珍しさ・大事さ (src/scarcity.js。2026-11-07 ユーザー決定 2): 点 = (q/m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × Imp) × R ÷ (1 + alpha × 手間')。珍しさ R: 入手元ごとに自分が見かけた記録 (マスごとの一度に見えた数の最大の和 S・最後に見てからの時間) から a = (1 − exp(−S/k0)) × (recencyFloor + (1 − recencyFloor) × exp(−経った tick/tau))、R = 1 + rho × (1 − 2a) + rhoNow × (1 − a) × (今見えている)。掘る・倒すで直接取る物はその入手元の R、作る物は珍しい材料の R を 1 より大きいときだけ。大事さ Imp: 同じ選び直しのほかの案 j の道筋 (レシピ) に案 i の物が材料として出れば N_j = Σ つらさ × P_j を足す (入手元だけが同じなら sourceShare 倍)",
+        "_comment": "珍しさ・大事さ (src/scarcity.js。2026-11-07 ユーザー決定 2): 点 = (q/m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × (1 − a) × Imp) × R ÷ (1 + alpha × 手間')。珍しさ R: 入手元ごとに自分が見かけた記録 (マスごとの一度に見えた数の最大の和 S・最後に見てからの時間) から a = (1 − exp(−S/k0)) × (recencyFloor + (1 − recencyFloor) × exp(−経った tick/tau))、R = 1 + rho × (1 − 2a) + rhoNow × (1 − a) × (今見えている)。掘る・倒すで直接取る物はその入手元の R、作る物は珍しい材料の R を 1 より大きいときだけ。大事さ Imp: 同じ選び直しのほかの案 j の道筋 (レシピ) に案 i の物が材料として出れば N_j = Σ つらさ × P_j を足し、探す要る度合い 1 − a を掛ける (入手元だけが同じなら sourceShare 倍。ありふれた材料・手元で作れる物には効かない)",
         "enabled": true,
         "k0": 24,
         "tau": 12000,
