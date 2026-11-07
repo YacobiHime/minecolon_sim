@@ -425,6 +425,10 @@
   },
   "needs": {
     "_comment": "人としての欲求とストレス (src/needs.js)。ここは全員に効く。人ごとの差は personas[].needs で上書きする。書いていない係数は needs.js の NEEDS_DEFAULTS (全員同じ)。増え方の係数は実測から調整する",
+    "_comment_sleep": "眠気はベッドで寝たときだけ減る (2026-11-07 ユーザー決定: wait・look_around を外したので、床で休む扱い restActions は空)",
+    "sleep": {
+      "restActions": []
+    },
     "stress": {
       "k": 0.012,
       "T": 6000,
@@ -799,11 +803,12 @@
       "propose",
       "share_chest"
     ],
-    "_comment_disabled": "look_around (立ち止まって見回す) は外す (2026-11-07 ユーザー決定: 役に立たず、重みで減らした人への移動の分が流れていた)。選べなかったときの代わりは search → explore → wait (actions.fallbackDecision)",
+    "_comment_disabled": "look_around (立ち止まって見回す) は外す (2026-11-07 ユーザー決定: 役に立たず、重みで減らした人への移動の分が流れていた)。wait (待つ) も外す (2026-11-07 ユーザー決定: 作物が育つのを待つ間も別のことをする。探索が無くなることは無い)。選べなかったときの代わりは search → explore → (どちらも無ければ) explore の方角を1つ作る (actions.fallbackDecision)",
     "disabled": [
       "hunt",
       "build",
-      "look_around"
+      "look_around",
+      "wait"
     ],
     "fleeRadius": 12,
     "fleeDistance": 16,

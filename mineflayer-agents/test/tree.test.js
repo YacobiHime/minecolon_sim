@@ -77,8 +77,8 @@ test('planner: 植わっている苗木があれば「育つのを待つ → 切
   assert.deepStrictEqual([pl.cost('oak_log').how, pl.cost('oak_log').where], ['tree', 'growing']);
   assert.notStrictEqual(pl.cost('oak_sapling').from, 'oak_sapling');
   const p = plan('oak_log', 4, w);
-  assert.strictEqual(pathText(p), '道筋: oak_log 4 ← 植わっている oak_sapling 1 (M3) → 育つのを待つ → 切る / 次: 育つのを待つ (植わっている oak_sapling 1、M3)');
-  assert.strictEqual(pathEn(p).next, 'wait for it to grow (1 oak_sapling planted, M3)');
+  assert.strictEqual(pathText(p), '道筋: oak_log 4 ← 植わっている oak_sapling 1 (M3) → 育っている頃に戻る → 切る / 次: 育っている頃に戻る (植わっている oak_sapling 1、M3)');
+  assert.strictEqual(pathEn(p).next, 'come back once it has grown (1 oak_sapling planted, M3)');
   assert.strictEqual(waitOnly(p), true);
   // 植わっている分で足りなければ、残りを植える (待つだけではない)
   const q = plan('oak_log', 8, { ...w, inventory: SAP1 });

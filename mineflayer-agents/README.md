@@ -145,7 +145,7 @@ Jev は **OpenRouter 経由** (既定、2026-11-06 ユーザー決定) か **Typ
 - OpenRouter の応答は TypeSafe 直の形に `id`・`provider` ("TypeSafe")・`usage.cost` (US ドル) が足される。記録の `jev` に `via` (提供元)・`id`・`provider`・`model`・
   `costUsd`・`bodyBytes` を残し、run.json の `usage.jev.costUsd` は `usage.cost` の合計 (返らない呼び出しは入力トークン × $0.042/100万)。
 - 答えの `type: "refusal"` (値も確率も無い) は答えが無いとして扱い、記録の `jev.refusals` に質問の名前を残す。`next_action` が refusal なら行動を選べなかった扱い
-  (Jev が失敗したときと同じく look_around)。ゴールの案の noul が refusal なら P = 0。
+  (Jev が失敗したときと同じく look_around。look_around の無い survival_3days は search → explore、どちらも無ければ explore の方角を1つ作る。wait にはしない)。ゴールの案の noul が refusal なら P = 0。
 - 再試行: 429・502・503・524・529 と、402 のうち本文の `limit_source` が in-flight 予算のもの (`Retry-After` に従う)。
   **402 の残高不足は再試行せず、全員を止める** (エラーの文に「残高 (クレジット) が足りない」)。
 - 送る本文が 32,000 バイトを超えると OpenRouter は黙って long-context モード (遅く・精度が下がるとされる) で走らせるので、記録に `jev.longContext` を残し、

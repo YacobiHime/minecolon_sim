@@ -31,7 +31,7 @@ test('fallbackDecision: look_around があればそれ (古い設定)', () => {
   assert.deepStrictEqual([r.ok, r.action, r.arg], [true, 'look_around', '']);
 });
 
-test('fallbackDecision: look_around が無ければ search の先頭の候補、search も無ければ explore、どちらも無ければ wait', () => {
+test('fallbackDecision: look_around が無ければ search の先頭の候補、search も無ければ explore、どちらも無ければ explore の方角を1つ作る (wait にしない)', () => {
   const base = listActions(mockRaw(), { disabled: new Set(['look_around']) });
   const search = { name: 'search', argType: 'choice', choices: [{ id: 'north', dir: 'north' }, { id: 'east', dir: 'east' }] };
   const r1 = fallbackDecision([...base, search]);
@@ -44,9 +44,11 @@ test('fallbackDecision: look_around が無ければ search の先頭の候補、
   assert.strictEqual(r2.arg, ex.choices[0].id);
   assert.ok(r2.choice);
   const noMove = base.filter((a) => a.name !== 'explore');
-  assert.deepStrictEqual(fallbackDecision(noMove), { ok: true, action: 'wait', arg: '3' });
-  // 候補が空の explore は使わない
-  assert.strictEqual(fallbackDecision([...noMove, { name: 'explore', argType: 'choice', choices: [] }]).action, 'wait');
+  const r3 = fallbackDecision(noMove, { rng: () => 0 });
+  assert.deepStrictEqual([r3.ok, r3.action, r3.arg, r3.choice.dir, r3.made], [true, 'explore', 'north', 'north', true]);
+  // 候補が空の explore は使わず、方角を作る
+  const r4 = fallbackDecision([...noMove, { name: 'explore', argType: 'choice', choices: [] }], { rng: () => 0.99 });
+  assert.deepStrictEqual([r4.action, r4.arg], ['explore', 'west']);
 });
 
 test('分類: 選べなかったときの代わりは fallback、wait は wait (look_around は前の記録用に残す)', () => {

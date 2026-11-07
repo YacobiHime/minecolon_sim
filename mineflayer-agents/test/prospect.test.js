@@ -160,13 +160,16 @@ test('GoalPath: 植えて道筋の残りが「育つのを待つ」だけにな�
   void water;
   assert.strictEqual(await gp.update(c2, 2), 'planted');
   assert.strictEqual(gp.goal.kind, 'place');
+  // 道筋の次が「育つのを待つ」のまま止まらない: 次のゴールに移り、道筋に待つの意味が出ない
+  assert.strictEqual(gp.waitingGrowth(), false);
+  assert.doesNotMatch(gp.planText() || '', /待つ/);
   assert.strictEqual(gp.history[0].result, 'planted');
-  assert.strictEqual(gp.history[0].resultText, '植えた (あとは育つのを待つ)');
+  assert.strictEqual(gp.history[0].resultText, '植えた (育っている頃に戻る。あとでやること)');
   assert.strictEqual(gp.counts.planted, 1);
   assert.strictEqual(gp.counts.waiting, 1);
   assert.ok(ev.some((e) => e.kind === 'goal_done' && e.result === 'planted'));
   assert.ok(ev.some((e) => e.kind === 'waiting'));
-  assert.match(llm.seen[2].messages[1].content, /## さっき選んだゴール\nwheat 3: もう植えてあって、あとは育つのを待つだけ/);
+  assert.match(llm.seen[2].messages[1].content, /## さっき選んだゴール\nwheat 3: もう植えてある。育っている頃に戻る \(あとでやること\)/);
 });
 
 test('GoalPath: 育っている頃のあとでやることが場所の候補に出る。選ぶと「小麦を取りに行く (M2)」のゴール。記録に later', async () => {

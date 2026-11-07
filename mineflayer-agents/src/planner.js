@@ -696,13 +696,13 @@ function treeText(s) {
   const parts = [];
   if (s.growing > 0) parts.push(`植わっている ${s.sapling} ${s.growing}${s.at ? ` (${s.at})` : ''}`);
   if (s.plants > 0) parts.push(`${s.sapling} ${s.plants} を${s.k > 1 ? '2x2 で' : ''}植える (${GROUND_WHERE_JA[s.groundWhere] || ''}${s.ground} の上・明るい所・上に空き)`);
-  parts.push(s.plants > 0 ? `育つ (${waitWord(s)})` : '育つのを待つ');
+  parts.push(s.plants > 0 ? `育つ (${waitWord(s)})` : '育っている頃に戻る');
   parts.push('切る');
   return parts.join(' → ');
 }
 function treeNext(s) {
   if (s.plants > 0) return `${s.sapling} を ${s.ground} に${s.k > 1 ? '2x2 で' : ''}植える (明るい所・上に空き)`;
-  if (s.growing > 0) return `育つのを待つ (植わっている ${s.sapling} ${s.growing}${s.at ? `、${s.at}` : ''})`;
+  if (s.growing > 0) return `育っている頃に戻る (植わっている ${s.sapling} ${s.growing}${s.at ? `、${s.at}` : ''})`;
   return `木に育ったら ${s.item} を切る`;
 }
 function treeTextEn(s) {
@@ -710,20 +710,20 @@ function treeTextEn(s) {
   if (s.growing > 0) parts.push(`${s.growing} ${s.sapling} planted already${s.at ? ` (${s.at})` : ''}`);
   if (s.plants > 0) parts.push(`plant ${s.plants} ${s.sapling}${s.k > 1 ? ' in a 2x2' : ''} (on ${s.groundWhere === 'known' ? 'seen-before ' : ''}${s.ground}, in light, space above)`);
   const [a, b] = s.waitMin || TREE_WAIT_MIN;
-  parts.push(s.plants > 0 ? `grows (about ${Math.round((a + b) / 2)} min)` : 'wait for it to grow');
+  parts.push(s.plants > 0 ? `grows (about ${Math.round((a + b) / 2)} min)` : 'come back once it has grown');
   parts.push('cut');
   return parts.join(' -> ');
 }
 function treeNextEn(s) {
   if (s.plants > 0) return `plant ${s.sapling}${s.k > 1 ? ' in a 2x2' : ''} on ${s.ground} (in light, space above)`;
-  if (s.growing > 0) return `wait for it to grow (${s.growing} ${s.sapling} planted${s.at ? `, ${s.at}` : ''})`;
+  if (s.growing > 0) return `come back once it has grown (${s.growing} ${s.sapling} planted${s.at ? `, ${s.at}` : ''})`;
   return `when it has grown into a tree, cut it for ${s.item}`;
 }
 function farmNext(s) {
   if (s.till > 0 && s.water) return `${farmwater.waterText(s.water)} → 水から4マス以内の土を ${s.tool} で耕す`;
   if (s.till > 0) return `${s.tool} で水から4マス以内の土を耕して耕地にする`;
   if (s.plants > 0) return `${s.seed} を耕地に植える`;
-  if (s.growing > 0) return `育つのを待つ (植わっている ${s.crop} ${s.growing}${s.at ? `、${s.at}` : ''})`;
+  if (s.growing > 0) return `育っている頃に戻る (植わっている ${s.crop} ${s.growing}${s.at ? `、${s.at}` : ''})`;
   return `${s.crop} が育ちきったら壊して ${s.item} を取る`;
 }
 function farmTextEn(s) {
@@ -739,7 +739,7 @@ function farmNextEn(s) {
   if (s.till > 0 && s.water) return `${farmwater.waterTextEn(s.water)} -> till dirt within 4 blocks of water with ${s.tool}`;
   if (s.till > 0) return `till dirt within 4 blocks of water into farmland with ${s.tool}`;
   if (s.plants > 0) return `plant ${s.seed} on farmland`;
-  if (s.growing > 0) return `wait for it to grow (${s.growing} ${s.crop} planted${s.at ? `, ${s.at}` : ''})`;
+  if (s.growing > 0) return `come back once it has grown (${s.growing} ${s.crop} planted${s.at ? `, ${s.at}` : ''})`;
   return `when ${s.crop} is fully grown, break it for ${s.item}`;
 }
 

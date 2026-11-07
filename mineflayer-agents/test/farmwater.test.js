@@ -209,11 +209,13 @@ test('planner (item: wheat / bread): 耕すなら「水 (…) → 水から4マ�
   assert.ok(far <= eff({ where: 'unknown', ready: false }));
 });
 
-test('育つのを待つ: 道筋の次は「育つのを待つ (植わっている n、M2)」、goalPath.waitingGrowth は true', () => {
+test('植えたあと: 道筋の次は「育っている頃に戻る (植わっている n、M2)」(待つの意味は出さない)、goalPath.waitingGrowth は true', () => {
   const W = { inventory: [], visibleBlocks: ['grass', 'water'], visibleMobs: [], knownBlocks: ['wheat'], stations: {}, farm: { growing: { wheat: 3 } }, cropPlaces: { wheat: { id: 'M2', d: 5 } } };
   const p = new Planner(W).plan('wheat', 3);
-  assert.match(pathText(p), /次: 育つのを待つ \(植わっている wheat 3、M2\)/);
-  assert.match(pathEn(p).next, /wait for it to grow \(3 wheat planted, M2\)/);
+  assert.match(pathText(p), /次: 育っている頃に戻る \(植わっている wheat 3、M2\)/);
+  assert.match(pathEn(p).next, /come back once it has grown \(3 wheat planted, M2\)/);
+  assert.doesNotMatch(pathText(p), /待つ/);
+  assert.doesNotMatch(JSON.stringify(pathEn(p)), /wait/);
   assert.strictEqual(GoalPath.prototype.waitingGrowth.call({ path: p }), true);
   const q = new Planner({ ...W, farm: {} }).plan('wheat', 3);
   assert.strictEqual(GoalPath.prototype.waitingGrowth.call({ path: q }), false);

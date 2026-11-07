@@ -84,7 +84,7 @@ function kOf(k, provider) {
   return 4;
 }
 const KINDS = ['item', 'person', 'place', 'state'];
-const WAIT_WHY = 'もう植えてあって、あとは育つのを待つだけ';
+const WAIT_WHY = 'もう植えてある。育っている頃に戻る (あとでやること)';
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
 const NEED_LABELS = Object.values(NEED_LABEL);
 // 先のつらさの英語のキー (Jev の state.later) と、案ごとの質問 (事実を問う形。評価語を入れない)
@@ -515,7 +515,7 @@ class GoalPath {
       farm: this.farmOf(ctx),
       // 耕す前の水の段 (見えている・覚えている M 番号と距離・知らない)。済んだ = 水から4マス以内で高さの合う耕せるマスが近くにある
       water: this.waterOf(ctx),
-      // 植えた作物の覚えている場所 (道筋の「育つのを待つ (植わっている n、M2)」)
+      // 植えた作物の覚えている場所 (道筋の「育っている頃に戻る (植わっている n、M2)」)
       cropPlaces: Object.fromEntries((ctx.places || []).filter((p) => FARM_CROPS.test(p.kind)).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).reverse().map((p) => [p.kind, { id: p.id, d: p.d }])),
       // 近くに植わっている苗木 (見えている苗木のブロックの数) と、植えた苗木の覚えている場所 (道筋の「植わっている oak_sapling 1 (M3)」)
       saplings: Object.fromEntries((raw.blocks || []).filter((b) => SAPLING_LOG[b.name]).map((b) => [b.name, b.seen || 1])),
@@ -1135,7 +1135,7 @@ class GoalPath {
 
   finish(result, tick, why, extra = {}) {
     const g = this.goal;
-    const resultText = { planted: '植えた (あとは育つのを待つ)', done: '達成した', need_unmet: `手に入れた/着いたが、${NEED_LABEL[g.need] || ''}のつらさは変わらなかった`, stuck: `進まなかった (${why})`, unplannable: '作り方も手に入れ方も分からなくなった' }[result] || result;
+    const resultText = { planted: '植えた (育っている頃に戻る。あとでやること)', done: '達成した', need_unmet: `手に入れた/着いたが、${NEED_LABEL[g.need] || ''}のつらさは変わらなかった`, stuck: `進まなかった (${why})`, unplannable: '作り方も手に入れ方も分からなくなった' }[result] || result;
     const h = { kind: g.kind, target: g.target, count: g.count, give: g.give, why: g.why, need: g.need, result, resultText, from: g.setAt, to: tick };
     this.history.push(h);
     if (this.experience) this.experience.noteResult({ ...h, why, gameFrom: g.gameAt ?? null, gameTo: this.lastAge });
@@ -1182,7 +1182,8 @@ class GoalPath {
     }
     // 植えて、道筋の残りが「育つのを待つ」だけになった → ゴールは済んだ扱いにして、別のゴールを選ぶ (2026-11-06)。
     //   植えた所と育つ見込みは、あとでやること (prospect.js) に残る。育っている頃になったらゴールの候補に出る
-    if (g.kind === 'item' && this.cfg.finishOnWait !== false && this.waitingGrowth()) {
+    //   状態のゴールの道筋 (物の手順に畑・木を含む) でも同じ。道筋の次が「育つのを待つ」のまま止まらない (2026-11-07: wait を外した)
+    if ((g.kind === 'item' || g.kind === 'state') && this.cfg.finishOnWait !== false && this.waitingGrowth()) {
       this.finish('planted', tick, null, { growing: this.path.next.growing, crop: this.path.next.crop || this.path.next.sapling });
       await this.newGoal(ctx, tick, 'planted'); this.refresh(ctx, tick);
       return 'planted';

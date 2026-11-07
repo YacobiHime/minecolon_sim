@@ -34,7 +34,7 @@ const NEEDS_DEFAULTS = {
   //   満腹度が分からないとき (bot なしのテストなど) だけ、前の方式: 約7時間 (fullAfter) でいちばんつらくなり、食べると foodPoints × perFoodPoint 減る
   hunger: { source: 'food', satZero: 0.1, sensitivity: 1, fullAfter: 7000, threshold: 0.5, perFoodPoint: 0.1, minEat: 0.1 },
   // 眠気: 起きている間ずっと増え、夜は nightMult 倍。ベッドで夜を越すと bedTo まで、途中で起きたら bedPartial だけ減る。
-  //       床で休む (rest の行動) と rest だけ減る。寝ないで夜を越すと翌日まで残る (自然には減らない)
+  //       床で休む (restActions の行動) と rest だけ減る (survival_3days は restActions が空で、ベッドだけ。2026-11-07)。寝ないで夜を越すと翌日まで残る (自然には減らない)
   sleep: { fullAfter: 30000, nightMult: 2.5, threshold: 0.55, bedTo: 0, bedPartial: 0.35, bedHunger: 0.15, rest: 0.03, restActions: ['wait', 'look_around'] },
   // 不安: 下の要素の和を目標に、上がるときは up、下がるときは down の割合で近づく。
   //       気質の bravery が低いほど、上げる要素が大きく効く (×(1 + braveryScale×(0.5−bravery)×2))

@@ -98,8 +98,6 @@ function obsEn(raw, cfg, planText, bedPlaced = false) {
 const FARM_PLACE = /^(farmland|wheat|carrots|potatoes|beetroots)$/;
 // 覚えている場所の一覧 (M 番号) に必ず1つ入れる種類 (耕す行き先 farmland_spot@M・道筋の水の段に使う)
 const PLACE_ENSURE = ['water'];
-// 作物が育つのを待つ間に、困りごと・変わらなかったに数えない行動
-const GROW_WAIT_ACTS = /^(wait|look_around):/; // look_around の無い設定 (survival_3days) では wait だけが当たる
 function farmTargets(raw, memPlaces, farm, cfg) {
   const out = [];
   if (farm) {
@@ -1187,10 +1185,9 @@ class Agent {
     // 直近 netWindow 回をさかのぼった正味の変化がほぼ0なら、その間に繰り返した行動も「何も変わらなかった」扱い
     const net = nc && nc.net !== false ? nochange.netNoChange(this.loopHist, nc) : null;
     const ncT = nc && net && net.keys.size ? { ...nc, netKeys: net.keys } : nc;
-    // 作物が育つのを待っている間 (道筋の次が「育つのを待つ」) は、待つ・見回すの繰り返しを困りごとに数えない
-    const growWaitNow = !!(this.goalPath && this.goalPath.waitingGrowth());
-    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, ncT).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool))
-      .filter((t) => !(growWaitNow && GROW_WAIT_ACTS.test(t.key))) : [];
+    // 作物が育つのを待つ間の 待つ・見回す の扱い (GROW_WAIT_ACTS) は外した (2026-11-07): 植えたらゴールは済んだ扱いで別のゴールへ移り、
+    //   survival_3days には wait・look_around が無い。育っている頃に戻るのは、あとでやること (prospect.js) から
+    const troubles = this.help.askOthers ? ask.troubles(this.memory, cfg.loop.failWindow ?? 4, cfg.loop.failRepeat ?? 2, ncT).filter((t) => !(tick - (this.askedAt[t.key] ?? -1e9) < cool)) : [];
     // その場から動けない (unstuck.js): 回復のあと troubleLoops ループ出す (Jev の state・2B のゴール選び)
     const stuckT = this.stuck.trouble(tick);
     if (stuckT) troubles.unshift(stuckT);
@@ -1348,7 +1345,7 @@ class Agent {
     }
     let resolved = dec.parseOk ? resolveDecision(ctx.actions, dec.action, dec.arg) : { ok: false, error: dec.error || 'parse failed' };
     const valid = resolved.ok;
-    // 選べなかった・refusal: look_around が一覧にあればそれ、無ければ search → explore、どちらも無ければ wait (actions.fallbackDecision)
+    // 選べなかった・refusal: look_around が一覧にあればそれ、無ければ search → explore、どちらも無ければ explore の方角を1つ作る (actions.fallbackDecision。wait にはしない)
     if (!valid) resolved = { ...fallbackDecision(ctx.actions), fallback: true, error: resolved.error };
 
     // Jev の Score を記憶の大事さと好感に (直前の出来事 = 前のループの結果と、今聞こえた話)
@@ -1412,11 +1409,8 @@ class Agent {
     const stateChanged = nochange.changed(before, after);
     const ev = this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
     this.noteProspects(resolved, result, raw.inventory, inv, tick);
-    // 作物が育つのを待っている間の 待つ・見回す は「変わらなかった」に数えない (育つのは目に見えないので)
-    const growWait = !!(this.goalPath && this.goalPath.waitingGrowth()) && GROW_WAIT_ACTS.test(key);
-    ev.nc = !stateChanged && !growWait; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
-    if (growWait) ev.growWait = true;
-    if (nc && !growWait) {
+    ev.nc = !stateChanged; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
+    if (nc) {
       const p = bot.entity.position;
       const { cx, cz } = this.memory.cellOf(p);
       this.loopHist.push(nochange.histEntry({ action: resolved.action, arg: resolved.arg, inventory: inv, pos: p, newCell: !this.memory.cellAt(cx, cz), result }));
@@ -1524,7 +1518,6 @@ class Agent {
       searchOffer: searchInfo ? { what: searchInfo.primary, names: searchInfo.names, dist: searchInfo.dist, continue: searchInfo.hasContinue } : undefined,
       searchAfter: searchAfter || undefined,
       nearPeople: nearCounts(raw),
-      growWait: growWait || undefined, // 作物が育つのを待っている間の 待つ・見回す (困りごと・変わらなかったに数えない)
     });
     this.memory.save();
     this.log(`[${bot.username}] #${loopNo} ${valid ? '' : '(fallback) '}${resolved.action}(${resolved.arg}) -> ${result.ok ? 'OK' : 'NG'} ${result.msg}${said ? ` / say「${said}」` : ''} [decide ${dec.latencyMs}ms, act ${actMs}ms]`);
