@@ -51,8 +51,8 @@ const DEFAULTS = {
   //   charsPerToken: 文字数 → トークンの見積もりの初期値 (呼び出しの実測で学ぶ)
   prompt: {
     maxPeople: 8, maxMemPlaces: 4, maxFacts: 8, maxBoardLines: 4, ctxTokens: 8192, margin: 256, charsPerToken: 1.6, retryOnOverflow: true,
-    steps: [['history', 2], ['board', 2], ['memChars', 300], ['facts', 4], ['peopleText', 2], ['people', 4], ['memPlaces', 2], ['items', 24],
-      ['board', 0], ['memChars', 120], ['facts', 2], ['history', 0], ['peopleText', 0], ['policy', 0], ['people', 2], ['items', 16], ['facts', 0], ['memPlaces', 0], ['items', 10]],
+    steps: [['history', 2], ['experience', 3], ['board', 2], ['memChars', 300], ['facts', 4], ['peopleText', 2], ['people', 4], ['memPlaces', 2], ['items', 24],
+      ['board', 0], ['memChars', 120], ['facts', 2], ['history', 0], ['experience', 1], ['peopleText', 0], ['policy', 0], ['people', 2], ['items', 16], ['facts', 0], ['memPlaces', 0], ['items', 10]],
   },
   // ゴールの選び方 (サーベイ R1、D2A の形): 2B が案を k 個 → Jev が 案 × 欲求 の noul (1回) → コードが Σ つらさ^power × P の最大を選ぶ。
   //   needs: 今つらい欲求の上位いくつを聞くか。minRatio: しきい値に対する割合がこれ未満の欲求は入れない
@@ -102,12 +102,14 @@ function proposalsSchema(cands, k, opts = {}) {
 //   同点 (最大との差 ≤ tieEps) は先に書かれた案 (rule: tie_first)。全部の P < lowP なら rule: all_low (onAllLow: first なら最初の案)
 function effortFactor(cost, alpha) { return Number.isFinite(cost) && alpha > 0 ? 1 / (1 + alpha * Math.max(0, cost)) : 1; }
 //   division (分業。division.js): { T: [案ごとの反応の強さ], beta, gamma } があれば 点 = (Σ つらさ × P × (1 + beta × T) + gamma × T) ÷ (1 + alpha × 手間)
-function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null, division = null) {
+//   experience (経験。experience.js): { factor: [案ごとの q ÷ m0] } があれば分子に掛ける (P_実 = P × q ÷ m0。gamma × T の項にも)
+function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null, division = null, experience = null) {
   const alpha = effort && Number.isFinite(effort.alpha) ? effort.alpha : 0;
   const Ti = (i) => (division && division.T && Number.isFinite(division.T[i]) ? division.T[i] : 0);
   const beta = division && Number.isFinite(division.beta) ? division.beta : 0;
   const gamma = division && Number.isFinite(division.gamma) ? division.gamma : 0;
-  const scores = P.map((row, i) => Math.round((needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * (1 + beta * Ti(i)) + gamma * Ti(i)) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
+  const Ei = (i) => (experience && experience.factor && Number.isFinite(experience.factor[i]) ? experience.factor[i] : 1);
+  const scores = P.map((row, i) => Math.round((needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * (1 + beta * Ti(i)) + gamma * Ti(i)) * Ei(i) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
   const allLow = P.every((row) => needs.every((x) => (row[x.need] || 0) < lowP));
   if (allLow && onAllLow === 'first') return { index: 0, scores, rule: 'all_low_first' };
   const best = Math.max(...scores);
@@ -216,7 +218,10 @@ class GoalPath {
     this.cfg.select = { ...DEFAULTS.select, ...((opts.cfg && opts.cfg.select) || {}) };
     this.cfg.prompt = { ...DEFAULTS.prompt, ...((opts.cfg && opts.cfg.prompt) || {}) };
     this.ratio = new promptfit.TokenRatio({ initial: this.cfg.prompt.charsPerToken });
-    this.jev = opts.jev || null; // JevDecider (call(state, questions, stage) を使う)。select.enabled のときに要る
+    this.jev = opts.jev || null;
+    // 経験 (experience.js): 対象ごとの試した・達成した・かかった判断と時間。ゴールの点 (成功の見込み・手間) と 2B の言葉に使う
+    this.experience = opts.experience || null;
+    this.lastAge = null; // ゲーム内の時刻 (raw.self.age)。ゴールにかかった時間を数える // JevDecider (call(state, questions, stage) を使う)。select.enabled のときに要る
     this.order = opts.order || null; // Order (order.js)。候補の並べ方を毎回変える
     this.llm = opts.llm || new LLMDecider({ ...(opts.llmOpts || {}), mode: 'talk', maxTokens: this.cfg.maxTokens, temperature: this.cfg.temperature });
     // 文脈の上限 (promptfit) は提供元の ctxTokens (llm_provider.js)。local は goalPath.prompt.ctxTokens (llama-server の1スロット) があればそれ
@@ -299,7 +304,7 @@ class GoalPath {
     const rankOf = (arr) => (arr || []).map((c, i) => ({ ...c, _rank: i }));
     const shuffled = this.shuffled({ ...candsIn, items: rankOf(candsIn.items), people: rankOf(candsIn.people), places: rankOf(candsIn.places), states: rankOf(candsIn.states) });
     const facts = ctx.facts ? ctx.facts('') : [];
-    const lim = { items: Infinity, people: Infinity, memPlaces: Infinity, facts: pc.maxFacts, board: pc.maxBoardLines, memChars: Infinity, history: 5, peopleText: Infinity, policy: 1 };
+    const lim = { items: Infinity, people: Infinity, memPlaces: Infinity, facts: pc.maxFacts, board: pc.maxBoardLines, memChars: Infinity, history: 5, peopleText: Infinity, policy: 1, experience: this.experience ? this.experience.cfg.words.maxLines : 0 };
     let shown = null;
     const build = (L) => {
       let memSeen = 0;
@@ -323,7 +328,8 @@ class GoalPath {
   messagesWith(ctx, cands, feedback = [], { k = 1, facts = [], lim = {} } = {}) {
     const p = ctx.persona || {};
     const self = ctx.raw && ctx.raw.self;
-    const L = { board: Infinity, memChars: Infinity, history: 5, peopleText: Infinity, policy: 1, ...lim };
+    const L = { board: Infinity, memChars: Infinity, history: 5, peopleText: Infinity, policy: 1, experience: this.experience ? this.experience.cfg.words.maxLines : 0, ...lim };
+    const expText = this.experience && L.experience > 0 ? this.experience.lines({ max: L.experience }).join('\n') : '';
     const board = ctx.board && ctx.board.text ? (L.board === Infinity ? ctx.board.text : promptfit.capSectionLines(ctx.board.text, L.board)) : '';
     const mem = L.memChars === Infinity ? ctx.memText : promptfit.capLineChars(ctx.memText, L.memChars);
     const peopleText = ctx.peopleText && L.peopleText > 0 ? (L.peopleText === Infinity ? ctx.peopleText : ctx.peopleText.split('\n').slice(0, L.peopleText).join('\n')) : '';
@@ -354,6 +360,7 @@ class GoalPath {
       facts.length ? `## 知っていること\n${facts.join('\n')}` : '',
       '## 覚えていること', mem || 'なし',
       L.history > 0 ? `## これまでのゴール\n${this.historyText(L.history)}` : '',
+      expText ? `## やってみたこと (自分の経験と、聞いたこと)\n${expText}` : '',
       `## めざせる物\n${cands.items.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
       cands.states && cands.states.length ? `## めざせる状態\n${cands.states.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
       cands.people.length ? `## 人\n${cands.people.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
@@ -664,7 +671,8 @@ class GoalPath {
     this.counts.goals += 1;
     if (base.worst && pg.need) { this.counts.worstJudged += 1; if (base.worst === pg.need) this.counts.worstMatched += 1; }
     const here = ctx.raw.self.pos;
-    this.goal = { ...pg, lastStatus: path && path.status && path.status.known ? path.status : null, needAt: base.needAt, setAt: tick, n: this.counts.goals, startPos: { x: here.x, y: here.y, z: here.z }, pos: pg.place ? pg.place.pos || null : null, metAt: null, best: Infinity, bestAt: tick };
+    const age = ctx.raw.self && Number.isFinite(ctx.raw.self.age) ? ctx.raw.self.age : null;
+    this.goal = { ...pg, gameAt: age, lastStatus: path && path.status && path.status.known ? path.status : null, needAt: base.needAt, setAt: tick, n: this.counts.goals, startPos: { x: here.x, y: here.y, z: here.z }, pos: pg.place ? pg.place.pos || null : null, metAt: null, best: Infinity, bestAt: tick };
     this.path = path;
     this.troubleRun = 0;
     // あとでやること (prospect.js) の候補を選んだ: どれか (summarize_run の「見込みの時刻のあと取りに行った」)
@@ -743,13 +751,20 @@ class GoalPath {
     const Tarr = dv ? acts.map((a) => (a && dv.T[a]) || 0) : null;
     const famArr = dv ? acts.map((a) => (a && dv.fam[a]) || 0) : null;
     const divOpt = dv ? { T: Tarr, beta: dsc.beta ?? 0, gamma: dsc.gamma ?? 0 } : null;
-    const costs = valid.map((v, i) => (Number.isFinite(v.cost) ? v.cost * (dv ? 1 - (dsc.skillCut ?? 0) * famArr[i] : 1) : null));
-    const rawCosts = valid.map((v) => (Number.isFinite(v.cost) ? v.cost : null));
+    // 経験 (experience.js): 成功の見込みの比 (q ÷ m0) を点に掛け、手間を実際にかかった判断の数で直す
+    const ex = this.experience;
+    const expS = valid.map((v) => (ex ? ex.success(v.pg) : { q: null, factor: 1, n: 0 }));
+    const expCost = valid.map((v) => (ex ? ex.cost(v.pg, Number.isFinite(v.cost) ? v.cost : null) : (Number.isFinite(v.cost) ? v.cost : null)));
+    const expOpt = ex ? { factor: expS.map((x) => x.factor) } : null;
+    const costs = valid.map((v, i) => (Number.isFinite(expCost[i]) ? expCost[i] * (dv ? 1 - (dsc.skillCut ?? 0) * famArr[i] : 1) : null));
+    const rawCosts = valid.map((v, i) => (Number.isFinite(expCost[i]) ? expCost[i] : null));
+    const planCosts = valid.map((v, i) => (Number.isFinite(v.cost) ? v.cost * (dv ? 1 - (dsc.skillCut ?? 0) * famArr[i] : 1) : null)); // 経験を入れなかったら
+    if (ex) record.experience = { q: expS.map((x) => x.q), factor: expS.map((x) => x.factor), n: expS.map((x) => x.n), planCost: valid.map((v) => (Number.isFinite(v.cost) ? Math.round(v.cost * 100) / 100 : null)), cost: expCost.map((c) => (Number.isFinite(c) ? Math.round(c * 100) / 100 : null)) };
     if (dv) record.division = { acts, T: Tarr, fam: famArr, s: acts.map((a) => (a && dv.s[a]) || 0), theta: acts.map((a) => (a && dv.theta[a]) || null), beta: divOpt.beta, gamma: divOpt.gamma, skillCut: dsc.skillCut ?? 0 };
     if (!needs.length && !later.length) {
       // つらい欲求が無い: 刺激 (T) があれば gamma × T ÷ (1 + alpha × 手間') の最大 (Jev は呼ばない)。無ければ 2B が先に書いた案
       if (dv && Tarr.some((t) => t > 0) && divOpt.gamma > 0) {
-        const out0 = selectScores(valid.map(() => ({})), [], { ...sc, onAllLow: 'best' }, costs, divOpt);
+        const out0 = selectScores(valid.map(() => ({})), [], { ...sc, onAllLow: 'best' }, costs, divOpt, expOpt);
         record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, activity: acts[i], T: Tarr[i], score: out0.scores[i] }));
         record.rule = 'division_only'; record.chosen = out0.index; record.division.changed = out0.index !== 0; record.decidedBy = 'division';
         return { index: out0.index, record };
@@ -793,23 +808,28 @@ class GoalPath {
       ...needs.map((x) => [x.need, pv(`p${i + 1}_${NEED_EN[x.need] || x.need}`)]),
       ...later.map((x) => [`later_${x.need}`, pv(`p${i + 1}_later_${LATER_EN[x.need]}`)]),
     ]));
-    const out = selectScores(P, all, sc, costs, divOpt);
-    const noEffort = selectScores(P, all, { ...sc, effort: null }, null, divOpt);
-    const noDivision = dv ? selectScores(P, all, sc, rawCosts) : null; // 分業を入れなかったら (T も慣れも無し)
-    const nowOnly = needs.length ? selectScores(P, needs, sc, costs, divOpt) : null;
-    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs, divOpt) : null;
+    const out = selectScores(P, all, sc, costs, divOpt, expOpt);
+    const noEffort = selectScores(P, all, { ...sc, effort: null }, null, divOpt, expOpt);
+    const noDivision = dv ? selectScores(P, all, sc, rawCosts, null, expOpt) : null; // 分業を入れなかったら (T も慣れも無し)
+    const noExperience = ex ? selectScores(P, all, sc, planCosts, divOpt) : null; // 経験を入れなかったら (見込みも手間の補正も無し)
+    const nowOnly = needs.length ? selectScores(P, needs, sc, costs, divOpt, expOpt) : null;
+    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs, divOpt, expOpt) : null;
     const alpha = (sc.effort && sc.effort.alpha) || 0;
     const num = dv ? `(sum(distress * P) * (1 + ${divOpt.beta} * T) + ${divOpt.gamma} * T)` : 'sum(distress * P)';
-    record.formula = alpha > 0 ? `score = ${num} / (1 + ${alpha} * cost${dv ? ` * (1 - ${dsc.skillCut ?? 0} * fam)` : ''})` : `score = ${num}`;
+    const num2 = ex ? `(q / ${ex.cfg.prior.mean}) * ${num}` : num;
+    record.formula = alpha > 0 ? `score = ${num2} / (1 + ${alpha} * cost${ex ? '_exp' : ''}${dv ? ` * (1 - ${dsc.skillCut ?? 0} * fam)` : ''})` : `score = ${num2}`;
     record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, P: Object.fromEntries(Object.entries(P[i]).map(([kk, vv]) => [kk, Math.round(vv * 1000) / 1000])),
       now: nowOnly ? nowOnly.scores[i] : 0, later: laterOnly ? laterOnly.scores[i] : 0, cost: costs[i] == null ? null : Math.round(costs[i] * 100) / 100,
       effort: costs[i] == null ? null : effortWord(costs[i]), factor: Math.round(effortFactor(costs[i], alpha) * 1000) / 1000, noEffort: noEffort.scores[i], score: out.scores[i],
-      ...(dv ? { activity: acts[i], T: Tarr[i], fam: famArr[i], noDivision: noDivision.scores[i] } : {}) }));
+      ...(dv ? { activity: acts[i], T: Tarr[i], fam: famArr[i], noDivision: noDivision.scores[i] } : {}),
+      ...(ex ? { q: expS[i].q, expFactor: expS[i].factor, tries: expS[i].n, planCost: Number.isFinite(valid[i].cost) ? Math.round(valid[i].cost * 100) / 100 : null, noExperience: noExperience.scores[i] } : {}) }));
     record.chosen = out.index; record.rule = out.rule;
     if (dv) { record.division.changed = noDivision.index !== out.index; record.division.noDivisionChoice = noDivision.index; } // 分業を入れなければ別の案だった
     record.effortChanged = noEffort.index !== out.index; // 手間で割らなければ別の案だった
+    if (ex) { record.experience.changed = noExperience.index !== out.index; record.experience.noExperienceChoice = noExperience.index; } // 経験を入れなければ別の案だった
     record.decidedBy = !nowOnly ? 'later_only' : (laterOnly && nowOnly.index !== out.index ? 'later' : 'now');
     if (dv && record.division.changed) record.decidedBy = `${record.decidedBy}+division`;
+    if (ex && record.experience.changed) record.decidedBy = `${record.decidedBy}+experience`;
     record.nowChoice = nowOnly ? nowOnly.index : null;
     return { index: out.index, record };
   }
@@ -827,6 +847,7 @@ class GoalPath {
     const resultText = { planted: '植えた (あとは育つのを待つ)', done: '達成した', need_unmet: `手に入れた/着いたが、${NEED_LABEL[g.need] || ''}のつらさは変わらなかった`, stuck: `進まなかった (${why})`, unplannable: '作り方も手に入れ方も分からなくなった' }[result] || result;
     const h = { kind: g.kind, target: g.target, count: g.count, give: g.give, why: g.why, need: g.need, result, resultText, from: g.setAt, to: tick };
     this.history.push(h);
+    if (this.experience) this.experience.noteResult({ ...h, why, gameFrom: g.gameAt ?? null, gameTo: this.lastAge });
     if (result === 'done') this.counts.done += 1;
     else if (result === 'need_unmet') this.counts.needUnmet += 1;
     else if (result === 'stuck') this.counts.stuck += 1;
@@ -844,6 +865,7 @@ class GoalPath {
 
   // 毎判断の前に呼ぶ。返り値: 何が起きたか (記録用) | null
   async update(ctx, tick, { troubles = [] } = {}) {
+    if (ctx.raw && ctx.raw.self && Number.isFinite(ctx.raw.self.age)) this.lastAge = ctx.raw.self.age;
     this.troubleRun = troubles.length ? this.troubleRun + 1 : 0;
     if (!this.goal) {
       if (tick < this.retryAt) return null;

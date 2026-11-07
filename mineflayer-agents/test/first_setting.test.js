@@ -44,11 +44,11 @@ test('Social: ルールで感情・欲求・関係が動き、短い言葉にな
   assert.match(s.words(), /いらだ|怒/);
   s.onHeard('Hanako', 1);
   s.onAnswered('Hanako', true);
-  s.onRelationScore('Hanako', 4);
+  for (let i = 0; i < 3; i++) s.onRelationScore('Hanako', 4); // 1回の幅は小さい (social.js AFFINITY_DEFAULTS) ので何回か
   assert.ok(s.rel('Hanako').affinity > 60);
   assert.match(s.words(), /Hanakoとは(仲が良い|感じが良い)。前にやり方を教えてくれた/);
   s.onIgnored('Jiro');
-  s.onRelationScore('Jiro', 0);
+  for (let i = 0; i < 3; i++) s.onRelationScore('Jiro', 0);
   assert.match(s.words(), /Jiroとは少し苦手。聞いたのに返事がなかった/);
   assert.ok(!/\d/.test(s.words()), '2B に数値を渡さない');
   // 夜に外 (暗い・囲まれていない) で敵が近いと、安心が足りなくなる (欲求は needs.js)

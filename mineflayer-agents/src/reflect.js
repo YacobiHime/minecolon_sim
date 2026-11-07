@@ -179,6 +179,9 @@ class Reflect {
   async run(ctx, tick, reason) {
     let facts = this.factsSince();
     if (ctx.activityFacts) { facts.splice(Math.min(facts.length, this.cfg.maxFacts - 1), 0, ctx.activityFacts); facts = facts.slice(0, this.cfg.maxFacts); }
+    // 経験 (experience.js の言葉。「生の鮭は3回試して、手に入らなかった (計約6分)」)。数の上限とは別に足す
+    const expFacts = Array.isArray(ctx.experienceFacts) ? ctx.experienceFacts.filter(Boolean) : [];
+    if (expFacts.length) facts = [...facts, ...expFacts.map((x) => `やってみたこと: ${x}`)];
     const messages = this.messages({ ...ctx, reason }, facts);
     const promptChars = messages.reduce((s, m) => s + m.content.length, 0);
     const t0 = Date.now();

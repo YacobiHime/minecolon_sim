@@ -16,6 +16,10 @@
 //      案を作る 2B には「みんなに足りていない物 (見聞きした範囲)」として刺激の材料の言葉を渡す (stimulusText)。
 //   5. 役回りの認識: 振り返り (reflect.js) に自分の活動の回数を事実として渡し、自分がよくしていることを書かせる。
 //      ほかの人については、見聞きしたこと (拾った・壊した・発言) から「Kaori は最近、畑のことをよくしている」を覚え、人の言葉に出す。
+//   6. 他人のための必要 (道具。2026-11-07 ユーザー決定): ほかの人が何の活動を何の道具でしていたか (others.js の壊した・耕したとその時の手の物、発言) を覚え、
+//      道具の段階 (素手 < 木 < 石 < 鉄) と仕様 (掘る速さ・耐久値の事実、TOOL_FACTS) から「石の道具ならどれだけ効率が上がるか」(gain 0〜1) を見積もり、
+//      その人たちの分の和を 石掘り (丸石が要る) と 物を作ること (道具を作る) の刺激に足す: 生の刺激 += toolW × min(toolCap, Σ_人 薄れ × gain)。
+//      言葉は事実だけ (「Ken・Mai が素手や木の道具で木を切り、畑を耕しているのを見た」)。「石の道具を作ると良い」とは書かない。
 // 研究方針: 仕様・事実は見せるが、使い方は書かない。役割の名前は与えない (活動の種類の言葉だけ)。評価語を入れない。
 //   数値はここで持ち、モデルには言葉だけ (Jev は英語、2B は日本語)。全員の状態は見せない (見聞きした範囲だけ)。
 
@@ -109,6 +113,51 @@ function textActivities(text) {
   return [...out];
 }
 
+// ---- 道具 (仕様の事実、1.20.1) ----
+//   掘る速さの倍率 (正しい種類の道具のとき): 素手 1・木 2・石 4・鉄 6・ダイヤ 8・ネザライト 9・金 12。耐久値: 木 59・石 131・鉄 250・金 32・ダイヤ 1561・ネザライト 2031。
+//   原木 (硬さ 2) は素手でも取れるが、斧の速さで掘る時間が変わる (素手 3秒・木の斧 1.5秒・石の斧 0.75秒)。
+//   石・丸石・鉱石はツルハシが無いと何も落ちない (素手では取れない)。耕す (クワを土に使う) はクワの種類で速さは変わらない (耐久値だけ違う)
+const TOOL_FACTS = {
+  speed: { hand: 1, wooden: 2, stone: 4, iron: 6, diamond: 8, netherite: 9, golden: 12 },
+  durability: { wooden: 59, stone: 131, iron: 250, golden: 32, diamond: 1561, netherite: 2031 },
+};
+const TOOL_MATS = ['wooden', 'stone', 'iron', 'golden', 'diamond', 'netherite'];
+// 道具で効率が変わる仕事: 何の道具か・どのブロックか・素手では取れないか
+const TOOL_TASKS = {
+  wood: { tool: 'axe', blocks: /^([a-z_]+_log|[a-z_]+_wood|[a-z_]+_stem)$/, needsTool: false },
+  mining: { tool: 'pickaxe', blocks: /^(stone|cobblestone|deepslate|cobbled_deepslate|andesite|diorite|granite|tuff|[a-z_]*_ore)$/, needsTool: true },
+  farming: { tool: 'hoe', till: true },
+};
+const TOOL_TASK_JA = { wood: ['木を切り', '木を切っている'], mining: ['石を掘り', '石を掘っている'], farming: ['畑を耕し', '畑を耕している'] };
+const TOOL_TASK_EN = { wood: 'cutting wood', mining: 'mining stone', farming: 'tilling farmland' };
+const TOOL_MAT_JA = { hand: '素手', wooden: '木の道具', stone: '石の道具', iron: '鉄の道具', golden: '金の道具', diamond: 'ダイヤの道具', netherite: 'ネザライトの道具' };
+const TOOL_MAT_EN = { hand: 'bare hands', wooden: 'wooden tools', stone: 'stone tools', iron: 'iron tools', golden: 'golden tools', diamond: 'diamond tools', netherite: 'netherite tools' };
+// 発言の中の道具の言葉 (素手 / 木の斧 など) と仕事の言葉
+const SAID_MAT = [
+  ['hand', /素手|手で(切|掘|木)/],
+  ['wooden', /木の(斧|おの|ツルハシ|つるはし|クワ|くわ|道具)|wooden_(axe|pickaxe|hoe)/],
+  ['stone', /石の(斧|おの|ツルハシ|つるはし|クワ|くわ|道具)|stone_(axe|pickaxe|hoe)/],
+  ['iron', /鉄の(斧|おの|ツルハシ|つるはし|クワ|くわ|道具)|iron_(axe|pickaxe|hoe)/],
+];
+const SAID_TASK = [['wood', /木を切|伐|原木|丸太|_log/], ['mining', /石を掘|掘って|採掘|丸石|cobblestone/], ['farming', /耕/]];
+
+// 手の物 → その仕事の道具の素材 (正しい種類の道具でなければ素手と同じ)
+function toolMat(held, task) {
+  const t = TOOL_TASKS[task]; if (!t) return null;
+  const m = String(held || '').match(/^([a-z]+)_(axe|pickaxe|hoe|shovel|sword)$/);
+  return m && m[2] === t.tool && TOOL_MATS.includes(m[1]) ? m[1] : 'hand';
+}
+
+// その素材で仕事をしている人に、target の素材の道具があったら効率がどれだけ上がるか (0〜1。仕様の事実から)
+//   掘る: 1 − 今の速さ ÷ target の速さ (素手で取れないブロックは 1)。耕す: 速さは同じなので、耐久値の差 × durW
+function toolGain(task, mat, { target = 'stone', durW = 0.3 } = {}) {
+  const t = TOOL_TASKS[task]; if (!t || !mat) return 0;
+  const S = TOOL_FACTS.speed; const D = TOOL_FACTS.durability;
+  if (t.till) return mat === 'hand' || !D[mat] ? 0 : Math.max(0, durW * (1 - D[mat] / D[target]));
+  if (t.needsTool && mat === 'hand') return 1;
+  return Math.max(0, 1 - (S[mat] || 1) / S[target]);
+}
+
 // ---- 性格 → 活動のしきい値の表 (w: その性格が高いほど θ が下がる = 腰が上がりやすい) ----
 //   論拠 (研究室の personas.js の temperament と needs.js の drives.curiosity から):
 //   farming  : empathy (皆の食べ物を育てる世話) + obedience (決まった世話を毎日続ける地道さ)
@@ -147,6 +196,9 @@ const DEFAULTS = {
   score: { beta: 0.5, gamma: 0.4, skillCut: 0.3 },
   // ほかの人の役回り: 見た/聞いた回数 (半減期 roleHalfLife 判断) が roleMin 以上で、その人の見た活動の roleShare 以上
   others: { roleHalfLife: 120, roleMin: 3, roleShare: 0.4, sayW: 0.5 },
+  // 他人のための道具 (6): toolW: 刺激の重み。toolCap: 人の和の上限。toolHalfLife: 見たことが半分になる判断の数。target: 比べる道具の素材。
+  //   durW: 耕すときの耐久値の差の重み。showMin: 言葉に出す (薄れ × gain) の下限。acts: 刺激を足す活動。sayW: 聞いた (発言) の重み
+  tools: { enabled: true, toolW: 0.4, toolCap: 1, toolHalfLife: 60, keep: 150, target: 'stone', durW: 0.3, showMin: 0.1, acts: ['mining', 'crafting'], sayW: 0.7 },
 };
 
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -169,6 +221,7 @@ class Division {
     this.seen = []; // 見た/聞いた、ほかの人がしていること [{ tick, who, act, how }]
     this.roles = {}; // 名前 → { 活動: { n, t } } (半減期で薄れる)
     this.othersSeq = 0;
+    this.toolUse = {}; // 名前 → { 仕事: { mat, t, how } } (いちばん新しく見た/聞いた道具)
     this.s = {}; this.theta = {}; this.T = {}; this.evidence = {};
     this.tick = 0;
   }
@@ -181,11 +234,12 @@ class Division {
       if (Array.isArray(d.heard)) x.heard = d.heard;
       if (Array.isArray(d.seen)) x.seen = d.seen;
       if (Number.isFinite(d.tick)) x.tick = d.tick;
+      if (isObj(d.toolUse)) x.toolUse = d.toolUse;
     }
     return x;
   }
 
-  toJSON() { return { exp: this.exp, roles: this.roles, heard: this.heard.slice(-40), seen: this.seen.slice(-80), tick: this.tick }; }
+  toJSON() { return { exp: this.exp, roles: this.roles, heard: this.heard.slice(-40), seen: this.seen.slice(-80), tick: this.tick, toolUse: this.toolUse }; }
 
   // ---- 慣れ ----
   noteAction(action, arg, ok) {
@@ -245,7 +299,66 @@ class Division {
       return acts.map((a) => ({ act: a, kind: 'request' }));
     }
     for (const a of acts) this.noteDoing(from, a, tick, 'said', this.cfg.others.sayW);
+    this.noteToolSaid(from, text, tick);
     return acts.map((a) => ({ act: a, kind: 'doing' }));
+  }
+
+  // ---- 他人のための道具 (6) ----
+  // who が task (wood・mining・farming) を mat (hand・wooden・stone…) でしていた
+  noteToolUse(who, task, mat, tick = this.tick, how = 'saw') {
+    if (!who || who === this.me || who === '自分' || !TOOL_TASKS[task] || !mat) return;
+    const r = this.toolUse[who] || (this.toolUse[who] = {});
+    r[task] = { mat, t: tick, how };
+  }
+
+  // 発言の中の「素手で木を切ってる」「木のツルハシしかない」など
+  noteToolSaid(from, text, tick = this.tick) {
+    const t = String(text || '');
+    const mat = (SAID_MAT.find(([, re]) => re.test(t)) || [])[0];
+    if (!mat) return;
+    const tasks = SAID_TASK.filter(([, re]) => re.test(t)).map(([k]) => k);
+    // 道具の種類から仕事が分かるとき (木のツルハシ → 石掘り)
+    const tm = t.match(/(斧|おの|_axe)|(ツルハシ|つるはし|_pickaxe)|(クワ|くわ|_hoe)/);
+    if (tm) tasks.push(tm[1] ? 'wood' : tm[2] ? 'mining' : 'farming');
+    for (const k of new Set(tasks)) this.noteToolUse(from, k, mat, tick, 'said');
+  }
+
+  // 見込み: [{ who, task, mat, w (薄れ), gain, v = w × gain (発言は × sayW), how }]
+  toolGaps(tick = this.tick) {
+    const c = this.cfg.tools;
+    const out = [];
+    for (const [who, r] of Object.entries(this.toolUse)) {
+      for (const [task, x] of Object.entries(r)) {
+        const w = decayed(1, x.t, tick, c.toolHalfLife) * (x.how === 'said' ? c.sayW : 1);
+        const gain = toolGain(task, x.mat, { target: c.target, durW: c.durW });
+        out.push({ who, task, mat: x.mat, how: x.how, w: r3(w), gain: r3(gain), v: r3(w * gain) });
+      }
+    }
+    return out;
+  }
+
+  // 人ごとの和 (人の中では仕事の最大)。返り値 { total, people: [{ who, v }], rows }
+  toolNeed(tick = this.tick) {
+    const rows = this.toolGaps(tick);
+    const per = {};
+    for (const x of rows) per[x.who] = Math.max(per[x.who] || 0, x.v);
+    const total = Object.values(per).reduce((t, v) => t + v, 0);
+    return { total: r3(total), people: Object.entries(per).map(([who, v]) => ({ who, v: r3(v) })), rows };
+  }
+
+  // 言葉 (事実だけ): 「Ken・Maiが素手や木の道具で木を切り、畑を耕しているのを見た」
+  toolText({ lang = 'ja', tick = this.tick } = {}) {
+    const c = this.cfg.tools;
+    const rows = this.toolGaps(tick).filter((x) => x.v >= c.showMin);
+    if (!rows.length) return '';
+    const en = lang === 'en';
+    const who = [...new Set(rows.sort((a, b) => b.v - a.v).map((x) => x.who))].slice(0, 3);
+    const mats = ['hand', ...TOOL_MATS].filter((m) => rows.some((x) => x.mat === m));
+    const tasks = ['wood', 'mining', 'farming'].filter((k) => rows.some((x) => x.task === k));
+    const seen = rows.some((x) => x.how !== 'said'); const said = rows.some((x) => x.how === 'said');
+    if (en) return `${seen && said ? 'saw or heard' : said ? 'heard' : 'saw'} ${who.join(', ')} ${tasks.map((k) => TOOL_TASK_EN[k]).join(' and ')} with ${mats.map((m) => TOOL_MAT_EN[m]).join(' or ')}`;
+    const tj = tasks.map((k, i) => TOOL_TASK_JA[k][i === tasks.length - 1 ? 1 : 0]).join('、');
+    return `${who.join('・')}が${mats.map((m) => TOOL_MAT_JA[m]).join('や')}で${tj}のを${seen && said ? '見聞きした' : said ? '聞いた' : '見た'}`;
   }
 
   noteDoing(who, act, tick = this.tick, how = 'saw', w = 1) {
@@ -264,7 +377,12 @@ class Division {
       if (!(e.seq > this.othersSeq)) continue;
       this.othersSeq = e.seq;
       const a = itemActivity(e.name);
-      if (a) this.noteDoing(e.who, a, tick, e.kind === 'pickup' ? 'saw_pickup' : 'saw_break');
+      if (a) this.noteDoing(e.who, a, tick, e.kind === 'pickup' ? 'saw_pickup' : e.kind === 'till' ? 'saw_till' : 'saw_break');
+      // 道具 (6): 壊した・耕したときの手の物 (見えていたときだけ tool がある)
+      if (e.tool !== undefined && (e.kind === 'break' || e.kind === 'till')) {
+        const task = e.kind === 'till' ? 'farming' : Object.keys(TOOL_TASKS).find((k) => TOOL_TASKS[k].blocks && TOOL_TASKS[k].blocks.test(e.name));
+        if (task) this.noteToolUse(e.who, task, toolMat(e.tool, task), tick, 'saw');
+      }
     }
   }
 
@@ -332,6 +450,17 @@ class Division {
       ev[a].ja.push(`${sh.note || '取り決め'}: ${sh.item} あと${sh.add || 1}`);
       ev[a].en.push(`${sh.noteEn || 'agreement'}: ${sh.item}, ${sh.add || 1} more`);
     }
+    // 他人のための道具 (6): ほかの人が素手・木の道具でしていた仕事の、石の道具での効率の伸び
+    const tc = this.cfg.tools;
+    if (tc && tc.enabled) {
+      const tn = this.toolNeed(tick);
+      const add = tc.toolW * Math.min(tc.toolCap, tn.total);
+      if (add > 0) {
+        const tj = this.toolText({ tick }); const te = this.toolText({ lang: 'en', tick });
+        for (const a of tc.acts) { raw[a] += add; if (tj) { ev[a].ja.push(tj); ev[a].en.push(te); } }
+      }
+      this.toolAdd = r3(add);
+    }
     // ほかの人がしているのを見た/聞いた (人ごとに1まで、半減期で薄れる)
     const cover = Object.fromEntries(ACTIVITIES.map((a) => [a, {}]));
     for (const s of this.seen) {
@@ -366,6 +495,7 @@ class Division {
   snapshot(act = undefined) {
     const nz = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0));
     const out = { s: nz(this.s), theta: { ...this.theta }, T: nz(this.T), fam: nz(this.fam()) };
+    if (this.toolAdd > 0) out.tool = this.toolAdd;
     if (act !== undefined) out.act = act;
     return out;
   }
@@ -438,4 +568,4 @@ function dolIndex(counts, acts = ACTIVITIES) {
     groupSpread: r3(Hact / K), activityShare: Object.fromEntries(acts.map((a, i) => [a, r3(pAct[i])]).filter(([, v]) => v > 0)), giniByActivity, perAgent };
 }
 
-module.exports = { Division, DEFAULTS, ACTIVITIES, ACT_JA, ACT_EN, STUFF_JA, TRAIT_ACT, itemActivity, goalActivity, actionActivity, textActivities, response, countsText, dolIndex, entropy, gini, REQUEST };
+module.exports = { TOOL_FACTS, TOOL_TASKS, toolMat, toolGain, Division, DEFAULTS, ACTIVITIES, ACT_JA, ACT_EN, STUFF_JA, TRAIT_ACT, itemActivity, goalActivity, actionActivity, textActivities, response, countsText, dolIndex, entropy, gini, REQUEST };

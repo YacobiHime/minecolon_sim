@@ -40,6 +40,15 @@ const STRESS_SOURCE = {
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function r2(v) { return Math.round(v * 100) / 100; }
+function r1(v) { return Math.round(v * 10) / 10; }
+
+// 好感の動き (2026-11-07 ユーザー決定「上がり幅を小さく、上限・下限に近いほど動きにくく」)。
+//   変化 = 基の幅 × 残りの割合。残りの割合 = min(1, 残りの幅 ÷ room)。残りの幅は、上がるときは 100 − 好感、下がるときは 好感 − 0。
+//   つまり 50 から上下 room までの所は基の幅のまま、そこから先は端に近いほど小さくなる (端で 0)。下がる方向も同じ形。
+//   scoreStep: Jev の Score (0〜4、2 が変わらない) の 1 段あたりの基の幅 (前は 6、最大 ±12)。
+//   events: 出来事ごとの基の幅 (物をもらった・教えてもらった・知らなかった・返事がなかった・聞かれて答えた (× (0.5 + empathy)))。
+//   roomScale: false で前の形 (残りの割合を掛けない、端で切るだけ)
+const AFFINITY_DEFAULTS = { scoreStep: 1.5, room: 50, roomScale: true, events: { received: 3, answered: 4, notKnown: -1, ignored: -3, asked: 1 } };
 
 class Social {
   constructor(opts = {}) {
@@ -48,6 +57,8 @@ class Social {
     this.emotions = { ...EMO_BASE };
     this.needsModel = new Needs({ cfg: opts.needs || {}, temperament: this.temperament });
     this.relations = {}; // name -> { affinity, trust, talks, helpedMe, iHelped, ignoredMe, met, note }
+    const af = opts.affinity || {};
+    this.aff = { ...AFFINITY_DEFAULTS, ...af, events: { ...AFFINITY_DEFAULTS.events, ...(af.events || {}) } };
     this.decay = opts.decay ?? 0.85; // 1ループごとに基準値との差がこの割合に縮む
     this.lastTalkTick = 0;
   }
@@ -72,6 +83,17 @@ class Social {
   rel(name) {
     if (!this.relations[name]) this.relations[name] = { affinity: 50, trust: 0.5, talks: 0, helpedMe: 0, iHelped: 0, ignoredMe: 0, met: false, note: '' };
     return this.relations[name];
+  }
+
+  // 好感を d (基の幅) だけ動かす。端に近いほど小さく (AFFINITY_DEFAULTS)。返り値: 実際に動いた幅
+  moveAffinity(name, d) {
+    const r = this.rel(name);
+    if (!Number.isFinite(d) || d === 0) return 0;
+    const a = r.affinity;
+    const left = d > 0 ? 100 - a : a;
+    const f = this.aff.roomScale ? clamp(left / (this.aff.room || 50), 0, 1) : 1;
+    r.affinity = r1(clamp(a + d * f, 0, 100));
+    return r1(r.affinity - a);
   }
 
   bump(emo, d) { this.emotions[emo] = r2(clamp(this.emotions[emo] + d, 0, 10)); }
@@ -145,7 +167,7 @@ class Social {
   onReceived(from) {
     const r = this.rel(from);
     r.helpedMe += 1;
-    r.affinity = clamp(r.affinity + 6, 0, 100);
+    this.moveAffinity(from, this.aff.events.received);
     r.note = '前に物をくれた';
     this.needsModel.onHelpedBy(from);
     this.bump('joy', 1);
@@ -166,13 +188,13 @@ class Social {
     const r = this.rel(from);
     if (known) {
       r.helpedMe += 1;
-      r.affinity = clamp(r.affinity + 8, 0, 100);
+      this.moveAffinity(from, this.aff.events.answered);
       r.trust = r2(clamp(r.trust + 0.1, 0, 1));
       r.note = '前にやり方を教えてくれた';
       this.bump('joy', 1.2);
       this.needsModel.onHelpedBy(from);
     } else {
-      r.affinity = clamp(r.affinity - 1, 0, 100);
+      this.moveAffinity(from, this.aff.events.notKnown);
       r.note = r.note || '聞いたが知らなかった';
     }
   }
@@ -180,7 +202,7 @@ class Social {
   onIgnored(from) {
     const r = this.rel(from);
     r.ignoredMe += 1;
-    r.affinity = clamp(r.affinity - 5, 0, 100);
+    this.moveAffinity(from, this.aff.events.ignored);
     r.note = '聞いたのに返事がなかった';
     this.bump('sadness', 0.6);
   }
@@ -189,14 +211,13 @@ class Social {
   onAsked(by, answered, tick = this.lastTalkTick) {
     const r = this.rel(by);
     if (answered) { r.iHelped += 1; this.needsModel.onHelpedOther(by, { tick, asked: true }); }
-    r.affinity = clamp(r.affinity + 2 * (0.5 + this.temperament.empathy), 0, 100);
+    this.moveAffinity(by, this.aff.events.asked * (0.5 + this.temperament.empathy));
   }
 
-  // Jev の Score (0〜4: とても悪くなった〜とても良くなった) で好感を動かす
+  // Jev の Score (0〜4: とても悪くなった〜とても良くなった) で好感を動かす。基の幅 = (score − 2) × scoreStep (既定 1.5、最大 ±3)
   onRelationScore(name, score) {
     if (!Number.isFinite(score)) return;
-    const r = this.rel(name);
-    r.affinity = Math.round(clamp(r.affinity + (score - 2) * 6, 0, 100));
+    this.moveAffinity(name, (score - 2) * this.aff.scoreStep);
   }
 
   // いちばんつらいこと { need, label, text } | null
@@ -230,4 +251,4 @@ class Social {
   }
 }
 
-module.exports = { Social, EMOTIONS, NEED_LABEL };
+module.exports = { Social, EMOTIONS, NEED_LABEL, AFFINITY_DEFAULTS };

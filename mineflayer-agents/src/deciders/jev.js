@@ -161,6 +161,8 @@ function buildStateEn(ctx, opts = {}) {
   if (b && b.open && Object.keys(b.open).length) st.open_proposals = b.open;
   // 見聞きした、ほかの人が最近よくしていること (division.js。人の名前 → 英語の言葉)
   if (e.othersDoing && Object.keys(e.othersDoing).length) st.others_doing = e.othersDoing;
+  // 自分の経験 (experience.js。対象ごとに試した回数・手に入ったか・かかった時間)
+  if (Array.isArray(e.experience) && e.experience.length) st.experience = e.experience;
   return st;
 }
 
@@ -255,6 +257,7 @@ function buildQuestionsEn(ctx, opts) {
         : ctx.goalPlan ? '`plan` is the goal `you` set for yourself and the step `you` are on now. '
         : ctx.selfGoal ? '`plan` is the goal `you` set for yourself and its steps. ' : ctx.progress ? '`plan` lists the steps; the step marked 「← 次はこれ」 is next. ' : '')
       + (ctx.en && ctx.en.othersDoing && Object.keys(ctx.en.othersDoing).length ? '`others_doing` is what `you` have seen or heard other people often doing lately. ' : '')
+      + (ctx.en && Array.isArray(ctx.en.experience) && ctx.en.experience.length ? '`experience` is what `you` tried before as goals and how it went (and what `you` heard from others about it). ' : '')
       + (boardKeysText(ctx))
       + 'Check `inventory`, `visible`, `nearby` and `memory`. Do not repeat an action that just failed in `last_result` unless something changed.'
       + (ctx.askHint === false ? '' : ' If `troubled` is present and an ask option exists, asking a nearby player is a good choice.'),

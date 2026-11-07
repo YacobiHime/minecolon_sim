@@ -37,6 +37,7 @@ const knowledge = require('./knowledge');
 const { Board, DEFAULTS: BOARD_DEFAULTS, parseLine, line: boardLine, chestLabelJa } = require('./board');
 const { jaName, SUFFIX: JA_SUFFIX } = require('./names_ja');
 const { Division, countsText } = require('./division');
+const { Experience, expKey } = require('./experience');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
@@ -253,12 +254,15 @@ class Agent {
     this.talker = talker;
     this.help = helpOf(cfg);
     this.memory = Memory.load(cfg.memory.file, { limits: cfg.memory.limits });
-    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona) });
+    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona), affinity: (cfg.social && cfg.social.affinity) || {} });
     // 分業 (division.js): 慣れ・集団の必要 (刺激)・反応しきい値。cfg.division.enabled: true で使う
     this.division = cfg.division && cfg.division.enabled
       ? Division.fromJSON(this.memory.extra.division, { cfg: cfg.division, temperament: cfg.persona.temperament || {}, drives: (needsConfig(cfg, cfg.persona).drives) || {}, me: cfg.persona.name })
       : null;
     this.divisionExpAt = this.division ? this.division.copyExp() : null; // 前の振り返りのときの回数
+    // 経験 (experience.js): ゴールの対象ごとの試した・達成した・かかった時間。help.goalPath のとき (cfg.experience.enabled: false で使わない)
+    this.experience = this.help.goalPath && !(cfg.experience && cfg.experience.enabled === false)
+      ? Experience.fromJSON(this.memory.extra.experience, { cfg: cfg.experience || {} }) : null;
     this.recorder = new Recorder(recordDir || cfg.record.dir, cfg.persona.name, recordStamp);
     this.heardBuf = [];
     // 近くの人の位置 (people.js)。entity が一時的に無いときに最後の位置を staleMs まで使う。onChat の距離・raw.people に使う
@@ -309,7 +313,7 @@ class Agent {
     if (this.help.goalPath) {
       this.goalPlan = null;
       this.goalPath = new GoalPath({ cfg: cfg.goalPath || {}, llmOpts: llmOptsFor(cfg, 'goal', (cfg.goalPath && cfg.goalPath.llm) || {}), meter,
-        jev: decider && decider.kind === 'jev' ? decider : null, order: this.order,
+        jev: decider && decider.kind === 'jev' ? decider : null, order: this.order, experience: this.experience,
         log: (e) => { this.recorder.write({ event: 'goal_path', ...e }); if (this.reflect) this.reflect.noteGoal(e); if (this.division) this.division.noteGoal(e); } });
     } else this.goalPath = null;
     // 振り返りと方針 (cfg.reflect。reflect.js)。ゴール (help.goalPath) と一緒に使う
@@ -442,6 +446,7 @@ class Agent {
       // 聞いた内容は記憶に「Taro は〜と言っていた (いつ)」の形で残り、時間とともに薄れる (memory.js)
       this.memory.noteHeard(m.from, m.text, 0.3, { global: true, at: this.phaseSafe() });
       if (this.division) this.division.noteHeard(m.from, m.text, tick);
+      if (this.experience) this.experience.noteHeard(m.from, m.text, tick, me);
       this.recorder.write({ event: 'board', kind: 'seen', from: m.from, to: me, msgKind: m.kind, pid: m.pid || null, text: m.text, why: m.why, hit: m.hit, loop: tick });
     }
     const open = this.board.openFor(me, this.boardAsked);
@@ -689,7 +694,7 @@ class Agent {
     });
     bot.on('blockBreakProgressObserved', (block, stage, entity) => {
       const who = nameOf(entity);
-      if (who && block) o.noteBreakProgress({ who, self: bot.username, pos: block.position });
+      if (who && block) o.noteBreakProgress({ who, self: bot.username, pos: block.position, tool: entity.heldItem ? entity.heldItem.name : null });
     });
     bot.on('diggingCompleted', (block) => { if (block) o.noteMyDig(block.position); });
     bot.on('blockUpdate', (oldB, newB) => {
@@ -698,8 +703,10 @@ class Agent {
         // 自分が掘り終えた直後 (mineflayer は掘り終えたとき lastDigTime を新しくしてから空気にする) は自分の分
         const p0 = me();
         if (p0 && bot.lastDigTime && performance.now() - bot.lastDigTime < 500 && newB.position.offset(0.5, 0.5, 0.5).distanceTo(p0) <= 6) o.noteMyDig(newB.position);
-        const players = Object.values(bot.players).filter((p) => p.username !== bot.username && p.entity).map((p) => ({ name: p.username, pos: p.entity.position }));
-        o.noteBlockGone({ pos: newB.position, oldName: oldB.name, newName: newB.name, me: me(), players });
+        // held: その人が手に持っている物 (エンティティの equipment。見えている分)
+        const players = Object.values(bot.players).filter((p) => p.username !== bot.username && p.entity).map((p) => ({ name: p.username, pos: p.entity.position, held: p.entity.heldItem ? p.entity.heldItem.name : null }));
+        if (newB.name === 'farmland') o.noteTill({ pos: newB.position, oldName: oldB.name, newName: newB.name, me: me(), players });
+        else o.noteBlockGone({ pos: newB.position, oldName: oldB.name, newName: newB.name, me: me(), players });
       } catch (_) { /* ignore */ }
     });
   }
@@ -1043,6 +1050,7 @@ class Agent {
     for (const l of learnedNear) this.recorder.write({ event: 'heard_place', via: 'near', from: l.from, to: cfg.persona.name, text: l.text, places: l.places, d: l.d, loop: tick });
     for (const h of raw.heard) this.social.onHeard(h.from, tick, h.text);
     if (this.division) { for (const h of raw.heard) this.division.noteHeard(h.from, h.text, tick); if (this.others) this.division.noteOthers(this.others.events, tick); }
+    if (this.experience) for (const h of raw.heard) this.experience.noteHeard(h.from, h.text, tick, cfg.persona.name);
     const steps = this.help.steps ? cfg.goal.steps : null;
     this.social.tick({ tick, raw, sense: this.senseNeeds(raw, { newCell: !knownCell, cell: knownCell }) });
     const forgotten = this.memory.forget();
@@ -1147,7 +1155,8 @@ class Agent {
       const reason = this.reflect.due({ tick, timeOfDay: raw.self.timeOfDay, day: raw.self.day, canSleep: ctx.actions.some((a) => a.name === 'sleep') });
       if (reason) {
         const activityFacts = this.division ? countsText(this.division.countsSince(this.divisionExpAt)) : '';
-        const pol = await this.reflect.run({ persona: cfg.persona, socialText, activityFacts, laterText: this.memory.laterTexts(raw.self.pos, memPlacesNow).join('\n') }, tick, reason);
+        const experienceFacts = this.experience ? this.experience.lines({ max: 3 }) : [];
+        const pol = await this.reflect.run({ persona: cfg.persona, socialText, activityFacts, experienceFacts, laterText: this.memory.laterTexts(raw.self.pos, memPlacesNow).join('\n') }, tick, reason);
         if (this.division) this.divisionExpAt = this.division.copyExp();
         reflected = reason;
         if (pol) this.log(`[${cfg.persona.name}] 振り返り (${reason}): ${pol.text} / ${pol.why || ''}`);
@@ -1185,6 +1194,12 @@ class Agent {
         const od = {};
         for (const p of this.peopleList(raw)) if (p.doingEn) od[p.name] = p.doingEn;
         ctx.en.othersDoing = od;
+      }
+      // 経験 (今のゴールの対象を先に、英語の言葉で)
+      if (this.experience) {
+        const g = this.goalPath.goal;
+        const ex = this.experience.lines({ lang: 'en', max: 3, first: g ? [expKey(g)] : [] });
+        if (ex.length) ctx.en.experience = ex;
       }
       ctx.en.obs = obsEn(raw, cfg, ctx.progress, !!(this.memory.extra && this.memory.extra.myBed));
       ctx.pathNext = this.goalPath.pathNext();
@@ -1302,6 +1317,7 @@ class Agent {
     const stepSt = steps ? stepStatus(steps, raw).map((s) => s.done) : null;
     this.memory.extra.social = this.social.toJSON();
     if (this.division) this.memory.extra.division = this.division.toJSON();
+    if (this.experience) this.memory.extra.experience = this.experience.toJSON();
 
     this.recorder.write({
       loop: loopNo,
@@ -1529,7 +1545,7 @@ class Agent {
     }
     // 発言・答えの途中なら少し待つ (記録を閉じる前に)
     for (let i = 0; i < 60 && (this.talking || this.answering); i++) await sleep(250);
-    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, reflect: this.reflect ? { count: this.reflect.count, history: this.reflect.history } : null, division: this.division ? { exp: this.division.exp, fam: this.division.fam(), roles: Object.fromEntries(Object.keys(this.division.roles).map((n) => [n, this.division.rolesOf(n)])) } : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON(), board: this.board ? this.board.snapshot() : null });
+    this.recorder.write({ event: 'end', loops: loopNo, goalAt: this.goalAt, deaths: this.deaths.length, selfGoals: this.selfGoal ? this.selfGoal.history.length : null, goalPlan: this.goalPlan ? { counts: this.goalPlan.counts, history: this.goalPlan.history } : null, goalPath: this.goalPath ? { counts: this.goalPath.counts, history: this.goalPath.history } : null, reflect: this.reflect ? { count: this.reflect.count, history: this.reflect.history } : null, division: this.division ? { exp: this.division.exp, fam: this.division.fam(), roles: Object.fromEntries(Object.keys(this.division.roles).map((n) => [n, this.division.rolesOf(n)])) } : null, experience: this.experience ? this.experience.snapshot() : null, baseSite: this.baseSeen ? this.baseSeen.site : null, memoryForgotten: this.memory.forgotten, social: this.social.toJSON(), board: this.board ? this.board.snapshot() : null });
     this.memory.extra.social = this.social.toJSON();
     this.memory.save();
     await this.recorder.close();

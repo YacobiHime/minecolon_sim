@@ -3,8 +3,8 @@
   "personas": [
     {
       "name": "Taro",
-      "personality": "まじめで少しのんびりした木こり。",
-      "personality_en": "Earnest and a little easygoing woodcutter.",
+      "personality": "まじめで少しのんびりしている。",
+      "personality_en": "Earnest and a little easygoing.",
       "speech": "くだけた短い日本語。語尾に「〜だな」をよく使う。",
       "temperament": {
         "bravery": 0.5,
@@ -577,6 +577,35 @@
       "roleMin": 3,
       "roleShare": 0.4,
       "sayW": 0.5
+    },
+    "tools": {
+      "_comment": "他人のための道具 (2026-11-07 ユーザー決定): ほかの人が壊した・耕したときの手の物 (others.js) と発言 (素手で・木の斧で) から、その人の仕事 (wood・mining・farming) を石の道具でしたらどれだけ効率が上がるか (gain: 掘る速さ 素手1・木2・石4・鉄6 の比、石は素手で取れない=1、耕すは耐久値 木59・石131 の差 × durW) を見積もる。生の刺激 += toolW × min(toolCap, Σ_人 薄れ × gain) を acts (石掘り・物を作ること) に足す。言葉は事実だけ (「Ken・Maiが素手や木の道具で木を切っているのを見た」)",
+      "enabled": true,
+      "toolW": 0.4,
+      "toolCap": 1,
+      "toolHalfLife": 60,
+      "target": "stone",
+      "durW": 0.3,
+      "showMin": 0.1,
+      "sayW": 0.7,
+      "acts": ["mining", "crafting"]
+    }
+  },
+  "experience": {
+    "_comment": "経験から確実さと効率を学ぶ (src/experience.js。2026-11-07 ユーザー決定)。ゴールの対象 (物・状態・人・場所) ごとに 試した・達成した・かかった判断とゲーム内の時間・諦めた理由。選べる行動が無くて失敗したのも同じ1回。成功の見込み q = (k0 m0 + 達成 + hw 聞いた達成) / (k0 + 試した + hw 聞いた試し)、点の分子に q / m0 を掛ける (経験が無ければ1)。手間 = (kc × planner の手間 + n × 1回あたりの判断の数 × perDecision) / (kc + n)。言葉 (「生の鮭は3回試して、手に入らなかった (計約6分)」) を 2B のゴール作り・振り返り・Jev の state に出す。聞いた経験 (「鮭は取れない」) は heard.weight で弱く、同じ人から maxPerSpeaker 回まで",
+    "enabled": true,
+    "prior": { "mean": 0.8, "strength": 3 },
+    "cost": { "strength": 2, "perDecision": 0.25 },
+    "heard": { "enabled": true, "weight": 0.3, "maxPerSpeaker": 2 },
+    "words": { "maxLines": 5, "ticksPerMinute": 1200 }
+  },
+  "social": {
+    "affinity": {
+      "_comment": "好感の動き (src/social.js。2026-11-07 ユーザー決定「上がり幅を小さく、端に近いほど動きにくく」): 変化 = 基の幅 × min(1, 残りの幅 / room)。残りの幅は上がるとき 100 − 好感、下がるとき 好感。Jev の Score の基の幅 = (score − 2) × scoreStep (前は 6)。出来事の基の幅も前の約半分 (前: もらった +6・教えてもらった +8・知らなかった −1・返事なし −5・聞かれて答えた +2)",
+      "scoreStep": 1.5,
+      "room": 50,
+      "roomScale": true,
+      "events": { "received": 3, "answered": 4, "notKnown": -1, "ignored": -3, "asked": 1 }
     }
   },
   "others": {
