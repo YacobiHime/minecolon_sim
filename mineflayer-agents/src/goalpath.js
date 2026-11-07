@@ -88,10 +88,11 @@ const WAIT_WHY = 'もう植えてあって、あとは育つのを待つだけ';
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
 const NEED_LABELS = Object.values(NEED_LABEL);
 // 先のつらさの英語のキー (Jev の state.later) と、案ごとの質問 (事実を問う形。評価語を入れない)
-const LATER_EN = { night: 'night', food: 'food' };
+const LATER_EN = { night: 'night', food: 'food', tool: 'tool' };
 const LATER_Q = {
   night: (p) => `If \`you\` achieved \`proposals.${p}\`, would that help \`you\` when the night that \`later.night\` describes comes?`,
   food: (p) => `If \`you\` achieved \`proposals.${p}\`, would that help \`you\` have food later, given what \`later.food\` describes?`,
+  tool: (p) => `If \`you\` achieved \`proposals.${p}\`, would that help \`you\` still have a working tool later, given what \`later.tool\` describes?`,
 };
 
 function parseJson(text) {
@@ -1029,7 +1030,9 @@ class GoalPath {
     const dv = ctx.division || null;
     const dsc = dv ? dv.score || {} : {};
     const acts = dv ? valid.map((v) => dv.activityOf(v.pg)) : null;
-    const Tarr = dv ? acts.map((a) => (a && dv.T[a]) || 0) : null;
+    // 物単位の刺激 (division.goalT。聞いた頼みごと・独り言・共有のチェストの道具の数) があれば、活動の刺激と足して T を作る
+    const Tarr = dv ? valid.map((v, i) => (dv.Tof ? dv.Tof(v.pg) : (acts[i] && dv.T[acts[i]]) || 0)) : null;
+    const sItemArr = dv && dv.goalT ? valid.map((v) => { const g = dv.goalT(v.pg); return g.item ? { item: g.item, s: g.sItem } : null; }) : null;
     const famArr = dv ? acts.map((a) => (a && dv.fam[a]) || 0) : null;
     const divOpt = dv ? { T: Tarr, beta: dsc.beta ?? 0, gamma: dsc.gamma ?? 0 } : null;
     // 経験 (experience.js): 成功の見込みの比 (q ÷ m0) を点に掛け、手間を実際にかかった判断の数で直す
@@ -1041,7 +1044,7 @@ class GoalPath {
     const rawCosts = valid.map((v, i) => (Number.isFinite(expCost[i]) ? expCost[i] : null));
     const planCosts = valid.map((v, i) => (Number.isFinite(v.cost) ? v.cost * (dv ? 1 - (dsc.skillCut ?? 0) * famArr[i] : 1) : null)); // 経験を入れなかったら
     if (ex) record.experience = { q: expS.map((x) => x.q), factor: expS.map((x) => x.factor), n: expS.map((x) => x.n), planCost: valid.map((v) => (Number.isFinite(v.cost) ? Math.round(v.cost * 100) / 100 : null)), cost: expCost.map((c) => (Number.isFinite(c) ? Math.round(c * 100) / 100 : null)) };
-    if (dv) record.division = { acts, T: Tarr, fam: famArr, s: acts.map((a) => (a && dv.s[a]) || 0), theta: acts.map((a) => (a && dv.theta[a]) || null), beta: divOpt.beta, gamma: divOpt.gamma, skillCut: dsc.skillCut ?? 0 };
+    if (dv) record.division = { acts, T: Tarr, fam: famArr, s: acts.map((a) => (a && dv.s[a]) || 0), theta: acts.map((a) => (a && dv.theta[a]) || null), beta: divOpt.beta, gamma: divOpt.gamma, skillCut: dsc.skillCut ?? 0, ...(sItemArr && sItemArr.some(Boolean) ? { item: sItemArr } : {}) };
     if (!needs.length && !later.length) {
       // つらい欲求が無い: 刺激 (T) があれば gamma × T ÷ (1 + alpha × 手間') の最大 (Jev は呼ばない)。無ければ 2B が先に書いた案
       if (dv && Tarr.some((t) => t > 0) && divOpt.gamma > 0) {

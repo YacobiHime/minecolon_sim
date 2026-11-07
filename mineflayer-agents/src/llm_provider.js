@@ -14,7 +14,7 @@ const fs = require('fs');
 
 const ROLES = ['goal', 'talk', 'reflect', 'answer', 'broadcast', 'act'];
 // talker の kind → 役
-const KIND_ROLE = { talk: 'talk', answer: 'answer', broadcast: 'broadcast', propose: 'broadcast', report_find: 'broadcast' };
+const KIND_ROLE = { talk: 'talk', answer: 'answer', broadcast: 'broadcast', propose: 'broadcast', report_find: 'broadcast', voice_mutter: 'talk', voice_near: 'talk', voice_all: 'broadcast' };
 
 // 料金は 100万トークンあたりの US ドル。分からないときは null (= 未設定。費用は 0 として数え、記録に「未設定」と残す)
 const PROVIDER_DEFAULTS = {

@@ -115,6 +115,7 @@ class Social {
       // 先のつらさ (anticipate.js) の材料: 持ち物・着けている物・見えている生き物とブロック・何日目か
       if (!s.inventory && raw.inventory) s.inventory = raw.inventory;
       if (!s.worn && raw.self.worn) s.worn = raw.self.worn;
+      if (!s.tools && raw.tools) s.tools = raw.tools; // 道具の耐久 (先の道具切れ)
       if (!s.entities) s.entities = ents;
       if (!s.blocks && raw.blocks) s.blocks = raw.blocks;
       if (s.day == null && raw.self.day != null) s.day = raw.self.day;

@@ -167,6 +167,7 @@ const handlers = {
     let dug = 0;
     const tools = []; // 掘ったときに持っていた道具 (素手は null)
     let digMs = 0; // 掘っていた時間の合計 (歩く・拾うは入れない)
+    const broke = []; // 掘っている間に壊れた道具
     let lastPos = null;
     let lastErr = '';
     const bad = new Set();
@@ -202,9 +203,12 @@ const handlers = {
         if (!b || b.name !== name) { bad.add(p.toString()); continue; }
         if (!bot.canDigBlock(b)) { lastErr = '手が届かない'; bad.add(p.toString()); continue; }
         const tool = await equipBestTool(bot, b);
+        const toolN = tool ? invCount(bot, tool) : 0;
         const t0 = Date.now();
         await bot.dig(b, true);
         digMs += Date.now() - t0;
+        // 掘っている間に道具が壊れた (持ち物からその道具が1つ減った)
+        if (tool && invCount(bot, tool) < toolN) broke.push(tool);
         tools.push(tool);
         dug += 1;
         lastPos = p;
@@ -217,15 +221,16 @@ const handlers = {
     }
     // 拾った数は掘った物だけで数える (pathfinder が足場に土などを使うと、持ち物の合計が減ることがある)
     const got = invCount(bot, dropName(bot, name)) - beforeItem;
-    if (dug === 0) return { ok: false, msg: lastErr || `${name}を掘れなかった` };
+    const brokeTxt = broke.length ? ` (${broke.join('・')}が壊れた)` : '';
+    if (dug === 0) return { ok: false, msg: `${lastErr || `${name}を掘れなかった`}${brokeTxt}`, ...(broke.length ? { broke } : {}) };
     // 名前の違う物が落ちることがある (草 → 種、小麦 → 小麦と種、にんじん → carrot)。増えた物を全部書く
     const gained = invDiff(beforeAll, invMapAll(bot)).filter((x) => x.d > 0);
     const other = gained.filter((x) => x.name !== dropName(bot, name));
     const otherTxt = other.length ? ` (${other.map((x) => `${x.name}+${x.d}`).join(', ')})` : '';
     return {
       ok: got > 0 || other.length > 0,
-      msg: `${name}を${toolText(tools)}${dug}個掘って${got}個拾った${otherTxt} (${digTimeText(digMs)})${lastErr ? '(' + lastErr + ')' : ''}`,
-      tools: [...new Set(tools.map((t) => t || 'hand'))], digMs,
+      msg: `${name}を${toolText(tools)}${dug}個掘って${got}個拾った${otherTxt} (${digTimeText(digMs)})${brokeTxt}${lastErr ? '(' + lastErr + ')' : ''}`,
+      tools: [...new Set(tools.map((t) => t || 'hand'))], digMs, block: name, dug, ...(broke.length ? { broke } : {}),
     };
   },
 

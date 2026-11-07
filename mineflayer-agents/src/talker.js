@@ -100,11 +100,38 @@ class Talker {
           : 'project が物を何個そろえる (集める・作る) 目標なら item と count を書く。当てはまらない欄は空の文字列にする。そうでなければ kind: other。',
         'say に提案の文を短い日本語(40字以内)で書く。JSON {"kind":"...","item":"...","chest":"...","count":1,"say":"..."} だけを出力する。'].join('\n') },
       { role: 'user', content: [...this.contextLines(ctx),
+        ctx.toolFacts ? `## 道具のこと (見聞きした事実)\n${ctx.toolFacts}` : '',
         `## 物の名前 (手間: 自分が手に入れるときの手間)\n${(ctx.items || []).map((n) => (eff[n] ? `${n} (手間: ${eff[n]})` : n)).join(', ') || 'なし'}`,
         rule ? `## チェスト\n${chestLine.join('\n')}` : '## チェスト\n共有のチェストはまだない',
         '提案を JSON で。'].filter(Boolean).join('\n') },
     ];
   }
+
+  // 道具の不満を声に出す (toolwant.js が形を決める)。ctx.form: mutter (独り言) | near (近くの人に頼む) | all (全員に頼む)、
+  //   ctx.wantItem: 欲しい物の名前、ctx.wantFacts: 自分の作業の事実と仕様 (toolwant.factsText)。どう頼むとよいかは書かない
+  voiceMessages(ctx) {
+    const form = ctx.form;
+    const how = form === 'mutter'
+      ? '誰かに向けてではなく、ひとりごとをつぶやく。近くに人がいれば聞こえることもある。短い日本語(25字以内)。'
+      : form === 'all' ? '全員に届く声で頼みごとをする (近くにいない人にも届く)。短い日本語(40字以内)。'
+        : `近くの人 (${ctx.nearText || 'そばの人'}) に頼みごとをする。短い日本語(30字以内)。`;
+    return [
+      { role: 'system', content: [...personaLines(ctx.persona), ...(ctx.goal && ctx.goal.text ? [`目標: ${ctx.goal.text}`] : []),
+        `${how}自分の気持ちと関係に合った言い方にする。物の名前は英語の名前 (例 ${ctx.wantItem || 'stone_axe'}) か日本語の名前で言う。JSON {"say":"..."} だけを出力する。`].join('\n') },
+      { role: 'user', content: [
+        `## 体と心・人間関係\n${ctx.socialText || 'なし'}`,
+        ctx.plan ? `## 今していること\n${ctx.plan}` : '',
+        `## 欲しい物\n${ctx.wantItem}`,
+        `## 自分の作業のこと (事実)\n${ctx.wantFacts || 'なし'}`,
+        form === 'mutter' ? '' : `## 近くの人\n${ctx.nearText || 'なし'}`,
+        `## 今聞こえた話\n${ctx.heardText || 'なし'}`,
+        form === 'all' ? ctx.boardText || '' : '',
+        form === 'mutter' ? 'つぶやくことを JSON で。' : '言うことを JSON で。',
+      ].filter(Boolean).join('\n') },
+    ];
+  }
+
+  voice(ctx) { return this.run(`voice_${ctx.form}`, this.voiceMessages(ctx)); }
 
   contextLines(ctx) {
     return [

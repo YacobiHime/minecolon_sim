@@ -1,4 +1,5 @@
 'use strict';
+const { toolsOfItems } = require('./toolfacts');
 // observe: 1人のボットが「今」知ることのできる情報だけを集める。
 // - 自分の状態 (位置・体力・空腹・持ち物・昼夜)
 // - 視界: 半径 visionRadius 以内で、目から視線が通る (raycast で最初に当たる) ブロックとエンティティ
@@ -167,6 +168,7 @@ function collectRaw(bot, opts = {}) {
       worn: wornItems(bot), // 着けている防具ともう片方の手の物 (inventory.items() には入らない)
     },
     inventory: summarizeInventory(items),
+    tools: toolsOfItems(items), // 道具の耐久 [{ name, used, max, left, frac }] (toolfacts.js)
     blocks,
     entities,
     people,

@@ -384,6 +384,7 @@
         "greed": 0.5,
         "sociability": 0.4
       },
+      "toolVoice": { "_comment": "よくぶつぶつ言う (独り言の多さを直接 0.6。性格の表からだと 0.33)", "mutter": 0.6 },
       "needs": {
         "_comment": "ストレスがたまりやすく、よく食べる",
         "stress": {
@@ -598,7 +599,8 @@
     "tools": {
       "_comment": "他人のための道具 (2026-11-07 ユーザー決定): ほかの人が壊した・耕したときの手の物 (others.js) と発言 (素手で・木の斧で) から、その人の仕事 (wood・mining・farming) を石の道具でしたらどれだけ効率が上がるか (gain: 掘る速さ 素手1・木2・石4・鉄6 の比、石は素手で取れない=1、耕すは耐久値 木59・石131 の差 × durW) を見積もる。生の刺激 += toolW × min(toolCap, Σ_人 薄れ × gain) を acts (石掘り・物を作ること) に足す。言葉は事実だけ (「Ken・Maiが素手や木の道具で木を切っているのを見た」)",
       "enabled": true,
-      "toolW": 0.4,
+      "_toolW": "2026-11-07 使う側の声 (toolWant・items) を足したので、見て察する分は 0.4 → 0.2 に弱めて残す",
+      "toolW": 0.2,
       "toolCap": 1,
       "toolHalfLife": 60,
       "target": "stone",
@@ -606,6 +608,27 @@
       "showMin": 0.1,
       "sayW": 0.7,
       "acts": ["mining", "crafting"]
+    },
+    "items": {
+      "_comment": "物単位の刺激 (2026-11-07 ユーザー決定「使う側の声から刺激を生む」)。聞いた頼みごと・独り言 (道具の言葉 + 欲しい/壊れた/遅いなどの形。英語の名前 stone_axe か 石の斧) を物ごとに、人ごとに1まで、形の重み (近くで頼まれた 1・全体チャット allW・独り言 mutterW)、半減期 halfLife 判断。自分の不満 (toolWant) も selfW で足す。共有のチェストがあれば、道具の種類ごとに 足りなさ = 1 − 数 ÷ (使う人 × perUser × (1 + breakK × 壊れたのを見聞きした回数)) を stockW × 足りなさ × min(1, 使う人/usersRef) で target の素材の道具 (stone_axe など) に。ゴールの T = (s_活動 + s_物)²/((s_活動 + s_物)² + θ_活動²): 物を作るゴール・渡すゴール (give)・共有のチェストに入れる状態のゴールに同じ s_物 が効く",
+      "enabled": true, "heardW": 0.6, "mutterW": 0.6, "allW": 0.8, "halfLife": 30, "keep": 120, "selfW": 1, "sMax": 1.5,
+      "stockW": 0.5, "perUser": 0.5, "usersRef": 2, "breakK": 0.5, "breakHalfLife": 60, "usersHalfLife": 120, "target": "stone", "showMin": 0.1, "maxLines": 3
+    }
+  },
+  "toolWant": {
+    "_comment": "使う側の不満と声 (src/toolwant.js。2026-11-07 ユーザー決定)。不満 v[物]: 掘るのに時間がかかった (1段上・2段上の道具ごとに upW × slowW × min(slowCap, 失った秒/slowRef)、失った秒 = 掘った秒 × (1 − 今の速さ/その道具の速さ))・素手で取れなかった (cantW)・壊れた (同じ物 brokeW、1段上 brokeW × upW[1] × (1 + 耐久の伸び))・耐久が少ない (いまの値 wornW × (1 − 残り/wornFrac))。半減期 halfLife 判断、x 以上の段の道具を手に入れたら 0。声: θ = theta0 × (1 − traitScale × z(性格、voice.traits))、近くの人に頼む θ × (1 − friendCut × 仲の良さ) × (1 + repeatMul × 頼んだ回数)、全体 θ × allMul × (同)、独り言 p = 独り言の多さ m × T(d, θ × mutterTheta)、m = mutterBase × (1 + mutterScale × z(voice.mutterTraits)) か persona.toolVoice.mutter。T = d²/(d²+θ²)。文は文を作る LLM (talk / broadcast の役)。独り言は文の頭に「(ひとりごと)」を付けて mutterRadius m まで。自分の不満は selfW × (0.5 + greed) × v で自分の物の刺激にも (greed が高いほど自分で作ろうとする)",
+    "enabled": true,
+    "halfLife": 40, "slowW": 0.5, "slowRef": 10, "slowCap": 2, "cantW": 0.6, "cantGap": 5, "brokeW": 0.8, "upW": [1, 0.5], "wornW": 0.5, "wornFrac": 0.3, "vMax": 2, "showMin": 0.15, "selfW": 0.4,
+    "mutterRadius": 16, "nearRadius": 16,
+    "voice": {
+      "_traits": "言い出しやすさの性格の表 (w > 0: 高いほど θ が下がる)。sociability +0.6: 人に話しかけるのが平気な人は小さな不満でも気兼ねなく頼む (低い人は不満が大きくなるか、仲の良い人が近くに来るのを待つ。それまでは独り言)。obedience +0.3: 集団に合わせ人を頼る傾向で、頼む/頼まれるのやりとりに抵抗が少ない。greed −0.3: 人に頼まず自分で作ろうとする (自分の刺激 selfW の側)",
+      "_mutterTraits": "独り言の多さの表 (w > 0: 高いほど多い)。sociability −0.5: 人に言わない分を口の中で言う。greed +0.3: 自分の物への不満を口にしやすい。obedience −0.2: 従順な人は不満を飲み込みがち",
+      "enabled": true, "minD": 0.15, "theta0": 0.6, "traitScale": 0.6, "min": 0.1, "max": 2,
+      "traits": { "sociability": 0.6, "obedience": 0.3, "greed": -0.3 },
+      "friendCut": 0.4, "friendAff": 70, "allMul": 1.8, "repeatMul": 0.6, "repeatHalfLife": 40,
+      "mutterBase": 0.25, "mutterScale": 0.8, "mutterTheta": 0.6,
+      "mutterTraits": { "sociability": -0.5, "greed": 0.3, "obedience": -0.2 },
+      "gap": { "near": 6, "all": 15, "mutter": 5 }
     }
   },
   "experience": {

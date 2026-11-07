@@ -11,6 +11,9 @@
 //   先の空腹 (food): (1 − 手持ちの食べ物の回数 / wantMeals) × (入手元を知っていれば sourceMul) × (いまの空腹で強まる)
 //     回数 = Σ 個数 × 満腹度 (foodPoints) / mealPoints。入手元: 食べられる動物・作物・実が見えている、か sourceMemory tick 以内に見た
 //     強まり = lowMul + (1 − lowMul) × clamp(いまの空腹 / hungerRef)
+//   先の道具切れ (tool。2026-11-07 ユーザー決定「道具の備え」): 道具の種類ごとに、いちばん上の段の道具 (使っている物) の耐久の残り frac と使う速さから
+//     u = max(clamp(1 − frac / fracRef), clamp(1 − 壊れるまでの見込み / horizon)^power)、壊れるまでの見込み = 残り ÷ 使う速さ (耐久の減り / ゲーム内 tick。指数平均)
+//     tool = max_種類 u × (予備 (同じ種類のほかの道具) があれば spareMul) × (最近 recentUse tick 以内に使っていなければ idleMul) × sensitivity
 // つらさの点 (ゴールの選び方): distress = (値 / threshold) × weight。数値はここで持ち、モデルには words() の言葉だけ。
 // 係数は cfg.needs.anticipate (全員) と persona.needs.anticipate (人ごと) で変えられる。
 
@@ -30,6 +33,10 @@ const ANTICIPATE_DEFAULTS = {
     mealPoints: 6, wantMeals: 3, sourceMul: 0.5, sourceMemory: 6000, lowMul: 0.5, hungerRef: 0.5,
     sensitivity: 1, threshold: 0.5, weight: 0.8, wordMin: 0.2,
   },
+  tool: {
+    fracRef: 0.5, horizon: 6000, power: 1, rateAlpha: 0.3, spareMul: 0.25, idleMul: 0.5, recentUse: 2400,
+    sensitivity: 1, threshold: 0.5, weight: 0.6, wordMin: 0.2,
+  },
   maxNights: 6, // 覚えておく夜の数
 };
 
@@ -46,6 +53,7 @@ const ARMOR_POINTS = {
   diamond_helmet: 3, diamond_chestplate: 8, diamond_leggings: 6, diamond_boots: 3,
   netherite_helmet: 3, netherite_chestplate: 8, netherite_leggings: 6, netherite_boots: 3, turtle_helmet: 2,
 };
+const TF = require('./toolfacts');
 const FOOD_ANIMALS = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit', 'mooshroom', 'cod', 'salmon']);
 const FOOD_BLOCKS = /^(wheat|carrots|potatoes|beetroots|sweet_berry_bush|melon|pumpkin)$/;
 const FOOD_SOURCE_JA = { cow: '牛', pig: '豚', sheep: '羊', chicken: '鶏', rabbit: 'ウサギ', mooshroom: 'ムーシュルーム', cod: 'タラ', salmon: '鮭',
@@ -123,7 +131,8 @@ class Anticipation {
     this.lastDay = null;
     this.sourceSeen = null; // { name, time } 最後に見た食べ物の入手元
     this.nearHostile = false;
-    this.v = { night: 0, food: 0 };
+    this.v = { night: 0, food: 0, tool: 0 };
+    this.toolSeen = {}; // 道具の名前 → { used, time, rate, lastUse }
     this.detail = null; // 記録用 (数値)
   }
 
@@ -131,13 +140,46 @@ class Anticipation {
     const a = new Anticipation(opts);
     if (isObj(d)) {
       if (Array.isArray(d.nights)) a.nights = d.nights;
-      for (const k of ['cur', 'sourceSeen', 'lastTod', 'lastDay']) if (d[k] !== undefined) a[k] = d[k];
+      for (const k of ['cur', 'sourceSeen', 'lastTod', 'lastDay', 'toolSeen']) if (d[k] !== undefined) a[k] = d[k];
       if (isObj(d.v)) Object.assign(a.v, d.v);
     }
     return a;
   }
 
-  toJSON() { return { nights: this.nights, cur: this.cur, sourceSeen: this.sourceSeen, lastTod: this.lastTod, lastDay: this.lastDay, v: this.v }; }
+  toJSON() { return { nights: this.nights, cur: this.cur, sourceSeen: this.sourceSeen, lastTod: this.lastTod, lastDay: this.lastDay, v: this.v, toolSeen: this.toolSeen }; }
+
+  // 先の道具切れ。tools = [{ name, used, max, left, frac }] (toolfacts.toolsOfItems)、time = ゲーム内の通しの tick
+  toolAhead(tools = [], time = null) {
+    const c = this.cfg.tool;
+    const now = Number.isFinite(time) ? time : null;
+    // 使う速さ (名前ごと。同じ名前が2つあれば減っている方)
+    const byName = {};
+    for (const t of tools) if (!byName[t.name] || t.used > byName[t.name].used) byName[t.name] = t;
+    for (const [n, t] of Object.entries(byName)) {
+      const p = this.toolSeen[n];
+      if (p && now != null && p.time != null && now > p.time && t.used > p.used) {
+        const r = (t.used - p.used) / (now - p.time);
+        this.toolSeen[n] = { used: t.used, time: now, rate: p.rate ? c.rateAlpha * r + (1 - c.rateAlpha) * p.rate : r, lastUse: now };
+      } else if (!p || t.used < p.used) this.toolSeen[n] = { used: t.used, time: now, rate: p && t.used >= p.used ? p.rate : null, lastUse: p ? p.lastUse : null };
+      else this.toolSeen[n] = { ...p, time: now ?? p.time };
+    }
+    const byType = {};
+    for (const t of tools) { const i = TF.toolInfo(t.name); if (i) (byType[i.type] || (byType[i.type] = [])).push({ ...t, mat: i.mat }); }
+    let best = null;
+    for (const [type, ts] of Object.entries(byType)) {
+      const top = ts.slice().sort((a, b) => TF.rank(b.mat) - TF.rank(a.mat) || a.frac - b.frac)[0];
+      const seen = this.toolSeen[top.name] || {};
+      const ttb = seen.rate > 0 ? top.left / seen.rate : null;
+      const uFrac = clamp(1 - top.frac / c.fracRef);
+      const uTime = ttb != null ? Math.pow(clamp(1 - ttb / c.horizon), c.power) : 0;
+      const recent = seen.lastUse != null && now != null && now - seen.lastUse <= c.recentUse;
+      const spare = ts.length - 1;
+      const v = Math.max(uFrac, uTime) * (spare > 0 ? c.spareMul : 1) * (recent ? 1 : c.idleMul) * c.sensitivity;
+      const x = { type, name: top.name, frac: top.frac, left: top.left, max: top.max, ttb: ttb != null ? Math.round(ttb) : null, spare, recent, v: r3(clamp(v)) };
+      if (!best || x.v > best.v) best = x;
+    }
+    return best;
+  }
 
   // 夜が明けた (か寝て夜を飛ばした): いまの夜を越した夜に入れる
   closeNight() {
@@ -197,11 +239,15 @@ class Anticipation {
     const knowsSource = !!(seen || (this.sourceSeen && (srcAge == null || srcAge <= cf.sourceMemory)));
     const hNow = Number.isFinite(o.hunger) ? o.hunger : 0;
     const foodV = c.enabled ? clamp((1 - clamp(meals / cf.wantMeals)) * (knowsSource ? cf.sourceMul : 1) * (cf.lowMul + (1 - cf.lowMul) * clamp(hNow / cf.hungerRef)) * cf.sensitivity) : 0;
-    this.v = { night: r3(nightV), food: r3(foodV) };
+    // 先の道具切れ
+    const ta = c.enabled && c.tool ? this.toolAhead(s.tools || [], Number.isFinite(s.time) ? s.time : null) : null;
+    const toolV = ta ? ta.v : 0;
+    this.v = { night: r3(nightV), food: r3(foodV), tool: r3(toolV) };
     this.detail = {
       night: { v: r3(nightV), ttn, prox: r3(prox), risk: r3(risk), exp: r3(exp), prep: prep.total, prepParts: prep.parts, fearMul: r3(fearMul), isNight: night },
       food: { v: r3(foodV), meals: Math.round(meals * 10) / 10, knowsSource, source: this.sourceSeen ? this.sourceSeen.name : null },
       have: prep.have,
+      tool: ta,
     };
     return this.v;
   }
@@ -226,12 +272,12 @@ class Anticipation {
     return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k]) => k);
   }
 
-  distress(k) { const c = this.cfg[k]; return (this.v[k] / c.threshold) * c.weight; }
+  distress(k) { const c = this.cfg[k]; return ((this.v[k] || 0) / c.threshold) * c.weight; }
 
   // 先のつらさの一覧 (ゴールの選び方)。[{ need: 'night'|'food', later: true, distress, ratio, text, textEn }] ratio ≥ minRatio だけ
   later({ minRatio = 0.6 } = {}) {
-    return ['night', 'food'].map((k) => ({ need: k, later: true, distress: r3(this.distress(k)), ratio: r3(this.v[k] / this.cfg[k].threshold) }))
-      .filter((x) => x.ratio >= minRatio).sort((a, b) => b.distress - a.distress)
+    return ['night', 'food', 'tool'].filter((k) => this.cfg[k]).map((k) => ({ need: k, later: true, distress: r3(this.distress(k)), ratio: r3(this.v[k] / this.cfg[k].threshold) }))
+      .filter((x) => x.ratio >= minRatio && (x.need !== 'tool' || x.ratio > 0)).sort((a, b) => b.distress - a.distress)
       .map((x) => ({ ...x, text: this.wordsOf(x.need, 'ja'), textEn: this.wordsOf(x.need, 'en') }));
   }
 
@@ -240,6 +286,7 @@ class Anticipation {
     const out = [];
     if (this.v.night >= this.cfg.night.wordMin) out.push(this.wordsOf('night', lang));
     if (this.v.food >= this.cfg.food.wordMin) out.push(this.wordsOf('food', lang));
+    if (this.cfg.tool && this.v.tool >= this.cfg.tool.wordMin) out.push(this.wordsOf('tool', lang));
     return out.filter(Boolean);
   }
 
@@ -269,6 +316,7 @@ class Anticipation {
       parts.push(en ? feel[1] : feel[0]);
       return parts.filter(Boolean).join(J);
     }
+    if (k === 'tool') return this.toolWords(lang);
     const f = d.food;
     const parts = [];
     const meals = Math.floor(f.meals);
@@ -278,6 +326,20 @@ class Anticipation {
     const v = this.v.food;
     parts.push(v < 0.5 ? (en ? 'a little worried about food later' : 'この先の食べ物が少し気になる') : (en ? 'worried about food later' : 'この先の食べ物が心配'));
     return parts.join(J);
+  }
+
+  // 先の道具切れの言葉 (事実: 耐久の残り・使う速さからの見込み・予備)
+  toolWords(lang = 'ja') {
+    const en = lang === 'en';
+    const t = this.detail && this.detail.tool;
+    if (!t) return '';
+    const parts = [];
+    const pct = Math.max(1, Math.round(t.frac * 10));
+    parts.push(en ? `my ${t.name} has ${t.left} of ${t.max} uses left` : `${t.name} (${TF.itemJa(t.name)}) の耐久は残り${pct}割ほど (あと${t.left}回)`);
+    if (t.ttb != null) { const m = Math.max(1, Math.round(t.ttb / TICKS_PER_MIN)); parts.push(en ? `at the pace I use it, it will break in about ${m} minutes` : `今の使い方だと、あと${m}分ほどで壊れそう`); }
+    else if (t.frac < 0.15) parts.push(en ? 'it will break soon' : 'もうすぐ壊れそう');
+    parts.push(t.spare > 0 ? (en ? `I have ${t.spare} spare ${TF.TYPE_EN[t.type]}` : `予備の${TF.TYPE_JA[t.type]}が${t.spare}本ある`) : (en ? `I have no spare ${TF.TYPE_EN[t.type]}` : `予備の${TF.TYPE_JA[t.type]}は無い`));
+    return parts.join(en ? '; ' : '。');
   }
 
   // 前の夜・いまの夜の出来事 (事実)
@@ -323,7 +385,7 @@ class Anticipation {
     return out;
   }
 
-  values() { return this.detail ? { night: this.v.night, food: this.v.food, ttn: this.detail.night.ttn, risk: this.detail.night.risk, prep: this.detail.night.prep, exp: this.detail.night.exp, meals: this.detail.food.meals } : { ...this.v }; }
+  values() { return this.detail ? { night: this.v.night, food: this.v.food, ttn: this.detail.night.ttn, risk: this.detail.night.risk, prep: this.detail.night.prep, exp: this.detail.night.exp, meals: this.detail.food.meals, tool: this.v.tool, toolDetail: this.detail.tool || null } : { ...this.v }; }
 }
 
 module.exports = { Anticipation, ANTICIPATE_DEFAULTS, preparedness, killerOf, WEAPON_DAMAGE, ARMOR_POINTS, NIGHT_START, NIGHT_END };

@@ -168,8 +168,10 @@ test('others.js: 壊した・耕したときの手の物 (tool) を残す。自�
   assert.strictEqual(OthersLog.text(o.since(0)), 'Kenがoak_logを1個壊した。Maiが土を1マス耕した');
 });
 
+// 見て察する分は 2026-11-07 に既定 toolW 0.2 に弱めた (使う側の声を足したので)。仕組みの試験は前の 0.4 で
+const TOOLW = { tools: { toolW: 0.4 } };
 test('分業: ほかの人が素手・木の道具で木を切る・耕すのを見ると、石掘り・物を作ることの刺激が上がる。言葉は事実だけ', () => {
-  const d = new Division({ me: 'Aoi' });
+  const d = new Division({ me: 'Aoi', cfg: TOOLW });
   d.noteOthers([
     { seq: 1, who: 'Ken', kind: 'break', name: 'oak_log', tool: null },
     { seq: 2, who: 'Mai', kind: 'break', name: 'birch_log', tool: 'wooden_axe' },
@@ -198,7 +200,7 @@ test('分業: ほかの人が素手・木の道具で木を切る・耕すのを
 });
 
 test('分業: 発言の「素手で木を切ってる」「木のツルハシしかない」も (見たより弱く)', () => {
-  const d = new Division({ me: 'Aoi' });
+  const d = new Division({ me: 'Aoi', cfg: TOOLW });
   d.noteHeard('Ken', '素手で木を切ってるよ', 1);
   d.noteHeard('Mai', '木のツルハシしかないけど石を掘ってる', 1);
   assert.deepStrictEqual(d.toolUse.Ken.wood, { mat: 'hand', t: 1, how: 'said' });

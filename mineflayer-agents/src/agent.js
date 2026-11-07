@@ -36,7 +36,9 @@ const { OthersLog, DEFAULTS: OTHERS_DEFAULTS } = require('./others');
 const knowledge = require('./knowledge');
 const { Board, DEFAULTS: BOARD_DEFAULTS, parseLine, line: boardLine, chestLabelJa } = require('./board');
 const { jaName, SUFFIX: JA_SUFFIX } = require('./names_ja');
-const { Division, countsText } = require('./division');
+const { Division, countsText, MUTTER_MARK } = require('./division');
+const { ToolWant } = require('./toolwant');
+const TF = require('./toolfacts');
 const { Experience, expKey } = require('./experience');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
@@ -260,6 +262,13 @@ class Agent {
       ? Division.fromJSON(this.memory.extra.division, { cfg: cfg.division, temperament: cfg.persona.temperament || {}, drives: (needsConfig(cfg, cfg.persona).drives) || {}, me: cfg.persona.name })
       : null;
     this.divisionExpAt = this.division ? this.division.copyExp() : null; // 前の振り返りのときの回数
+    // 使う側の不満と声 (toolwant.js): 道具のやりにくさ・独り言・頼みごと。cfg.toolWant.enabled: true で使う。persona.toolVoice.mutter で独り言の多さを直接
+    this.toolWant = cfg.toolWant && cfg.toolWant.enabled
+      ? ToolWant.fromJSON(this.memory.extra.toolWant, { cfg: cfg.toolWant, temperament: cfg.persona.temperament || {}, me: cfg.persona.name, mutter: cfg.persona.toolVoice ? cfg.persona.toolVoice.mutter : null })
+      : null;
+    this.voicing = false;
+    this.toolDown = {}; // 壊れて今は無い道具の種類 → { tool, tick, t }
+    this.lastBreak = { tool: null, t: 0 };
     // 経験 (experience.js): ゴールの対象ごとの試した・達成した・かかった時間。help.goalPath のとき (cfg.experience.enabled: false で使わない)
     this.experience = this.help.goalPath && !(cfg.experience && cfg.experience.enabled === false)
       ? Experience.fromJSON(this.memory.extra.experience, { cfg: cfg.experience || {} }) : null;
@@ -445,7 +454,7 @@ class Agent {
       this.boardSeen.add(m.seq);
       // 聞いた内容は記憶に「Taro は〜と言っていた (いつ)」の形で残り、時間とともに薄れる (memory.js)
       this.memory.noteHeard(m.from, m.text, 0.3, { global: true, at: this.phaseSafe() });
-      if (this.division) this.division.noteHeard(m.from, m.text, tick);
+      if (this.division) this.division.noteHeard(m.from, m.text, tick, { form: 'all' });
       if (this.experience) this.experience.noteHeard(m.from, m.text, tick, me);
       this.recorder.write({ event: 'board', kind: 'seen', from: m.from, to: me, msgKind: m.kind, pid: m.pid || null, text: m.text, why: m.why, hit: m.hit, loop: tick });
     }
@@ -537,10 +546,13 @@ class Agent {
     this.lastProposeTick = this.memory.tick;
     const near = raw.blocks.filter((b) => /^(chest|trapped_chest|barrel)$/.test(b.name) && b.nearest.d <= (this.cfg.perception.visionRadius ?? 16)).sort((a, b) => a.nearest.d - b.nearest.d)[0];
     const hereChest = near && !this.board.chestAt(near.nearest) && this.board.chests.size < this.boardCfg.maxShared ? near : null;
-    const items = [...new Set([...raw.inventory.map((i) => i.name), ...((this.goalPath && this.goalPath.lastItemNames) || []), ...this.boardNames().filter((n) => /^[a-z0-9_]+$/.test(n)),
+    // 欲しい道具 (自分の不満・聞いた頼みごと) も物の名前の候補に
+    const toolItems = [...(this.toolWant ? this.toolWant.wants().map((x) => x.item) : []), ...(this.division ? Object.keys(this.division.sItem || {}) : [])];
+    const items = [...new Set([...raw.inventory.map((i) => i.name), ...toolItems, ...((this.goalPath && this.goalPath.lastItemNames) || []), ...this.boardNames().filter((n) => /^[a-z0-9_]+$/.test(n)),
       ...[...this.board.chests.values()].flatMap((c) => c.items.map((i) => i.name))])].slice(0, 60);
     const chests = [...this.board.chests.values()].map((c) => ({ id: c.id, text: `${relDir(raw.self.pos, c.pos)}・${this.board.chestItemsText(c, 'ja')}` }));
-    const r = await this.talker.propose({ ...this.talkCtx(ctx), items, chests, hereChest: !!hereChest, itemEffort: (this.goalPath && this.goalPath.lastItemEffort) || {} });
+    const toolFacts = this.division ? this.division.toolFactsText({ mine: raw.tools || [] }) : '';
+    const r = await this.talker.propose({ ...this.talkCtx(ctx), items, chests, hereChest: !!hereChest, itemEffort: (this.goalPath && this.goalPath.lastItemEffort) || {}, toolFacts });
     const pr = r.proposal;
     const rec = { event: 'board', kind: 'propose', loop: this.memory.tick, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error };
     if (!pr) { this.recorder.write({ ...rec, ok: false }); return { ok: false, msg: '提案することが出てこなかった' }; }
@@ -676,6 +688,21 @@ class Agent {
     if (!o) return;
     const me = () => (bot.entity ? bot.entity.position : null);
     const nameOf = (e) => (e && e.type === 'player' ? e.username : null);
+    // 道具が壊れた (entity_status 47: 利き手の物、48: もう片方の手)。サーバーは壊れた知らせを先に送り、持ち物の更新は後なので、手の物はまだ見える
+    bot._client.on('entity_status', (packet) => {
+      try {
+        if (packet.entityStatus !== 47 && packet.entityStatus !== 48) return;
+        const e = bot.entities[packet.entityId];
+        if (!e) return;
+        const tool = e.heldItem ? e.heldItem.name : null;
+        if (e === bot.entity) { this.onToolBreak(tool, 'status'); return; }
+        const who = nameOf(e);
+        const p0 = me();
+        if (!who || (p0 && e.position && e.position.distanceTo(p0) > (this.othersCfg.radius ?? 16))) return;
+        if (this.division) this.division.noteBreakSeen(who, tool, this.memory.tick);
+        this.recorder.write({ event: 'tool_break', who, tool, how: 'seen', loop: this.memory.tick });
+      } catch (_) { /* ignore */ }
+    });
     bot._client.on('collect', (packet) => {
       try {
         const who = nameOf(bot.entities[packet.collectorEntityId]);
@@ -801,6 +828,8 @@ class Agent {
     if (!r) { this.chatCount.unknown += 1; return; }
     const d = r.d;
     if (d > (this.cfg.perception.hearRadius ?? 48)) { this.chatCount.far += 1; return; }
+    // 独り言 (文の頭の印) は小さな声: mutterRadius より遠ければ聞こえない
+    if (MUTTER_MARK.test(String(message)) && d > ((this.cfg.toolWant && this.cfg.toolWant.mutterRadius) ?? 16)) { this.chatCount.far += 1; return; }
     this.chatCount.heard += 1;
     if (r.how === 'cache') this.chatCount.cache += 1;
     const text = String(message).slice(0, 120);
@@ -1008,6 +1037,85 @@ class Agent {
     return lines.join('\n');
   }
 
+  // ---- 使う側の不満と声 (toolwant.js) ----
+  // 判断の前: 道具の耐久で満たされた/すり減ったを見直す。石が見えているのに取れない (ツルハシが無い) を数える。壊れた道具が戻ったかを記録
+  toolWantStep(raw, tick) {
+    const tools = raw.tools || [];
+    for (const [type, dn] of Object.entries(this.toolDown)) {
+      if (tools.some((t) => (TF.toolInfo(t.name) || {}).type === type)) {
+        this.recorder.write({ event: 'tool_back', type, tool: dn.tool, ticks: tick - dn.tick, ms: Date.now() - dn.t, loop: tick });
+        delete this.toolDown[type];
+      }
+    }
+    if (!this.toolWant) return;
+    const u = this.toolWant.update({ tick, tools });
+    for (const x of u.satisfied) this.recorder.write({ event: 'tool_want', kind: 'satisfied', item: x.item, by: x.by, v: x.v, loop: tick });
+    // 道具が要る物 (石・鉱石) を、自分のゴール・道筋で使うのに、見えていて取れない
+    const g = this.goalPath && this.goalPath.goal;
+    const names = this.goalPath ? this.boardNames() : [];
+    const wantsStone = names.some((n) => /^(cobblestone|stone|cobbled_deepslate|coal|raw_iron|raw_copper|[a-z_]*_ore|furnace|stone_[a-z_]+)$/.test(n)) || (g && /^stone_|cobblestone/.test(String(g.target || '')));
+    if (wantsStone) {
+      const b = (raw.blocks || []).find((x) => x.diggable === false && TF.taskOfBlock(x.name) === 'mining');
+      const pick = tools.find((t) => (TF.toolInfo(t.name) || {}).type === 'pickaxe');
+      if (b && !pick) {
+        const out = this.toolWant.noteCantHarvest({ block: b.name, tick });
+        if (out.length) this.recorder.write({ event: 'tool_want', kind: 'cant', block: b.name, add: out, loop: tick });
+      }
+    }
+  }
+
+  // 行動の後: 掘るのにかかった時間・壊れた道具
+  toolWantAfter(resolved, result, tick) {
+    if (!result) return;
+    if (result.broke && result.broke.length) for (const t of result.broke) this.onToolBreak(t, 'inventory');
+    if (!this.toolWant) return;
+    if (resolved.action === 'collect' && result.digMs > 0 && result.block) {
+      const out = this.toolWant.noteDig({ block: result.block, tools: result.tools || [], digMs: result.digMs, n: result.dug || 1, tick });
+      if (out.length) this.recorder.write({ event: 'tool_want', kind: 'slow', block: result.block, tools: result.tools, digMs: result.digMs, n: result.dug || 1, add: out, loop: tick });
+    }
+  }
+
+  // 自分の道具が壊れた (entity_status か、collect の持ち物の減り。2秒以内の同じ道具は1回)
+  onToolBreak(tool, via) {
+    const now = Date.now();
+    if (this.lastBreak.tool === tool && now - this.lastBreak.t < 2000) return;
+    this.lastBreak = { tool, t: now };
+    const tick = this.memory.tick;
+    const i = TF.toolInfo(tool);
+    const add = this.toolWant && i ? this.toolWant.noteBroke({ tool, tick }) : [];
+    if (i) this.toolDown[i.type] = { tool, tick, t: now };
+    this.recorder.write({ event: 'tool_break', who: this.cfg.persona.name, tool, how: 'self', via, add, loop: tick });
+    if (this.reflect) this.reflect.noteEvent({ kind: 'heard', tick, from: '自分', text: `${tool}が壊れた` });
+  }
+
+  // 声に出すか (toolwant.decide)。出すなら文を作る LLM に書かせ、待たずに次へ (形: 独り言・近くの人に頼む・全員に頼む)
+  maybeVoice(ctx, raw, tick) {
+    if (!this.toolWant || !this.talker || this.voicing) return null;
+    const hear = (this.cfg.perception && this.cfg.perception.hearRadius) ?? 48;
+    const near = peopleOf(raw).filter((e) => e.d == null || e.d <= Math.min(hear, (this.cfg.toolWant && this.cfg.toolWant.nearRadius) ?? 16))
+      .map((e) => ({ name: e.name, affinity: this.social.relations[e.name] ? this.social.relations[e.name].affinity : 50 }));
+    const dcs = this.toolWant.decide({ tick, near, canAll: !!this.board });
+    if (!dcs.form) return dcs.d > 0 ? { form: null, item: dcs.item, d: dcs.d, p: dcs.p, theta: dcs.theta } : null;
+    this.toolWant.noteVoiced(dcs.form, dcs.item, tick);
+    this.voicing = true;
+    const tctx = { ...this.talkCtx(ctx), form: dcs.form, wantItem: dcs.item, wantFacts: this.toolWant.factsText(dcs.item),
+      nearText: dcs.form === 'near' ? near.map((x) => x.name).join(', ') : this.talkCtx(ctx).nearText };
+    const placesAt = this.lastMemPlaces || null;
+    this.talker.voice(tctx).then((r) => {
+      let say = r.say ? r.say.replace(/\s+/g, ' ').trim() : '';
+      let sent = false;
+      if (say) {
+        if (dcs.form === 'all') { say = this.refPlaces(say, { via: 'board' }).slice(0, this.boardCfg.textMax); sent = !!this.sendBoard(boardLine.say(say)); if (sent) { this.memory.noteHeard('自分', say, 0.1, { global: true }); this.social.onSpoke(this.memory.tick); } }
+        else if (dcs.form === 'near') sent = this.chat(say, { places: placesAt, force: true });
+        else { sent = this.chat(`(ひとりごと) ${say}`, { places: placesAt, force: true }); }
+      }
+      this.recorder.write({ event: 'tool_voice', loop: tick, form: dcs.form, item: dcs.item, d: dcs.d, p: dcs.p, theta: dcs.theta, mutterRate: dcs.mutterRate, close: dcs.close, repeat: dcs.repeat,
+        to: dcs.to, say: sent ? say : null, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
+      if (sent) this.log(`[${this.cfg.persona.name}] ${dcs.form === 'mutter' ? 'ひとりごと' : dcs.form === 'near' ? '頼む' : '全体に頼む'}「${say}」 (${dcs.item} ${dcs.d})`);
+    }).catch(() => {}).finally(() => { this.voicing = false; });
+    return { form: dcs.form, item: dcs.item, d: dcs.d, p: dcs.p, theta: dcs.theta };
+  }
+
   // Jev の talk (Noul) が閾値を超えたら、2B に発言を作らせる (待たずに次へ進む)
   maybeTalk(ctx, dec, plannedText) {
     const tcfg = this.cfg.talk || {};
@@ -1053,6 +1161,7 @@ class Agent {
     if (this.experience) for (const h of raw.heard) this.experience.noteHeard(h.from, h.text, tick, cfg.persona.name);
     const steps = this.help.steps ? cfg.goal.steps : null;
     this.social.tick({ tick, raw, sense: this.senseNeeds(raw, { newCell: !knownCell, cell: knownCell }) });
+    this.toolWantStep(raw, tick);
     const forgotten = this.memory.forget();
     // 困りごと: 同じものを最近聞いたばかりなら、しばらく聞かない
     const cool = (cfg.ask && cfg.ask.cooldown) || 10;
@@ -1085,8 +1194,10 @@ class Agent {
     if (this.division) {
       const site = this.base && this.baseSeen ? this.baseSeen.site : null;
       divisionSnap = this.division.update({ tick, chests: bview ? bview.goal.chests : [], shared: bview ? bview.goal.shared : [],
+        selfWant: this.toolWant ? this.toolWant.selfStimulus() : {}, selfTypes: [...new Set((raw.tools || []).map((t) => (TF.toolInfo(t.name) || {}).type).filter(Boolean))],
         base: site ? { dark: site.light != null && site.light < 8, enclosed: !!site.enclosed } : null });
       const fw = this.division.famWords(); const fwEn = this.division.famWords({ lang: 'en' });
+      if (this.toolWant) { const w = this.toolWant.words(); const we = this.toolWant.words({ lang: 'en' }); if (w) socialText = `${socialText}。${w}`; if (we) socialEn = `${socialEn}; ${we}`; }
       if (fw) socialText = `${socialText}。${fw}`;
       if (fwEn) socialEn = `${socialEn}; ${fwEn}`;
     }
@@ -1227,6 +1338,7 @@ class Agent {
     const votes = this.voteFromJev(dec);
     const plannedText = `${resolved.action}${resolved.arg ? '(' + resolved.arg + ')' : ''}`;
     const talkThr = this.maybeTalk(ctx, dec, plannedText);
+    const voiced = this.maybeVoice(ctx, raw, tick);
 
     let said = null;
     if (dec.say && resolved.action !== 'say' && this.chat(dec.say)) said = dec.say;
@@ -1288,6 +1400,7 @@ class Agent {
     this.social.onActionResult(resolved.action, result.ok, { repeatedFail: !result.ok && troubles.some((t) => t.key === key) });
     this.social.onActionNeeds(resolved.action, resolved.arg, result, tick);
     const divisionAct = this.division ? this.division.noteAction(resolved.action, resolved.arg, !!result.ok) : null;
+    this.toolWantAfter(resolved, result, tick);
     this.lastResult = `${plannedText}→${result.ok ? '成功' : '失敗'}: ${result.msg}`;
     // 英語 (Jev 用。同じ結果と、行動の前後の持ち物の差から)。記憶のやったことにも英語の文を残す
     this.lastResultEn = en.resultEn({ action: resolved.action, arg: resolved.arg, ok: result.ok, msg: result.msg, delta: en.invDelta(raw.inventory, inv) });
@@ -1317,6 +1430,7 @@ class Agent {
     const stepSt = steps ? stepStatus(steps, raw).map((s) => s.done) : null;
     this.memory.extra.social = this.social.toJSON();
     if (this.division) this.memory.extra.division = this.division.toJSON();
+    if (this.toolWant) this.memory.extra.toolWant = this.toolWant.toJSON();
     if (this.experience) this.memory.extra.experience = this.experience.toJSON();
 
     this.recorder.write({
@@ -1342,6 +1456,7 @@ class Agent {
       policy: ctx.policy || null,
       role: ctx.role || null,
       division: divisionSnap ? { ...divisionSnap, act: divisionAct } : null,
+      toolWant: this.toolWant ? { ...this.toolWant.snapshot(), voice: voiced || null } : null,
       planStep: this.goalPlan && this.goalPlan.goal ? { goal: this.goalPlan.goal.n, idx: this.goalPlan.idx, of: this.goalPlan.steps.length } : null,
       goalPath: this.goalPath && this.goalPath.goal ? { goal: this.goalPath.goal.n, kind: this.goalPath.goal.kind, target: this.goalPath.goal.target, met: this.goalPath.goal.metAt != null,
         next: this.goalPath.path && this.goalPath.path.next ? this.goalPath.path.next.item : null, steps: this.goalPath.path && this.goalPath.path.ok ? this.goalPath.path.steps.length : null } : null,

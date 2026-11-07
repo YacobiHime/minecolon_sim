@@ -177,6 +177,8 @@ function tail(s) {
   if (/動けなかった/.test(t)) out.push('could not move');
   const plus = t.match(/\(([a-z_]+\+\d+(?:, ?[a-z_]+\+\d+)*)\)/);
   if (plus) out.push(`also ${plus[1]}`);
+  const broke = t.match(/\(([a-z_・]+)が壊れた\)/);
+  if (broke) out.push(`${broke[1].split('・').join(' and ')} broke`);
   return out.length ? ` (${out.join('; ')})` : '';
 }
 function reason(s) {

@@ -23,6 +23,8 @@
 // 研究方針: 仕様・事実は見せるが、使い方は書かない。役割の名前は与えない (活動の種類の言葉だけ)。評価語を入れない。
 //   数値はここで持ち、モデルには言葉だけ (Jev は英語、2B は日本語)。全員の状態は見せない (見聞きした範囲だけ)。
 
+const TF = require('./toolfacts');
+
 const ACTIVITIES = ['farming', 'wood', 'mining', 'hunting', 'exploring', 'building', 'cooking', 'crafting', 'social'];
 // 活動の言葉 (役割の名前ではなく、することの言葉)
 const ACT_JA = { farming: '畑のこと', wood: '木を切ること', mining: '石掘り', hunting: '狩り', exploring: '知らない所を見て回ること', building: '建てること', cooking: '料理', crafting: '物を作ること', social: '人と関わること' };
@@ -198,7 +200,15 @@ const DEFAULTS = {
   others: { roleHalfLife: 120, roleMin: 3, roleShare: 0.4, sayW: 0.5 },
   // 他人のための道具 (6): toolW: 刺激の重み。toolCap: 人の和の上限。toolHalfLife: 見たことが半分になる判断の数。target: 比べる道具の素材。
   //   durW: 耕すときの耐久値の差の重み。showMin: 言葉に出す (薄れ × gain) の下限。acts: 刺激を足す活動。sayW: 聞いた (発言) の重み
-  tools: { enabled: true, toolW: 0.4, toolCap: 1, toolHalfLife: 60, keep: 150, target: 'stone', durW: 0.3, showMin: 0.1, acts: ['mining', 'crafting'], sayW: 0.7 },
+  //   (2026-11-07 使う側の声を足したので、見て察する分は 0.4 → 0.2 に弱めて残す)
+  tools: { enabled: true, toolW: 0.2, toolCap: 1, toolHalfLife: 60, keep: 150, target: 'stone', durW: 0.3, showMin: 0.1, acts: ['mining', 'crafting'], sayW: 0.7 },
+  // 物単位の刺激 (7。2026-11-07 ユーザー決定「使う側の声から刺激を生む」): 聞いた頼みごと・独り言・自分の不満・共有のチェストの道具の数から、物ごと (stone_axe など) の刺激 sItem。
+  //   s_item[x] = min(sMax, heardW × Σ_人 min(1, Σ 薄れ × 形の重み) + selfW × 自分の不満の刺激 + stockW × 足りなさ × min(1, 使う人 / usersRef))
+  //   形の重み: 近くで頼まれた near 1・全体チャット all allW・独り言 mutter mutterW。半減期 halfLife 判断。
+  //   足りなさ (道具の種類ごと、共有のチェストがあるときだけ): 1 − チェストの数 ÷ (使う人 × perUser × (1 + breakK × 壊れたのを見聞きした回数 (薄れ)))
+  //   ゴールの T は、活動の刺激と物の刺激の和で: T = (s_act + s_item)² / ((s_act + s_item)² + θ_act²)。物を作るゴールにも渡すゴール (give) にも、共有のチェストに入れる状態のゴールにも同じ s_item が効く
+  items: { enabled: true, heardW: 0.6, mutterW: 0.6, allW: 0.8, halfLife: 30, keep: 120, selfW: 1, sMax: 1.5,
+    stockW: 0.5, perUser: 0.5, usersRef: 2, breakK: 0.5, breakHalfLife: 60, usersHalfLife: 120, target: 'stone', showMin: 0.1, maxLines: 3 },
 };
 
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -207,6 +217,18 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 function isObj(v) { return v && typeof v === 'object' && !Array.isArray(v); }
 function merge(a, b) { if (!isObj(a) || !isObj(b)) return b === undefined ? a : b; const o = { ...a }; for (const [k, v] of Object.entries(b)) o[k] = merge(a[k], v); return o; }
 const decayed = (n, from, to, half) => n * Math.pow(0.5, Math.max(0, to - from) / half);
+
+// 独り言の印 (agent.js が文の頭に付ける)
+const MUTTER_MARK = /^\s*[(（]ひとりごと[)）]\s*/;
+
+// ゴールの物 (物のゴール: target、渡すゴール: give、状態 chest_<物>・shared_<チェスト>__<物>: その物)
+function goalItem(g) {
+  if (!g) return null;
+  if (g.kind === 'item') return String(g.target || '') || null;
+  if (g.kind === 'person') return g.give || null;
+  if (g.kind === 'state') { const m = String(g.target || '').match(/^(?:chest_|shared_[A-Za-z0-9_]+-\d+__)([a-z0-9_]+)$/); return m ? m[1] : null; }
+  return null;
+}
 
 // 反応の強さ (Bonabeau の反応しきい値モデル)
 function response(s, theta) { if (!(s > 0)) return 0; return (s * s) / (s * s + theta * theta); }
@@ -223,6 +245,9 @@ class Division {
     this.othersSeq = 0;
     this.toolUse = {}; // 名前 → { 仕事: { mat, t, how } } (いちばん新しく見た/聞いた道具)
     this.s = {}; this.theta = {}; this.T = {}; this.evidence = {};
+    this.itemHeard = []; // 聞いた道具の頼みごと・独り言 [{ tick, item, from, form, text }]
+    this.itemBreaks = []; // ほかの人の道具が壊れたのを見聞きした [{ tick, who, tool, type, how }]
+    this.sItem = {}; this.itemEvidence = {}; this.stock = {};
     this.tick = 0;
   }
 
@@ -235,11 +260,13 @@ class Division {
       if (Array.isArray(d.seen)) x.seen = d.seen;
       if (Number.isFinite(d.tick)) x.tick = d.tick;
       if (isObj(d.toolUse)) x.toolUse = d.toolUse;
+      if (Array.isArray(d.itemHeard)) x.itemHeard = d.itemHeard;
+      if (Array.isArray(d.itemBreaks)) x.itemBreaks = d.itemBreaks;
     }
     return x;
   }
 
-  toJSON() { return { exp: this.exp, roles: this.roles, heard: this.heard.slice(-40), seen: this.seen.slice(-80), tick: this.tick, toolUse: this.toolUse }; }
+  toJSON() { return { exp: this.exp, roles: this.roles, heard: this.heard.slice(-40), seen: this.seen.slice(-80), tick: this.tick, toolUse: this.toolUse, itemHeard: this.itemHeard.slice(-40), itemBreaks: this.itemBreaks.slice(-30) }; }
 
   // ---- 慣れ ----
   noteAction(action, arg, ok) {
@@ -288,8 +315,9 @@ class Division {
 
   // ---- 見聞き ----
   // 聞いた発言 (近くの声・全体チャット)。依頼の形なら刺激に、それ以外はその人がしていることに数える
-  noteHeard(from, text, tick = this.tick) {
+  noteHeard(from, text, tick = this.tick, { form = null } = {}) {
     if (!from || from === this.me || from === '自分') return [];
+    this.noteToolWords(from, text, tick, { form });
     const acts = textActivities(text);
     if (!acts.length) return [];
     if (REQUEST.test(String(text))) {
@@ -301,6 +329,137 @@ class Division {
     for (const a of acts) this.noteDoing(from, a, tick, 'said', this.cfg.others.sayW);
     this.noteToolSaid(from, text, tick);
     return acts.map((a) => ({ act: a, kind: 'doing' }));
+  }
+
+  // ---- 物単位の刺激 (7) ----
+  // 発言の中の道具の言葉: 欲しい・困っている形なら itemHeard に、壊れた形なら itemBreaks に。form: near | all | mutter (独り言は文の頭の印でも分かる)
+  noteToolWords(from, text, tick = this.tick, { form = null } = {}) {
+    const t = String(text || '');
+    const words = TF.parseToolWords(t);
+    if (!words.length) return [];
+    const f = form || (MUTTER_MARK.test(t) ? 'mutter' : 'near');
+    const out = [];
+    if (TF.isBrokeText(t)) for (const w of words) { this.itemBreaks.push({ tick, who: from, tool: w.item, type: w.type, how: 'said' }); out.push({ kind: 'broke', type: w.type }); }
+    if (TF.isWantText(t)) {
+      for (const w of words) {
+        // 素材の無い言葉 (「ツルハシが欲しい」) は、その人が使っているのを見た素材の1段上、分からなければ target (石)
+        let item = w.item;
+        if (!item) {
+          const task = TF.TASK_OF_TYPE[w.type];
+          const seenMat = task && this.toolUse[from] && this.toolUse[from][task] ? this.toolUse[from][task].mat : null;
+          const up = seenMat ? TF.LADDER[Math.min(TF.LADDER.length - 1, Math.max(0, TF.LADDER.indexOf(seenMat)) + 1)] : this.cfg.items.target;
+          item = `${up === 'hand' ? this.cfg.items.target : up}_${w.type}`;
+        }
+        this.itemHeard.push({ tick, item, from, form: f, text: t.replace(MUTTER_MARK, '').trim().slice(0, 30) });
+        out.push({ kind: 'want', item, form: f });
+      }
+    }
+    const cut = tick - this.cfg.items.keep;
+    this.itemHeard = this.itemHeard.filter((h) => h.tick >= cut).slice(-60);
+    this.itemBreaks = this.itemBreaks.filter((h) => h.tick >= tick - 3 * this.cfg.items.breakHalfLife).slice(-40);
+    return out;
+  }
+
+  // ほかの人の道具が壊れたのを見た (entity_status 47。その時の手の物)
+  noteBreakSeen(who, tool, tick = this.tick) {
+    if (!who || who === this.me) return;
+    const i = TF.toolInfo(tool);
+    this.itemBreaks.push({ tick, who, tool: tool || null, type: i ? i.type : null, how: 'saw' });
+    if (i) { const task = TF.TASK_OF_TYPE[i.type]; if (task && TOOL_TASKS[task]) this.noteToolUse(who, task, i.mat, tick, 'saw'); }
+  }
+
+  // 物単位の刺激を作る。selfWant: { 物: 自分の不満の刺激 } (toolwant.selfStimulus)、selfTypes: 自分が使っている道具の種類、chests: 共有のチェスト
+  updateItems({ tick = this.tick, selfWant = {}, selfTypes = [], chests = [] } = {}) {
+    const c = this.cfg.items;
+    const s = {}; const ev = {};
+    const put = (x, v, ja, en) => { if (!(v > 0)) return; s[x] = (s[x] || 0) + v; const e = ev[x] || (ev[x] = { ja: [], en: [], who: new Set() }); if (ja && !e.ja.includes(ja)) { e.ja.push(ja); e.en.push(en); } };
+    if (!c || c.enabled === false) { this.sItem = {}; this.itemEvidence = {}; return {}; }
+    // 聞いた頼みごと・独り言 (人ごとに 1 まで)
+    const per = {};
+    for (const h of this.itemHeard) {
+      const fw = h.form === 'mutter' ? c.mutterW : h.form === 'all' ? c.allW : 1;
+      const w = decayed(fw, h.tick, tick, c.halfLife);
+      if (w < 0.03) continue;
+      const k = `${h.item}|${h.from}`;
+      per[k] = Math.min(1, (per[k] || 0) + w);
+      const e = ev[h.item] || (ev[h.item] = { ja: [], en: [], who: new Set() });
+      e.who.add(h.from);
+      const q = `${h.from}${h.form === 'mutter' ? 'のつぶやき' : ''}「${h.text}」`;
+      if (!e.ja.includes(q)) { e.ja.push(q); e.en.push(`${h.from}${h.form === 'mutter' ? ' muttered' : ' said'}「${h.text}」`); }
+    }
+    for (const [k, v] of Object.entries(per)) { const x = k.split('|')[0]; s[x] = (s[x] || 0) + c.heardW * v; }
+    // 自分の不満
+    for (const [x, v] of Object.entries(selfWant || {})) put(x, c.selfW * v, null, null);
+    // 共有のチェストの道具の数と、使う人・壊れた回数 (共有のチェストの中身が見えているときだけ)
+    this.stock = {};
+    const known = (chests || []).filter((ch) => ch && Array.isArray(ch.items) && ch.known !== false);
+    if (known.length) {
+      for (const type of ['pickaxe', 'axe', 'shovel', 'hoe']) {
+        const task = TF.TASK_OF_TYPE[type];
+        const users = new Set();
+        for (const [who, r] of Object.entries(this.toolUse)) if (r[task] && decayed(1, r[task].t, tick, c.usersHalfLife) >= 0.25) users.add(who);
+        for (const b of this.itemBreaks) if (b.type === type && decayed(1, b.tick, tick, c.usersHalfLife) >= 0.25) users.add(b.who);
+        if (selfTypes.includes(type)) users.add('自分');
+        const stock = known.reduce((t, ch) => t + ch.items.filter((it) => { const i = TF.toolInfo(it.name); return i && i.type === type; }).reduce((u, it) => u + (it.count || 1), 0), 0);
+        const breaks = this.itemBreaks.filter((b) => b.type === type).reduce((t, b) => t + decayed(1, b.tick, tick, c.breakHalfLife), 0);
+        this.stock[type] = { stock, users: users.size, breaks: r2(breaks) };
+        if (!users.size) continue;
+        const need = users.size * c.perUser * (1 + c.breakK * breaks);
+        const lack = Math.max(0, 1 - stock / need);
+        if (lack <= 0) continue;
+        const x = `${c.target}_${type}`;
+        const ids = known.map((ch) => ch.id).filter(Boolean).slice(0, 2).join('・');
+        const who = [...users].slice(0, 4).join('・');
+        put(x, c.stockW * lack * Math.min(1, users.size / c.usersRef),
+          `共有のチェスト${ids ? ` ${ids}` : ''}の${TF.TYPE_JA[type]}は${stock}本。${TF.TYPE_JA[type]}を使っているのを見聞きした人: ${who}${breaks >= 0.5 ? `。${TF.TYPE_JA[type]}が壊れたのを見聞きした: ${Math.round(breaks)}回` : ''}`,
+          `${type}s in the shared chests: ${stock}; people seen or heard using a ${type}: ${[...users].slice(0, 4).join(', ')}${breaks >= 0.5 ? `; ${type}s seen or heard breaking: ${Math.round(breaks)}` : ''}`);
+      }
+    }
+    this.sItem = Object.fromEntries(Object.entries(s).map(([x, v]) => [x, r3(Math.min(c.sMax, v))]));
+    this.itemEvidence = Object.fromEntries(Object.entries(ev).map(([x, e]) => [x, { ja: e.ja, en: e.en, who: [...e.who] }]));
+    return this.sItem;
+  }
+
+  // ゴールの反応の強さ (活動の刺激 + 物の刺激)。返り値 { T, act, item, sAct, sItem, theta }
+  goalT(g) {
+    const a = goalActivity(g);
+    const item = goalItem(g);
+    const sA = (a && this.s[a]) || 0;
+    const sI = (item && this.sItem[item]) || 0;
+    const theta = (a && this.theta[a]) || this.cfg.threshold.theta0;
+    const T = sI > 0 ? response(sA + sI, theta) : (a && this.T[a]) || 0;
+    return { T: r3(T), act: a, item: sI > 0 ? item : null, sAct: sA, sItem: sI, theta };
+  }
+
+  // 2B に渡す「欲しがっている人がいる物 (見聞きした範囲)」
+  itemText({ lang = 'ja' } = {}) {
+    const c = this.cfg.items;
+    const en = lang === 'en';
+    const rows = Object.entries(this.sItem).filter(([x, v]) => v >= c.showMin && this.itemEvidence[x] && (this.itemEvidence[x].ja.length || this.itemEvidence[x].who.length))
+      .sort((p, q) => q[1] - p[1]).slice(0, c.maxLines);
+    return rows.map(([x]) => {
+      const e = this.itemEvidence[x];
+      const who = e.who.length ? (en ? `wanted by ${e.who.join(', ')}` : `${e.who.join('・')}が欲しがっている`) : '';
+      return `${x}: ${[who, ...(en ? e.en : e.ja).slice(-2)].filter(Boolean).join(en ? '; ' : '。')}`;
+    }).join('\n');
+  }
+
+  // 提案を書く LLM に見せる道具の事実: 誰が何を使っているか・壊れた回数・共有のチェストの道具の数・仕様
+  toolFactsText({ tick = this.tick, mine = [] } = {}) {
+    const lines = [];
+    const use = [];
+    for (const [who, r] of Object.entries(this.toolUse)) for (const [task, x] of Object.entries(r)) if (decayed(1, x.t, tick, this.cfg.items.usersHalfLife) >= 0.25) use.push(`${who}: ${TOOL_TASK_JA[task] ? TOOL_TASK_JA[task][1] : task} (${TOOL_MAT_JA[x.mat] || x.mat})`);
+    if (use.length) lines.push(`見聞きした道具の使い方: ${use.slice(0, 6).join('・')}`);
+    const br = {};
+    for (const b of this.itemBreaks) { const k = `${b.who}の${b.tool || TF.TYPE_JA[b.type] || '道具'}`; br[k] = (br[k] || 0) + 1; }
+    if (Object.keys(br).length) lines.push(`道具が壊れた (見聞きした): ${Object.entries(br).slice(0, 5).map(([k, n]) => `${k} ${n}回`).join('・')}`);
+    if (mine.length) lines.push(`自分の道具の耐久: ${mine.map((t) => `${t.name} 残り${t.left}/${t.max}`).join('・')}`);
+    const st = Object.entries(this.stock).filter(([, v]) => v.users || v.stock);
+    if (st.length) lines.push(`共有のチェストの道具: ${st.map(([type, v]) => `${TF.TYPE_JA[type]} ${v.stock}本 (使う人 ${v.users})`).join('・')}`);
+    const wants = Object.entries(this.sItem).filter(([x]) => this.itemEvidence[x] && this.itemEvidence[x].who.length).map(([x]) => `${x} (${this.itemEvidence[x].who.join('・')})`);
+    if (wants.length) lines.push(`道具を欲しがっていた人: ${wants.slice(0, 4).join('・')}`);
+    if (lines.length) lines.push(`仕様: 耐久 木 ${TF.TOOL_FACTS.durability.wooden}・石 ${TF.TOOL_FACTS.durability.stone}・鉄 ${TF.TOOL_FACTS.durability.iron} 回、掘る速さ 素手1・木2・石4・鉄6`);
+    return lines.join('\n');
   }
 
   // ---- 他人のための道具 (6) ----
@@ -483,12 +642,14 @@ class Division {
       ev[a].cover = r2(cv); ev[a].raw = r3(raw[a]);
     }
     this.evidence = ev;
+    this.updateItems({ tick, selfWant: view.selfWant || {}, selfTypes: view.selfTypes || [], chests: view.chests || [] });
     return this.snapshot();
   }
 
   // ゴール選び (goalpath.js) に渡すもの
   view() {
-    return { T: { ...this.T }, s: { ...this.s }, theta: { ...this.theta }, fam: this.fam(), score: { ...this.cfg.score }, activityOf: goalActivity };
+    return { T: { ...this.T }, s: { ...this.s }, theta: { ...this.theta }, fam: this.fam(), score: { ...this.cfg.score }, activityOf: goalActivity,
+      sItem: { ...this.sItem }, goalT: (g) => this.goalT(g), Tof: (g) => this.goalT(g).T };
   }
 
   // 記録 (毎判断)
@@ -496,6 +657,8 @@ class Division {
     const nz = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v > 0));
     const out = { s: nz(this.s), theta: { ...this.theta }, T: nz(this.T), fam: nz(this.fam()) };
     if (this.toolAdd > 0) out.tool = this.toolAdd;
+    if (Object.keys(this.sItem || {}).length) out.sItem = { ...this.sItem };
+    if (Object.keys(this.stock || {}).length) out.stock = this.stock;
     if (act !== undefined) out.act = act;
     return out;
   }
@@ -514,7 +677,10 @@ class Division {
       if (!lines.has(body)) lines.set(body, []);
       lines.get(body).push(a);
     }
-    return [...lines].map(([body, as]) => `${as.map((a) => (en ? STUFF_EN[a] : STUFF_JA[a])).join(en ? ', ' : '・')}: ${body}`).join('\n');
+    const out = [...lines].map(([body, as]) => `${as.map((a) => (en ? STUFF_EN[a] : STUFF_JA[a])).join(en ? ', ' : '・')}: ${body}`);
+    const it = this.itemText({ lang });
+    if (it) out.push(it);
+    return out.join('\n');
   }
 
   // 振り返りに渡す事実: 自分の活動の回数 (前の振り返りから。since = 前の exp の写し)
@@ -568,4 +734,4 @@ function dolIndex(counts, acts = ACTIVITIES) {
     groupSpread: r3(Hact / K), activityShare: Object.fromEntries(acts.map((a, i) => [a, r3(pAct[i])]).filter(([, v]) => v > 0)), giniByActivity, perAgent };
 }
 
-module.exports = { TOOL_FACTS, TOOL_TASKS, toolMat, toolGain, Division, DEFAULTS, ACTIVITIES, ACT_JA, ACT_EN, STUFF_JA, TRAIT_ACT, itemActivity, goalActivity, actionActivity, textActivities, response, countsText, dolIndex, entropy, gini, REQUEST };
+module.exports = { MUTTER_MARK, goalItem, TOOL_FACTS, TOOL_TASKS, toolMat, toolGain, Division, DEFAULTS, ACTIVITIES, ACT_JA, ACT_EN, STUFF_JA, TRAIT_ACT, itemActivity, goalActivity, actionActivity, textActivities, response, countsText, dolIndex, entropy, gini, REQUEST };
