@@ -172,6 +172,7 @@ test('talker: 声の3つの形の材料 (欲しい物・自分の作業の事実
   const m = tk.voiceMessages({ ...base, form: 'mutter' });
   assert.match(m[0].content, /ひとりごと/); assert.doesNotMatch(m[1].content, /## 近くの人/);
   assert.match(m[1].content, /## 欲しい物\nstone_axe/);
+  assert.doesNotMatch(tk.voiceMessages({ ...base, form: 'all' })[1].content, /## 近くの人/);
   assert.match(tk.voiceMessages({ ...base, form: 'near' })[0].content, /近くの人 \(Ken\) に頼みごと/);
   assert.match(tk.voiceMessages({ ...base, form: 'all' })[0].content, /全員に届く声で頼みごと/);
   for (const f of ['mutter', 'near', 'all']) assert.doesNotMatch(tk.voiceMessages({ ...base, form: f }).map((x) => x.content).join('\n'), ADVICE);
@@ -233,4 +234,13 @@ test('summarize: 道具の不満と声の集計 (形ごと・人ごと・性格�
   assert.strictEqual(d.breaks.self, 1); assert.strictEqual(d.breaks.down.sec.p50, 16);
   assert.strictEqual(d.stock[1].axe.stock, 2);
   assert.ok(textLines(d).length >= 6);
+});
+
+test('渡すゴール: 渡す相手の頼みごとの分だけ (ほかの人の頼みは、その人に渡す理由にならない)', () => {
+  const d = new Division({ me: 'Aoi' });
+  d.noteHeard('Mio', '(ひとりごと) 石の斧があればなあ', 1);
+  d.update({ tick: 2 });
+  assert.ok(d.goalT({ kind: 'person', target: 'Mio', give: 'stone_axe' }).sItem > 0);
+  assert.strictEqual(d.goalT({ kind: 'person', target: 'Ken', give: 'stone_axe' }).sItem, 0);
+  assert.ok(d.goalT({ kind: 'item', target: 'stone_axe' }).sItem > 0);
 });

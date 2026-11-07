@@ -123,7 +123,7 @@ class Talker {
         ctx.plan ? `## 今していること\n${ctx.plan}` : '',
         `## 欲しい物\n${ctx.wantItem}`,
         `## 自分の作業のこと (事実)\n${ctx.wantFacts || 'なし'}`,
-        form === 'mutter' ? '' : `## 近くの人\n${ctx.nearText || 'なし'}`,
+        form === 'near' ? `## 近くの人\n${ctx.nearText || 'なし'}` : '',
         `## 今聞こえた話\n${ctx.heardText || 'なし'}`,
         form === 'all' ? ctx.boardText || '' : '',
         form === 'mutter' ? 'つぶやくことを JSON で。' : '言うことを JSON で。',

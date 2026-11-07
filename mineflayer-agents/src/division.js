@@ -327,7 +327,8 @@ class Division {
       return acts.map((a) => ({ act: a, kind: 'request' }));
     }
     for (const a of acts) this.noteDoing(from, a, tick, 'said', this.cfg.others.sayW);
-    this.noteToolSaid(from, text, tick);
+    // 「石の斧があればなあ」は使っている道具ではない (欲しい形の文は道具の使い方に数えない。壊れた話は数える)
+    if (!(TF.isWantText(text) && !TF.isBrokeText(text))) this.noteToolSaid(from, text, tick);
     return acts.map((a) => ({ act: a, kind: 'doing' }));
   }
 
@@ -387,7 +388,9 @@ class Division {
       const q = `${h.from}${h.form === 'mutter' ? 'のつぶやき' : ''}「${h.text}」`;
       if (!e.ja.includes(q)) { e.ja.push(q); e.en.push(`${h.from}${h.form === 'mutter' ? ' muttered' : ' said'}「${h.text}」`); }
     }
-    for (const [k, v] of Object.entries(per)) { const x = k.split('|')[0]; s[x] = (s[x] || 0) + c.heardW * v; }
+    this.sItemBy = {}; // 物 → { 人: その人の頼みごと・独り言の分 } (渡すゴールは、渡す相手の分だけ)
+    for (const [k, v] of Object.entries(per)) { const [x, who] = k.split('|'); s[x] = (s[x] || 0) + c.heardW * v; (this.sItemBy[x] || (this.sItemBy[x] = {}))[who] = r3(c.heardW * v); }
+    this.sItemStock = {};
     // 自分の不満
     for (const [x, v] of Object.entries(selfWant || {})) put(x, c.selfW * v, null, null);
     // 共有のチェストの道具の数と、使う人・壊れた回数 (共有のチェストの中身が見えているときだけ)
@@ -410,6 +413,7 @@ class Division {
         const x = `${c.target}_${type}`;
         const ids = known.map((ch) => ch.id).filter(Boolean).slice(0, 2).join('・');
         const who = [...users].slice(0, 4).join('・');
+        this.sItemStock[x] = r3(c.stockW * lack * Math.min(1, users.size / c.usersRef));
         put(x, c.stockW * lack * Math.min(1, users.size / c.usersRef),
           `共有のチェスト${ids ? ` ${ids}` : ''}の${TF.TYPE_JA[type]}は${stock}本。${TF.TYPE_JA[type]}を使っているのを見聞きした人: ${who}${breaks >= 0.5 ? `。${TF.TYPE_JA[type]}が壊れたのを見聞きした: ${Math.round(breaks)}回` : ''}`,
           `${type}s in the shared chests: ${stock}; people seen or heard using a ${type}: ${[...users].slice(0, 4).join(', ')}${breaks >= 0.5 ? `; ${type}s seen or heard breaking: ${Math.round(breaks)}` : ''}`);
@@ -425,7 +429,10 @@ class Division {
     const a = goalActivity(g);
     const item = goalItem(g);
     const sA = (a && this.s[a]) || 0;
-    const sI = (item && this.sItem[item]) || 0;
+    // 渡すゴール: 渡す相手の頼みごと・独り言の分と、共有のチェストの足りなさの分 (ほかの人の頼みは、その人に渡す理由にならない)
+    const sI = !item ? 0 : g.kind === 'person'
+      ? Math.min(this.cfg.items.sMax, (((this.sItemBy || {})[item] || {})[g.target] || 0) + ((this.sItemStock || {})[item] || 0))
+      : (this.sItem[item] || 0);
     const theta = (a && this.theta[a]) || this.cfg.threshold.theta0;
     const T = sI > 0 ? response(sA + sI, theta) : (a && this.T[a]) || 0;
     return { T: r3(T), act: a, item: sI > 0 ? item : null, sAct: sA, sItem: sI, theta };
@@ -457,7 +464,7 @@ class Division {
     const st = Object.entries(this.stock).filter(([, v]) => v.users || v.stock);
     if (st.length) lines.push(`共有のチェストの道具: ${st.map(([type, v]) => `${TF.TYPE_JA[type]} ${v.stock}本 (使う人 ${v.users})`).join('・')}`);
     const wants = Object.entries(this.sItem).filter(([x]) => this.itemEvidence[x] && this.itemEvidence[x].who.length).map(([x]) => `${x} (${this.itemEvidence[x].who.join('・')})`);
-    if (wants.length) lines.push(`道具を欲しがっていた人: ${wants.slice(0, 4).join('・')}`);
+    if (wants.length) lines.push(`道具の頼みごと・つぶやき・壊れた話をしていた人: ${wants.slice(0, 4).join('・')}`);
     if (lines.length) lines.push(`仕様: 耐久 木 ${TF.TOOL_FACTS.durability.wooden}・石 ${TF.TOOL_FACTS.durability.stone}・鉄 ${TF.TOOL_FACTS.durability.iron} 回、掘る速さ 素手1・木2・石4・鉄6`);
     return lines.join('\n');
   }

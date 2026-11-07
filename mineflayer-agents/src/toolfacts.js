@@ -96,7 +96,7 @@ function toolsOfItems(items = []) {
 const SAID_MAT = [['wooden', /木の|木製|wooden_/], ['stone', /石の|stone_/], ['iron', /鉄の|iron_/], ['golden', /金の|golden_/], ['diamond', /ダイヤの|diamond_/]];
 const SAID_TYPE = [['pickaxe', /ツルハシ|つるはし|ピッケル|pickaxe/], ['axe', /斧|おの|オノ|(?<!pick)axe/], ['shovel', /シャベル|スコップ|shovel/], ['hoe', /クワ|くわ|鍬|hoe/], ['sword', /剣|sword/]];
 // 欲しい・困っている形 (頼みごと・独り言の両方)
-const WANT_RE = /欲しい|ほしい|あれば|あったら|あったらなあ|くれ|ちょうだい|ください|貸して|譲って|無いか|ないか|足りな|必要|頼む|お願い|作って|壊れ|折れ|遅い|遅く|時間がかか|持ってない|持ってる[?？]|誰か|取れな|掘れな|素手|もっといい|いい(斧|ツルハシ|クワ|シャベル|剣|道具)|need|want|anyone|broke|broken/i;
+const WANT_RE = /欲しい|ほしい|あれば|あったら|あったらなあ|くれ|ちょうだい|ください|貸して|譲って|無いか|ないか|足りな|必要|頼む|お願い|作って|壊れ|折れ|遅い|遅く|時間がかか|持ってない|持ってる[?？]|誰か|取れな|掘れな|もっといい|いい(斧|ツルハシ|クワ|シャベル|剣|道具)|need|want|anyone|broke|broken/i;
 const BROKE_RE = /壊れ|折れ|broke|broken/i;
 
 // 文 → 道具の言葉 [{ item | null, type, mat | null }] (重ならないよう、英語の名前を先に)
