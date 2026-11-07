@@ -6,7 +6,23 @@
 //   go_to(覚えている場所 M) × memPlace (既定 0.7)。ただしゴール・道筋に関係する場所 (種類が道筋の物、ゴールの場所) は下げない。
 //   掛けたあと足して 1 にし、一番大きいものを選ぶ (noChange の重みと同じ所。deciders/jev.js)。
 // 数値はここと config だけで持ち、モデルには見せない。
-const DEFAULTS = { enabled: false, people: 0.4, memPlace: 0.7, called: 1, exemptTicks: 10 };
+//   explore (方角・遠く・拠点から離れる方など、行き先のある explore の選択肢) × (1 − (1 − visited) × 行き先までの道のりのうち自分が行ったマスの割合)。
+//     よく行った範囲 (出現地点のまわりなど) を通るだけの方角ほど下げる (自分の踏破 memory.cells から)。visited: 1 で下げない
+const DEFAULTS = { enabled: false, people: 0.4, memPlace: 0.7, called: 1, exemptTicks: 10, visited: 1, cellSize: 16 };
+
+// here から vec の向きに dist m 先までの道のりのマス (cellSize ごと) のうち、自分が行ったマス (cells の n > 0) の割合
+function visitedFrac(here, vec, dist, cells, size = 16) {
+  if (!here || !vec || !dist) return 0;
+  const own = cells instanceof Map ? cells : new Map((cells || []).filter((c) => c && c.n).map((c) => [`${c.cx},${c.cz}`, c]));
+  const keys = new Set(); let n = 0; let mine = 0;
+  for (let s = size; s <= dist + 1e-6; s += size) {
+    const k = `${Math.floor((here.x + vec[0] * s) / size)},${Math.floor((here.z + vec[1] * s) / size)}`;
+    if (keys.has(k)) continue;
+    keys.add(k); n += 1;
+    if (own.has(k)) mine += 1;
+  }
+  return n ? mine / n : 0;
+}
 
 function cfgOf(c) { return { ...DEFAULTS, ...(c || {}) }; }
 
@@ -37,6 +53,14 @@ function choiceWeights(actions, o = {}, cfg = {}) {
     if (!Array.isArray(a.choices)) continue;
     if (a.name === 'follow') {
       for (const ch of a.choices) { const w = pw(ch.player || ch.id); if (w !== 1) out[`follow:${ch.id}`] = w; }
+    } else if (a.name === 'explore' && c.visited !== 1 && o.here && o.cells) {
+      const own = new Map((o.cells || []).filter((x) => x && x.n).map((x) => [`${x.cx},${x.cz}`, x]));
+      for (const ch of a.choices) {
+        if (!ch.vec || !ch.dist) continue; // でたらめ・まだ行っていないマスは下げない
+        const fr = visitedFrac(o.here, ch.vec, ch.dist, own, o.cellSize || c.cellSize);
+        const w = Math.round((1 - (1 - c.visited) * fr) * 1000) / 1000;
+        if (w !== 1) out[`explore:${ch.id}`] = w;
+      }
     } else if (a.name === 'go_to') {
       for (const ch of a.choices) {
         if (ch.player) { const w = pw(ch.player); if (w !== 1) out[`go_to:${ch.id}`] = w; } else if (ch.fromMemory) {
@@ -61,4 +85,4 @@ function reweightMult(probabilities, mult) {
   return { choice, original: orig, changed: choice !== orig, probs };
 }
 
-module.exports = { DEFAULTS, cfgOf, choiceWeights, reweightMult, isCalled, INVITE };
+module.exports = { visitedFrac, DEFAULTS, cfgOf, choiceWeights, reweightMult, isCalled, INVITE };

@@ -88,7 +88,7 @@ function relevantMemories(memory, question, { hints = [], max = 5 } = {}) {
   const hit = (s) => s.length >= 3 && names.some((n) => s.includes(n) || n.includes(s));
   for (const e of [...memory.events].reverse()) {
     if (!e.ok) continue;
-    if (hit(`${e.arg}`) || (!names.length && acts.includes(e.action))) items.push({ kind: 'event', text: `${e.action}(${e.arg})で成功: ${e.msg}` });
+    if (hit(`${e.arg}`) || (!names.length && acts.includes(e.action))) items.push({ kind: 'event', text: `${e.action}(${e.arg})で成功: ${e.msg}`, ...(e.mpos ? { mpos: e.mpos } : {}) }); // mpos: その出来事のときの M 番号の場所 (答えの置き換えに使う)
     if (items.length >= max) break;
   }
   for (const k of [...memory.knowledge].reverse()) {

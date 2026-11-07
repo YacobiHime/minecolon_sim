@@ -254,7 +254,8 @@ test('agent.chat / 全体チャット: M 番号を置き換えてから送り、
     memory: new Memory({ origin: { x: 0, y: 64, z: 0 } }), social: { onSpoke: () => {} }, recorder: { write: (r) => rec.push(r) },
     lastMemPlaces: [{ id: 'M2', pos: { x: 40, y: 64, z: 0 } }],
   });
-  assert.strictEqual(self.chat('M2に小麦を植えたよ'), true);
+  // 返り値は送った文 (置き換えたあと。記録・ログはこれを使う)
+  assert.strictEqual(self.chat('M2に小麦を植えたよ'), '出現地点から東に40mの所に小麦を植えたよ');
   assert.deepStrictEqual(sent, ['出現地点から東に40mの所に小麦を植えたよ']);
   assert.deepStrictEqual(rec.map((r) => [r.event, r.via, r.original, r.replaced, r.n]), [['m_replaced', 'chat', 'M2に小麦を植えたよ', '出現地点から東に40mの所に小麦を植えたよ', 1]]);
   assert.strictEqual(self.memory.heard[0].text, '出現地点から東に40mの所に小麦を植えたよ');

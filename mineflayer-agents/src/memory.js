@@ -331,7 +331,7 @@ class Memory {
     const out = {};
     out.places = places.length ? places.map((p) => `${p.id}=${en.placeKindEn(p.kind)} (${en.whereEn(here, p.pos)}${p.from ? `; ${p.from} said so` : ''})`).join('; ') : 'none';
     const evs = this.events.slice(-maxEvents);
-    out.recent = evs.length ? evs.map((e) => e.en || en.resultEn({ action: e.action, arg: e.arg, ok: e.ok, msg: e.msg })) : 'nothing yet';
+    out.recent = evs.length ? evs.map((e) => this.relabelM(e.en || en.resultEn({ action: e.action, arg: e.arg, ok: e.ok, msg: e.msg }), e, places, 'en')) : 'nothing yet';
     const hd = this.heard.filter((h) => h.from !== '自分').slice(-maxHeard);
     // 「Taro は〜と言っていた (いつ)」の形。いつ = 何判断前 (言葉) と、聞いたときのゲーム内の時刻
     if (hd.length) out.heard = hd.map((h) => `${h.from} said${h.global ? ' to everyone' : ''}「${h.text}」 (${agoEn(this.tick - h.t)}${h.at ? `, ${en.phaseEn(h.at)}` : ''})`).join(' ');
@@ -340,6 +340,21 @@ class Memory {
     const later = this.laterTexts(here, places, 'en');
     if (later.length) out.later = later; // あとでやること (prospect.js)
     return out;
+  }
+
+  // 出来事の文の M 番号は、その出来事のときの番号 (e.mpos に場所が残っている)。今の一覧 (places) で同じ場所の番号に付け直し、
+  //   今の一覧に無ければ共通の呼び方 (出現地点から北に60m の所) にする。場所が残っていない番号はそのまま
+  relabelM(text, e, plist, lang = 'ja') {
+    const mp = e && e.mpos;
+    if (!mp) return text;
+    return String(text).replace(/(?<![A-Za-z0-9_])M([0-9]{1,2})(?![0-9])/g, (m) => {
+      const pos = mp[m];
+      if (!pos) return m;
+      const cur = (plist || []).find((p) => p.pos && Math.abs(p.pos.x - pos.x) <= 1 && Math.abs(p.pos.z - pos.z) <= 1 && Math.abs((p.pos.y ?? 0) - (pos.y ?? 0)) <= 2);
+      if (cur) return cur.id;
+      const ref = this.origin ? places.commonRef(pos, this.origin, { lang }) : null;
+      return ref ? (lang === 'en' ? `(${ref})` : `(${ref}の所)`) : m;
+    });
   }
 
   toPromptText(here, opts = {}) {
@@ -353,7 +368,7 @@ class Memory {
       lines.push('覚えている場所: ' + (places.length ? places.map((p) => `${p.id}=${p.label}`).join(', ') : 'なし'));
       const ago = (t) => { const d = this.tick - t; return d <= 0 ? '今' : `${d}回前`; };
       const ev = chosen.filter((c) => c.kind === 'event').map((c) => c.x);
-      lines.push('やったこと: ' + (ev.length ? ev.map((e) => `${e.action}${e.arg ? '(' + e.arg + ')' : ''}→${e.ok ? '成功' : '失敗'}:${e.msg}`).join(' / ') : 'まだ何もしていない'));
+      lines.push('やったこと: ' + (ev.length ? ev.map((e) => this.relabelM(`${e.action}${e.arg ? '(' + e.arg + ')' : ''}→${e.ok ? '成功' : '失敗'}:${e.msg}`, e, places)).join(' / ') : 'まだ何もしていない'));
       const hd = chosen.filter((c) => c.kind === 'heard').map((c) => c.x);
       if (hd.length) lines.push('聞いた話: ' + hd.map((h) => `${h.from}は${h.global ? '全員に' : ''}「${h.text}」と言っていた (${ago(h.t)}${h.at ? '・' + h.at : ''})`).join(' '));
       const kn = chosen.filter((c) => c.kind === 'knowledge').map((c) => c.x);

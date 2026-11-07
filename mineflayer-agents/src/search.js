@@ -17,7 +17,10 @@ const { isCalled } = require('./choice_weight');
 
 const SEARCH_DEFAULTS = {
   enabled: false,
-  minDist: 24, maxDist: 80, // 1回の search で歩く距離 (探検の T = 0 → minDist、T = 1 → maxDist)
+  minDist: 24, maxDist: 80, // 1回の search で歩く距離 (探検の T = 0 → minDist、T = 1 → maxDist)。survival_3days は 50〜160 (2026-11-07 ユーザー決定「探索を倍以上」)
+  // よく行った範囲 (自分の踏破したマスの、行った回数で重みを付けた重心) から外へ向かう方角の点を上げ、内へ向かう方角を下げる:
+  //   点 += outward × cos(方角, 重心 → 今いる所)。今いる所が重心から cellSize/2 未満なら足さない。0 で見ない
+  outward: 0,
   choices: 3, // 方角の候補の数 (点の高い順)
   othersWeight: 1, // ほかの人が行ったと分かっているマスの引き (1 = 自分が行ったマスと同じだけ避ける)
   jitter: 0.25, // 人ごとの好みの方角の重み (同じ所から出た人がばらけるように)
@@ -102,12 +105,29 @@ function noteOthersSeen(memory, people, { cellSize = 16, tick = 0, max = 200, tt
 }
 
 // 8方位の点。dist 先までの道のりのマス (cellSize ごと) のうち、自分も行っていない・ほかの人が行ったとも分かっていない割合 + 人ごとの好み
+// よく行った範囲の重心 (自分の踏破したマスを、行った回数 n で重み付け)。無ければ null
+function homeCenter(cells, size = 16) {
+  let w = 0; let x = 0; let z = 0;
+  for (const c of cells || []) { if (!c || !c.n) continue; w += c.n; x += (c.cx + 0.5) * size * c.n; z += (c.cz + 0.5) * size * c.n; }
+  return w ? { x: x / w, z: z / w, w } : null;
+}
+
+// 方角の「外へ向かう度合い」: cos(方角, 重心 → 今いる所)。重心の近く (cellSize/2 未満) では 0
+function outwardOf(here, home, vx, vz, size = 16) {
+  if (!home) return 0;
+  const hx = here.x - home.x; const hz = here.z - home.z;
+  const L = Math.hypot(hx, hz);
+  if (L < size / 2) return 0;
+  return (vx * hx + vz * hz) / L;
+}
+
 function directionScores(here, o = {}) {
   const c = cfgOf(o);
   const size = o.cellSize || 16;
   const dist = o.dist || c.minDist;
   const own = new Map();
   for (const x of o.cells || []) if (x.n) own.set(`${x.cx},${x.cz}`, x);
+  const home = c.outward ? homeCenter(o.cells, size) : null;
   const oc = o.othersCells || new Map();
   const pref = hash01(o.name) * Math.PI * 2;
   const out = [];
@@ -131,7 +151,8 @@ function directionScores(here, o = {}) {
     const f = n ? fresh / n : 0;
     const ang = Math.atan2(vz, vx);
     const bonus = c.jitter * (1 + Math.cos(ang - pref)) / 2;
-    out.push({ dir: d, score: Math.round((f + bonus) * 1000) / 1000, fresh: Math.round(f * 1000) / 1000, mineFrac: n ? mine / n : 0, heard: [...heard], seen: [...seen] });
+    const outw = outwardOf(here, home, vx, vz, size);
+    out.push({ dir: d, score: Math.round((f + bonus + (c.outward || 0) * outw) * 1000) / 1000, fresh: Math.round(f * 1000) / 1000, outward: Math.round(outw * 1000) / 1000, mineFrac: n ? mine / n : 0, heard: [...heard], seen: [...seen] });
   }
   return out.sort((a, b) => b.score - a.score);
 }
@@ -246,4 +267,4 @@ function interruptText(h) {
   return '';
 }
 
-module.exports = { SEARCH_DEFAULTS, cfgOf, hash01, searchTargets, searchDistance, othersCells, noteOthersSeen, directionScores, searchAction, scanAll, pickInterrupt, interruptText, sectorOf };
+module.exports = { homeCenter, outwardOf, SEARCH_DEFAULTS, cfgOf, hash01, searchTargets, searchDistance, othersCells, noteOthersSeen, directionScores, searchAction, scanAll, pickInterrupt, interruptText, sectorOf };

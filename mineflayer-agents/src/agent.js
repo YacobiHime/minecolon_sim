@@ -28,6 +28,22 @@ const farmwater = require('./farmwater');
 const { SharedExplore } = require('./explored');
 const { PlayerCache, playerDistance, peopleOf } = require('./people');
 const { replaceMRefs } = require('./places');
+const scarcity = require('./scarcity');
+
+// 文の中の M 番号 → { M2: {x,y,z} } (places: placesForPrompt の一覧)。無ければ null
+function mposOf(text, places) {
+  const ids = String(text || '').match(/(?<![A-Za-z0-9_])M[0-9]{1,2}(?![0-9])/g);
+  if (!ids || !places) return null;
+  const out = {};
+  for (const id of new Set(ids)) { const p = places.find((q) => q.id === id); if (p && p.pos) out[id] = { x: p.pos.x, y: p.pos.y, z: p.pos.z }; }
+  return Object.keys(out).length ? out : null;
+}
+// [{ M2: pos }, ...] → [{ id, pos }] (同じ番号は先のものを使う)
+function placesFromMpos(maps) {
+  const out = [];
+  for (const m of maps || []) for (const [id, pos] of Object.entries(m || {})) if (!out.some((q) => q.id === id)) out.push({ id, pos });
+  return out;
+}
 const { Reflect } = require('./reflect');
 const { llmOptsFor } = require('./llm_provider');
 const { baseSite, baseSiteText, baseSiteTextEn } = require('./basesite');
@@ -867,6 +883,7 @@ class Agent {
     return c;
   }
 
+  // 返り値: 送った文 (M 番号を共通の呼び方に置き換えたあと) | false
   chat(text, { force = false, places = null } = {}) {
     const now = Date.now();
     const t = this.refPlaces(String(text).replace(/\s+/g, ' ').trim(), { places, via: 'chat' }).slice(0, 100);
@@ -877,7 +894,7 @@ class Agent {
     this.bot.chat(t);
     this.memory.noteHeard('自分', t);
     this.social.onSpoke(this.memory.tick);
-    return true;
+    return t; // 送った文 (M 番号を置き換えたあと)。記録・ログはこれを使う (元の文は *Raw)
   }
 
   // craftables: 名前の配列、または "all" (レシピのある物すべて。マイクラで作れる物を全部候補にする)
@@ -946,7 +963,9 @@ class Agent {
     const rec = { id: `${this.cfg.persona.name}-${this.memory.tick}`, from: this.cfg.persona.name, to, key: trouble.key, about: trouble.about, question: q, loop: this.memory.tick };
     this.askedAt[trouble.key] = this.memory.tick;
     this.pendingAsk = { to, reply: null };
-    this.chat(q, { force: true });
+    // 困りごとの M 番号は、その失敗をしたときの番号 (今の一覧とずれることがある) → そのときの場所で置き換える
+    const sentQ = this.chat(q, { force: true, places: this.placesOfKey(trouble.key) });
+    if (sentQ && sentQ !== q) { rec.questionRaw = q; rec.question = sentQ; }
     this.recorder.write({ event: 'ask', ...rec });
     const waitMs = (this.cfg.ask && this.cfg.ask.waitMs) || 45000;
     const t0 = Date.now();
@@ -985,9 +1004,11 @@ class Agent {
           twoB = { promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error, rawOutput: r.rawOutput };
           text = r.say || 'ごめん、うまく言えない';
         } else text = mems[0].text;
-        this.chat(ask.answerText(q.from, text), { force: true });
+        // 答えの M 番号は、思い出した出来事のときの番号 (出来事に残した場所) を先に、無ければ今の一覧で置き換える
+        const sentA = this.chat(ask.answerText(q.from, text), { force: true, places: this.placesOfMemories(mems) });
+        const answerSent = sentA ? String(sentA).replace(/^\S+?さん、答え[:：]\s*/, '') : null;
         this.social.onAsked(q.from, mems.length > 0, this.memory.tick);
-        this.recorder.write({ event: 'answer', from: this.cfg.persona.name, to: q.from, question: q.question, answer: text, known: mems.length > 0 && !ask.isDontKnow(text), memories: mems, twoB, delayMs: Date.now() - q.t });
+        this.recorder.write({ event: 'answer', from: this.cfg.persona.name, to: q.from, question: q.question, answer: answerSent || text, ...(answerSent && answerSent !== text ? { answerRaw: text } : {}), known: mems.length > 0 && !ask.isDontKnow(text), memories: mems, twoB, delayMs: Date.now() - q.t });
       }
     } finally {
       this.answering = false;
@@ -1116,14 +1137,15 @@ class Agent {
     const placesAt = this.lastMemPlaces || null;
     this.talker.voice(tctx).then((r) => {
       let say = r.say ? r.say.replace(/\s+/g, ' ').trim() : '';
+      const sayRaw = say;
       let sent = false;
       if (say) {
-        if (dcs.form === 'all') { say = this.refPlaces(say, { via: 'board' }).slice(0, this.boardCfg.textMax); sent = !!this.sendBoard(boardLine.say(say)); if (sent) { this.memory.noteHeard('自分', say, 0.1, { global: true }); this.social.onSpoke(this.memory.tick); } }
-        else if (dcs.form === 'near') sent = this.chat(say, { places: placesAt, force: true });
-        else { sent = this.chat(`(ひとりごと) ${say}`, { places: placesAt, force: true }); }
+        if (dcs.form === 'all') { say = this.refPlaces(say, { places: placesAt, via: 'board' }).slice(0, this.boardCfg.textMax); sent = !!this.sendBoard(boardLine.say(say)); if (sent) { this.memory.noteHeard('自分', say, 0.1, { global: true }); this.social.onSpoke(this.memory.tick); } }
+        else if (dcs.form === 'near') { const t = this.chat(say, { places: placesAt, force: true }); sent = !!t; if (t) say = t; }
+        else { const t = this.chat(`(ひとりごと) ${say}`, { places: placesAt, force: true }); sent = !!t; if (t) say = t.replace(/^\(ひとりごと\) /, ''); }
       }
       this.recorder.write({ event: 'tool_voice', loop: tick, form: dcs.form, item: dcs.item, d: dcs.d, p: dcs.p, theta: dcs.theta, mutterRate: dcs.mutterRate, close: dcs.close, repeat: dcs.repeat,
-        to: dcs.to, say: sent ? say : null, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
+        to: dcs.to, say: sent ? say : null, ...(sent && say !== sayRaw ? { sayRaw } : {}), rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
       if (sent) this.log(`[${this.cfg.persona.name}] ${dcs.form === 'mutter' ? 'ひとりごと' : dcs.form === 'near' ? '頼む' : '全体に頼む'}「${say}」 (${dcs.item} ${dcs.d})`);
     }).catch(() => {}).finally(() => { this.voicing = false; });
     return { form: dcs.form, item: dcs.item, d: dcs.d, p: dcs.p, theta: dcs.theta };
@@ -1142,8 +1164,9 @@ class Agent {
     const loop = this.memory.tick;
     const placesAt = this.lastMemPlaces || null; // 文を作ったときの M 番号 (置き換えに使う)
     this.talker.talk(tctx).then((r) => {
-      const said = r.say && this.chat(r.say, { places: placesAt }) ? r.say : null;
-      this.recorder.write({ event: 'talk', loop, talkP, threshold: Number(thr.toFixed(3)), say: said, rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
+      const said = r.say ? this.chat(r.say, { places: placesAt }) || null : null;
+      const sayRaw = said && r.say ? String(r.say).replace(/\s+/g, ' ').trim() : null;
+      this.recorder.write({ event: 'talk', loop, talkP, threshold: Number(thr.toFixed(3)), say: said, ...(said && sayRaw !== said ? { sayRaw } : {}), rawOutput: r.rawOutput, promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error });
       if (said) this.log(`[${this.cfg.persona.name}] say「${said}」 (talk ${talkP.toFixed(2)})`);
     }).catch(() => {}).finally(() => { this.talking = false; });
     return thr;
@@ -1162,6 +1185,12 @@ class Agent {
     // ゲーム内の時刻 (ワールドの age、tick)。あとでやること (prospect.js) の「何分前・あと何分」はこれで数える
     const gameNow = Number.isFinite(raw.self.age) ? raw.self.age : (Number.isFinite(raw.self.day) ? raw.self.day * 24000 + (raw.self.timeOfDay || 0) : null);
     this.memory.gameNow = gameNow;
+    // 珍しさ (scarcity.js): 見えた入手元 (ブロック・生き物) を数える。memory.extra.sightings に残す (保存される)
+    const valueCfg = cfg.goalPath && cfg.goalPath.select && cfg.goalPath.select.value;
+    if (valueCfg && valueCfg.enabled) {
+      if (!this.sightings) { this.memory.extra = this.memory.extra || {}; this.memory.extra.sightings = this.memory.extra.sightings || {}; this.sightings = new scarcity.Sightings(this.memory.extra.sightings, valueCfg); }
+      this.sightings.note(raw, Number.isFinite(gameNow) ? gameNow : tick);
+    }
     const ex = this.extras();
     raw.foodCount = raw.inventory.filter((i) => ex.foods.has(i.name)).reduce((s, i) => s + i.count, 0);
     const cell0 = this.memory.cellOf(raw.self.pos);
@@ -1311,6 +1340,8 @@ class Agent {
         board: bview ? bview.goal : null,
         division: this.division ? this.division.view() : null, shortage: this.division ? this.division.stimulusText() : '', role: ctx.role || null,
         _farm: farm || undefined, origin: this.memory.origin || null,
+        // 珍しさ (見かけた記録) と今の時刻、夜の外歩きの危なさ (夜のあいだだけ anticipate の night.risk。planner の手間の感じ方 costScale)
+        sightings: this.sightings || null, gameNow: Number.isFinite(gameNow) ? gameNow : tick, nightRisk: this.nightRisk(),
         // あとでやることのうち見込みの時刻を過ぎたもの (場所の候補 type: later)。取りに行くかは 2B が選ぶ
         laterPlaces: Number.isFinite(gameNow) ? this.memory.prospects.goalCandidates(gameNow, { here: raw.self.pos, places: memPlacesNow }) : [],
       }, tick, { troubles });
@@ -1361,7 +1392,7 @@ class Agent {
     const voiced = this.maybeVoice(ctx, raw, tick);
 
     let said = null;
-    if (dec.say && resolved.action !== 'say' && this.chat(dec.say)) said = dec.say;
+    if (dec.say && resolved.action !== 'say') said = this.chat(dec.say) || null;
     const before = nochange.snapshot({ inventory: raw.inventory, pos: raw.self.pos, hutFilled: this.trueHut ? this.trueHut.filled : null });
     const tAct = Date.now();
     const othersMark = this.others ? this.others.mark() : 0;
@@ -1385,7 +1416,7 @@ class Agent {
       const seen = this.others.since(othersMark);
       if (seen.length) { result.others = seen; result.msg = OthersLog.appendTo(result.msg, seen); }
     }
-    if (resolved.action === 'say') said = resolved.arg;
+    if (resolved.action === 'say') said = (result && result.said) || resolved.arg;
     // 渡した (人のゴールの済んだかに使う)・ベッド/チェストを置いた所 (拠点が無いときの拠点の様子に使う)
     if (result.ok && resolved.action === 'give') {
       const ga = ctx.actions.find((a) => a.name === 'give');
@@ -1408,6 +1439,10 @@ class Agent {
     const after = nochange.snapshot({ inventory: inv, pos: bot.entity.position, hutFilled: this.trueHutFilled() });
     const stateChanged = nochange.changed(before, after);
     const ev = this.memory.noteEvent(resolved.action, resolved.arg, result.ok, valid ? result.msg : `(選び方が無効: ${resolved.error}) ${result.msg}`);
+    // 引数・結果の文の M 番号 (この判断の覚えている場所の番号) の場所を出来事に残す。番号は判断ごとに付け直すので、
+    //   あとで聞く・答えるときはこの場所で共通の呼び方に置き換える (placesOfKey / placesOfMemories)
+    const mpos = mposOf(`${resolved.arg || ''} ${result.msg || ''}`, memPlacesNow);
+    if (mpos) ev.mpos = mpos;
     this.noteProspects(resolved, result, raw.inventory, inv, tick);
     ev.nc = !stateChanged; // 状態が変わらなかった (help.noChange のときだけ困りごと・重みに使う。記録は常に)
     if (nc) {
@@ -1594,7 +1629,9 @@ class Agent {
         }
       }
     }
-    return { exemptPeople, calledPeople, relatedKinds, relatedPos };
+    // explore の行き先のうち、よく行った範囲を通るだけのもの (choiceWeights.visited) を下げるための今いる所と踏破
+    const here = this.bot && this.bot.entity ? this.bot.entity.position : null;
+    return { exemptPeople, calledPeople, relatedKinds, relatedPos, here: here ? { x: here.x, z: here.z } : null, cells: this.memory.cells, cellSize: this.memory.limits.exploreCell };
   }
 
   // 行動の結果から、あとでやること (prospect.js) を足す・済んだにする。記録は event 'prospect'
@@ -1627,6 +1664,30 @@ class Agent {
     for (const k of Object.keys(b)) if (b[k] > (a[k] || 0)) gained[k] = b[k] - (a[k] || 0);
     if (Object.keys(gained).length && /^(collect|use_on|pick_up)$/.test(resolved.action) && this.bot && this.bot.entity) out.push(...pr.harvested(this.bot.entity.position, gained, now, tick));
     for (const e of out) this.recorder.write({ event: 'prospect', ...e, gameTime: now, action: resolved.action, arg: resolved.arg });
+  }
+
+  // 夜の外歩きの危なさ: 夜のあいだだけ、先のつらさ (anticipate.js) の夜の見込み risk (自分の夜の経験で上がる)。昼は 0
+  nightRisk() {
+    const nm = this.social && this.social.needsModel;
+    const d = nm && nm.ant ? nm.ant.detail : null;
+    return d && d.night && d.night.isNight && Number.isFinite(d.night.risk) ? d.night.risk : 0;
+  }
+
+  // 困りごと (key = "action:arg") の M 番号を、その行動をしたときの場所 (出来事に残した mpos) で返す。無ければ null (今の一覧を使う)
+  placesOfKey(key) {
+    const ev = [...this.memory.events].reverse().find((e) => `${e.action}:${e.arg}` === key && e.mpos);
+    return ev ? placesFromMpos([ev.mpos]) : null;
+  }
+
+  // 思い出した記憶 (ask.relevantMemories の { kind, text, ... }) の M 番号を、その出来事のときの場所で返す。
+  //   出来事に場所が残っていない番号は、今の一覧 (lastMemPlaces) で補う。同じ番号が別の場所なら先に出た記憶 (関係の強い方) を使う
+  placesOfMemories(mems) {
+    const maps = [];
+    for (const m of mems || []) if (m && m.mpos) maps.push(m.mpos);
+    if (!maps.length) return null;
+    const own = placesFromMpos(maps);
+    const cur = (this.lastMemPlaces || []).filter((p) => !own.some((q) => q.id === p.id));
+    return [...own, ...cur];
   }
 
   // 発言の中の M 番号 (自分だけの覚えている場所の番号) を、相手に通じる共通の呼び方 (places.js: 出現地点から北東に40m) に置き換える。

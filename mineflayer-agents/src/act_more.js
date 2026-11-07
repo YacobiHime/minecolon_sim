@@ -855,7 +855,8 @@ function moreHandlers(lib) {
       const text = `${ch.player}、来て (${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)})`;
       const said = ctx.chat ? ctx.chat(text, { force: true }) : false;
       if (said === false) return { ok: false, msg: `${ch.player}を呼べなかった` };
-      return { ok: true, msg: `「${text}」と呼んだ`, said: text };
+      const t = typeof said === 'string' ? said : text;
+      return { ok: true, msg: `「${t}」と呼んだ`, said: t };
     },
   };
 

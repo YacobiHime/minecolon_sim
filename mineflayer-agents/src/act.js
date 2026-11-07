@@ -728,8 +728,9 @@ const handlers = {
   async share_chest(_bot, ch, ctx) { return ctx.shareChest ? ctx.shareChest(ch) : { ok: false, msg: '共有にする仕組みがない' }; },
 
   async say(bot, _ch, ctx) {
-    ctx.chat(ctx.arg);
-    return { ok: true, msg: `「${ctx.arg}」と言った` };
+    const sent = ctx.chat(ctx.arg);
+    const t = typeof sent === 'string' ? sent : ctx.arg; // 送った文 (M 番号を置き換えたあと)
+    return { ok: true, msg: `「${t}」と言った`, said: t };
   },
 
   async look_around(bot) {

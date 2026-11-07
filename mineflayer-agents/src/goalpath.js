@@ -26,6 +26,7 @@ const farmwater = require('./farmwater');
 const { goalActivity } = require('./division');
 const resolve = require('./resolve');
 const { describeItem } = require('./vocab');
+const scarcity = require('./scarcity');
 
 const DEFAULTS = {
   maxItems: 40,
@@ -147,19 +148,25 @@ function chunkQuestions(groups, base, { maxQuestions = 60, maxBodyBytes = 30000 
 function effortFactor(cost, alpha) { return Number.isFinite(cost) && alpha > 0 ? 1 / (1 + alpha * Math.max(0, cost)) : 1; }
 //   division (分業。division.js): { T: [案ごとの反応の強さ], beta, gamma } があれば 点 = (Σ つらさ × P × (1 + beta × T) + gamma × T) ÷ (1 + alpha × 手間)
 //   experience (経験。experience.js): { factor: [案ごとの q ÷ m0] } があれば分子に掛ける (P_実 = P × q ÷ m0。gamma × T の項にも)
-function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null, division = null, experience = null) {
+//   value (珍しさ・大事さ。scarcity.js): { W: [[w_ij]], lambda, R: [案ごとの珍しさの係数] } があれば
+//     点 = (q ÷ m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × Σ_j w_ij × N_j) × R ÷ (1 + alpha × 手間')。N_j = Σ つらさ × P_j
+function selectScores(P, needs, { power = 1, tieEps = 0.02, lowP = 0.3, onAllLow = 'best', effort = null } = {}, costs = null, division = null, experience = null, value = null) {
   const alpha = effort && Number.isFinite(effort.alpha) ? effort.alpha : 0;
+  const N = P.map((row) => needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0));
+  const lam = value && Number.isFinite(value.lambda) ? value.lambda : 0;
+  const Imp = (i) => (value && value.W && value.W[i] ? value.W[i].reduce((t, w, j) => t + (w || 0) * N[j], 0) : 0);
+  const Ri = (i) => (value && value.R && Number.isFinite(value.R[i]) ? value.R[i] : 1);
   const Ti = (i) => (division && division.T && Number.isFinite(division.T[i]) ? division.T[i] : 0);
   const beta = division && Number.isFinite(division.beta) ? division.beta : 0;
   const gamma = division && Number.isFinite(division.gamma) ? division.gamma : 0;
   const Ei = (i) => (experience && experience.factor && Number.isFinite(experience.factor[i]) ? experience.factor[i] : 1);
-  const scores = P.map((row, i) => Math.round((needs.reduce((t, x) => t + Math.pow(x.distress, power) * (row[x.need] || 0), 0) * (1 + beta * Ti(i)) + gamma * Ti(i)) * Ei(i) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
+  const scores = P.map((row, i) => Math.round((N[i] * (1 + beta * Ti(i)) + gamma * Ti(i) + lam * Imp(i)) * Ri(i) * Ei(i) * (costs ? effortFactor(costs[i], alpha) : 1) * 1000) / 1000);
   const allLow = P.every((row) => needs.every((x) => (row[x.need] || 0) < lowP));
   if (allLow && onAllLow === 'first') return { index: 0, scores, rule: 'all_low_first' };
   const best = Math.max(...scores);
   const tied = scores.map((v, i) => [v, i]).filter(([v]) => best - v <= tieEps).map(([, i]) => i);
   const index = tied[0];
-  return { index, scores, rule: allLow ? 'all_low_best' : tied.length > 1 ? 'tie_first' : 'max' };
+  return { index, scores, rule: allLow ? 'all_low_best' : tied.length > 1 ? 'tie_first' : 'max', ...(value ? { imp: P.map((_, i) => Math.round(Imp(i) * 1000) / 1000) } : {}) };
 }
 
 // 2B の出力 → { kind, target, count, give, why, need } | null。target の種類から kind を正す
@@ -527,7 +534,21 @@ class GoalPath {
       stations: { crafting_table: !!raw.tableNearby || kinds.has('crafting_table'), furnace: raw.blocks.some((b) => b.name === 'furnace') || kinds.has('furnace') },
       excludeBlocks: GROUND,
       sharedChests: ctx.board ? ctx.board.chests || [] : [],
+      costScale: this.costScale(ctx),
     };
+  }
+
+  // 手間の感じ方 (planner の world.costScale。2026-11-07):
+  //   unseen = 1 − unseenT × T_探検 (division の exploring。好奇心・勇敢さで上がる): まだ見ていない物を探す手間を小さく感じる
+  //   travel = 1 + nightTravel × 夜の危なさの見込み (anticipate の night.risk。死んだ・襲われた・敵が近くに来た夜の経験で上がる。夜のあいだだけ):
+  //     見えていない入手元・人・場所へ出かける手間を大きく感じる。拠点・手元でできること (作る・焼く・置く) は変わらない
+  costScale(ctx) {
+    const ef = this.cfg.select.effort || {};
+    const T = ctx && ctx.division && ctx.division.T ? Number(ctx.division.T.exploring) || 0 : 0;
+    const unseen = Math.max(0.1, 1 - (ef.unseenT ?? 0) * Math.max(0, Math.min(1, T)));
+    const risk = ctx && Number.isFinite(ctx.nightRisk) ? Math.max(0, ctx.nightRisk) : 0;
+    const travel = 1 + (ef.nightTravel ?? 0) * risk;
+    return { unseen: Math.round(unseen * 1000) / 1000, travel: Math.round(travel * 1000) / 1000 };
   }
 
   planItem(ctx, target, count) {
@@ -863,13 +884,14 @@ class GoalPath {
     const per = ef.perMeter ?? 1 / 16;
     const raw = ctx.raw;
     if (!raw) return null;
+    const tr = this.costScale(ctx).travel; // 夜の外歩きの危なさ (costScale)
     if (pg.kind === 'person') {
       const e = peopleOf(raw).find((x) => x.name === pg.target);
-      return e ? e.d * per : (ef.unseenPerson ?? 6);
+      return (e ? e.d * per : (ef.unseenPerson ?? 6)) * tr;
     }
     const pl = pg.place || {};
-    if (pl.type === 'dir') return this.cfg.farDist * per;
-    return pl.pos ? dist3(raw.self.pos, pl.pos) * per : null;
+    if (pl.type === 'dir') return this.cfg.farDist * per * tr;
+    return pl.pos ? dist3(raw.self.pos, pl.pos) * per * tr : null;
   }
 
   // ゴールを決めたことにする (newGoal と newGoalSelect で同じ)
@@ -1045,10 +1067,14 @@ class GoalPath {
     const planCosts = valid.map((v, i) => (Number.isFinite(v.cost) ? v.cost * (dv ? 1 - (dsc.skillCut ?? 0) * famArr[i] : 1) : null)); // 経験を入れなかったら
     if (ex) record.experience = { q: expS.map((x) => x.q), factor: expS.map((x) => x.factor), n: expS.map((x) => x.n), planCost: valid.map((v) => (Number.isFinite(v.cost) ? Math.round(v.cost * 100) / 100 : null)), cost: expCost.map((c) => (Number.isFinite(c) ? Math.round(c * 100) / 100 : null)) };
     if (dv) record.division = { acts, T: Tarr, fam: famArr, s: acts.map((a) => (a && dv.s[a]) || 0), theta: acts.map((a) => (a && dv.theta[a]) || null), beta: divOpt.beta, gamma: divOpt.gamma, skillCut: dsc.skillCut ?? 0, ...(sItemArr && sItemArr.some(Boolean) ? { item: sItemArr } : {}) };
+    // 珍しさ・大事さ (scarcity.js) と、手間の感じ方 (探検の T・夜の外歩き。planner の costScale。手間 v.cost にもう入っている)
+    const value = this.valueOf(ctx, valid);
+    if (value) record.value = value.record;
+    record.costScale = this.costScale(ctx);
     if (!needs.length && !later.length) {
       // つらい欲求が無い: 刺激 (T) があれば gamma × T ÷ (1 + alpha × 手間') の最大 (Jev は呼ばない)。無ければ 2B が先に書いた案
       if (dv && Tarr.some((t) => t > 0) && divOpt.gamma > 0) {
-        const out0 = selectScores(valid.map(() => ({})), [], { ...sc, onAllLow: 'best' }, costs, divOpt, expOpt);
+        const out0 = selectScores(valid.map(() => ({})), [], { ...sc, onAllLow: 'best' }, costs, divOpt, expOpt, value);
         record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, activity: acts[i], T: Tarr[i], score: out0.scores[i] }));
         record.rule = 'division_only'; record.chosen = out0.index; record.division.changed = out0.index !== 0; record.decidedBy = 'division';
         return { index: out0.index, record };
@@ -1099,21 +1125,24 @@ class GoalPath {
       ...needs.map((x) => [x.need, pv(`p${i + 1}_${NEED_EN[x.need] || x.need}`)]),
       ...later.map((x) => [`later_${x.need}`, pv(`p${i + 1}_later_${LATER_EN[x.need]}`)]),
     ]));
-    const out = selectScores(P, all, sc, costs, divOpt, expOpt);
-    const noEffort = selectScores(P, all, { ...sc, effort: null }, null, divOpt, expOpt);
-    const noDivision = dv ? selectScores(P, all, sc, rawCosts, null, expOpt) : null; // 分業を入れなかったら (T も慣れも無し)
-    const noExperience = ex ? selectScores(P, all, sc, planCosts, divOpt) : null; // 経験を入れなかったら (見込みも手間の補正も無し)
-    const nowOnly = needs.length ? selectScores(P, needs, sc, costs, divOpt, expOpt) : null;
-    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs, divOpt, expOpt) : null;
+    const out = selectScores(P, all, sc, costs, divOpt, expOpt, value);
+    const noEffort = selectScores(P, all, { ...sc, effort: null }, null, divOpt, expOpt, value);
+    const noDivision = dv ? selectScores(P, all, sc, rawCosts, null, expOpt, value) : null; // 分業を入れなかったら (T も慣れも無し)
+    const noExperience = ex ? selectScores(P, all, sc, planCosts, divOpt, null, value) : null; // 経験を入れなかったら (見込みも手間の補正も無し)
+    const noValue = value ? selectScores(P, all, sc, costs, divOpt, expOpt) : null; // 珍しさ・大事さを入れなかったら
+    const nowOnly = needs.length ? selectScores(P, needs, sc, costs, divOpt, expOpt, value) : null;
+    const laterOnly = later.length ? selectScores(P, all.filter((x) => String(x.need).startsWith('later_')), { ...sc, onAllLow: 'best' }, costs, divOpt, expOpt, value) : null;
     const alpha = (sc.effort && sc.effort.alpha) || 0;
     const num = dv ? `(sum(distress * P) * (1 + ${divOpt.beta} * T) + ${divOpt.gamma} * T)` : 'sum(distress * P)';
-    const num2 = ex ? `(q / ${ex.cfg.prior.mean}) * ${num}` : num;
+    const num1 = value ? `(${num} + ${value.lambda} * imp) * R` : num;
+    const num2 = ex ? `(q / ${ex.cfg.prior.mean}) * ${num1}` : num1;
     record.formula = alpha > 0 ? `score = ${num2} / (1 + ${alpha} * cost${ex ? '_exp' : ''}${dv ? ` * (1 - ${dsc.skillCut ?? 0} * fam)` : ''})` : `score = ${num2}`;
     record.scores = valid.map((v, i) => ({ target: v.pg.target, kind: v.pg.kind, count: v.pg.count, need: v.pg.need, P: Object.fromEntries(Object.entries(P[i]).map(([kk, vv]) => [kk, Math.round(vv * 1000) / 1000])),
       now: nowOnly ? nowOnly.scores[i] : 0, later: laterOnly ? laterOnly.scores[i] : 0, cost: costs[i] == null ? null : Math.round(costs[i] * 100) / 100,
       effort: costs[i] == null ? null : effortWord(costs[i]), factor: Math.round(effortFactor(costs[i], alpha) * 1000) / 1000, noEffort: noEffort.scores[i], score: out.scores[i],
       ...(dv ? { activity: acts[i], T: Tarr[i], fam: famArr[i], noDivision: noDivision.scores[i] } : {}),
-      ...(ex ? { q: expS[i].q, expFactor: expS[i].factor, tries: expS[i].n, planCost: Number.isFinite(valid[i].cost) ? Math.round(valid[i].cost * 100) / 100 : null, noExperience: noExperience.scores[i] } : {}) }));
+      ...(ex ? { q: expS[i].q, expFactor: expS[i].factor, tries: expS[i].n, planCost: Number.isFinite(valid[i].cost) ? Math.round(valid[i].cost * 100) / 100 : null, noExperience: noExperience.scores[i] } : {}),
+      ...(value ? { imp: out.imp[i], R: value.R[i], rarity: value.record.rarity[i], noValue: noValue.scores[i] } : {}) }));
     record.chosen = out.index; record.rule = out.rule;
     if (dv) { record.division.changed = noDivision.index !== out.index; record.division.noDivisionChoice = noDivision.index; } // 分業を入れなければ別の案だった
     record.effortChanged = noEffort.index !== out.index; // 手間で割らなければ別の案だった
@@ -1121,8 +1150,26 @@ class GoalPath {
     record.decidedBy = !nowOnly ? 'later_only' : (laterOnly && nowOnly.index !== out.index ? 'later' : 'now');
     if (dv && record.division.changed) record.decidedBy = `${record.decidedBy}+division`;
     if (ex && record.experience.changed) record.decidedBy = `${record.decidedBy}+experience`;
+    if (value) { record.value.changed = noValue.index !== out.index; record.value.noValueChoice = noValue.index; if (record.value.changed) record.decidedBy = `${record.decidedBy}+value`; }
     record.nowChoice = nowOnly ? nowOnly.index : null;
     return { index: out.index, record };
+  }
+
+  // 珍しさ・大事さ (scarcity.js。select.value)。ctx.sightings (Sightings) と ctx.gameNow を使う。返り値 { W, lambda, R, record } | null
+  valueOf(ctx, valid) {
+    const vcIn = this.cfg.select.value;
+    if (!vcIn || !vcIn.enabled) return null;
+    const vc = scarcity.cfgOf(vcIn);
+    const raw = ctx.raw || {};
+    const props = valid.map((v) => ({ kind: v.pg.kind, target: v.pg.target, path: v.path || null }));
+    const W = vc.lambda > 0 ? scarcity.importanceWeights(props, vc) : null;
+    const sg = ctx.sightings || null;
+    const now = Number.isFinite(ctx.gameNow) ? ctx.gameNow : null;
+    const visible = new Set([...(raw.blocks || []).map((b) => b.name), ...(raw.entities || []).filter((e) => e.kind !== 'player' && e.kind !== 'item').map((e) => e.name)]);
+    const rar = valid.map((v) => (v.pg.kind === 'item' && sg ? scarcity.itemRarity(v.pg.target, v.path, (n) => sg.availability(n, now), visible, vc) : { R: 1, source: null, a: null, kind: null, now: false }));
+    const R = rar.map((r) => r.R);
+    const usedBy = W ? W.map((row) => row.map((w, j) => (w ? `${props[j].target}${w < 1 ? `(${w})` : ''}` : null)).filter(Boolean)) : null;
+    return { W, lambda: vc.lambda, R, record: { lambda: vc.lambda, rho: vc.rho, rhoNow: vc.rhoNow, rarity: rar.map((r) => (r.source ? { source: r.source, a: r.a, kind: r.kind, now: r.now } : null)), usedBy } };
   }
 
   pathRecord(p) {

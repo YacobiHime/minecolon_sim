@@ -538,7 +538,21 @@
         "_comment": "手間で割る (2026-11-06): 点 = (Σ つらさ × P) ÷ (1 + alpha × 手間)。手間 = planner の手間 (物: 持ち物を引いたあとの手間の和、状態: planState の effort)、人・場所: 距離 × perMeter (見えない人は unseenPerson)。alpha 0 で手間を見ない。record: select.formula・scores[].cost/effort/factor/noEffort・effortChanged",
         "alpha": 0.04,
         "perMeter": 0.0625,
-        "unseenPerson": 6
+        "unseenPerson": 6,
+        "_comment_scale": "手間の感じ方 (2026-11-07。planner の costScale): unseenT: まだ見ていない入手元を探す手間 × (1 − unseenT × T_探検) (division の exploring の T。好奇心・勇敢な人ほど小さく感じる)。nightTravel: 夜のあいだ、見えていない入手元・人・場所へ出かける手間 × (1 + nightTravel × 夜の危なさの見込み) (anticipate の night.risk。死んだ・傷を受けた・敵が近くに来た夜の経験で上がる)。拠点・手元でできること (作る・焼く・置く・チェスト) の手間は変わらない",
+        "unseenT": 0.6,
+        "nightTravel": 2
+      },
+      "value": {
+        "_comment": "珍しさ・大事さ (src/scarcity.js。2026-11-07 ユーザー決定 2): 点 = (q/m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × Imp) × R ÷ (1 + alpha × 手間')。珍しさ R: 入手元ごとに自分が見かけた記録 (マスごとの一度に見えた数の最大の和 S・最後に見てからの時間) から a = (1 − exp(−S/k0)) × (recencyFloor + (1 − recencyFloor) × exp(−経った tick/tau))、R = 1 + rho × (1 − 2a) + rhoNow × (1 − a) × (今見えている)。掘る・倒すで直接取る物はその入手元の R、作る物は珍しい材料の R を 1 より大きいときだけ。大事さ Imp: 同じ選び直しのほかの案 j の道筋 (レシピ) に案 i の物が材料として出れば N_j = Σ つらさ × P_j を足す (入手元だけが同じなら sourceShare 倍)",
+        "enabled": true,
+        "k0": 24,
+        "tau": 12000,
+        "recencyFloor": 0.5,
+        "rho": 0.5,
+        "rhoNow": 0.5,
+        "lambda": 0.3,
+        "sourceShare": 0.5
       }
     }
   },
@@ -816,16 +830,17 @@
     "smeltWaitMs": 30000,
     "sleepWaitMs": 30000,
     "timeouts": {
-      "explore": 90000,
-      "search": 90000
+      "_comment": "explore・search の時間切れ (歩く距離を倍以上にしたので 90 秒 → 150 秒。2026-11-07)",
+      "explore": 150000,
+      "search": 150000
     },
     "explore": {
-      "_comment": "varied: 8方位 x 近く 12m / 遠く 80m・まだ行っていないマス・でたらめ",
+      "_comment": "varied: 8方位 x 近く 12m / 遠く 160m・まだ行っていないマス・でたらめ (15〜120m)。遠く 80 → 160・でたらめ 60 → 120 (2026-11-07 ユーザー決定「探索を倍以上」)",
       "mode": "varied",
       "near": 12,
-      "far": 80,
+      "far": 160,
       "randomMin": 15,
-      "randomMax": 60,
+      "randomMax": 120,
       "maxRing": 6,
       "_comment_share": "shared: 踏破したマスと今いる所を runs/<id>/explored/ に書き出す (分析用。shareEvery 判断ごと。src/explored.js)。scope: self (既定。2026-11-06 ユーザー決定) では書き出すだけで読まず、「まだ行っていない」「行ったか」は自分の踏破だけで決める (場所の共有は【発見】・近くの声・聞いて答える の会話だけで起きる)。all で全員の踏破を読んで決める。extra: 近さだけで選ばない候補 (拠点から離れる方・踏破したマスが少ない方・人の少ない方。行き先は far m 先) を足す。sectorRing: 方角ごとに数えるマスの範囲",
       "shared": true,
@@ -836,9 +851,11 @@
     },
     "search": {
       "_comment": "探しながら歩く (src/search.js。2026-11-07 ユーザー決定 1・2・4): 道筋に要る物が見えていないとき、まだ行っていない方へ周りを見ながら歩く。歩く距離は探検の反応の強さ T (division の exploring) で minDist〜maxDist m。scanMs ごとに周りを見て、interrupts (道筋の物・敵 hostileRadius 以内・名前を呼ばれた・newPersonTicks 判断のあいだ見ていない人) が見えたら区切って判断に戻り、continueTicks 判断のあいだ「このまま進む」を出す。方角は自分が行ったマスと、聞いた場所・見かけた人の居たマスを避け (othersWeight)、人ごとの好みの方角 (jitter) でずらした点の高い choices 個",
+      "_comment_dist": "歩く距離 50〜160m (前は 24〜80。2026-11-07 ユーザー決定「探索を倍以上」)。outward: よく行った範囲 (自分の踏破したマスの、行った回数で重みを付けた重心) から外へ向かう方角の点に outward × cos を足す (内へ向かう方角は引く)",
       "enabled": true,
-      "minDist": 24,
-      "maxDist": 80,
+      "minDist": 50,
+      "maxDist": 160,
+      "outward": 0.3,
       "choices": 3,
       "othersWeight": 1,
       "jitter": 0.25,
@@ -873,7 +890,9 @@
     "people": 0.4,
     "memPlace": 0.7,
     "called": 1,
-    "exemptTicks": 10
+    "exemptTicks": 10,
+    "_comment_visited": "visited: 行き先のある explore の選択肢 (方角・遠く・拠点から離れる方など) に 1 − (1 − visited) × (行き先までの道のりのうち自分が行ったマスの割合) を掛ける。出現地点のまわりなど、よく行った範囲を通るだけの方角ほど下がる (2026-11-07 ユーザー決定「探索を倍以上」)。1 で下げない",
+    "visited": 0.5
   },
   "craftables": "all",
   "placeable": [

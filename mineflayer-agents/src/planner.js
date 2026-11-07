@@ -189,6 +189,10 @@ function invMap(inventory) {
 class Planner {
   constructor(world = {}, opts = {}) {
     this.ix = opts.index || index(opts.version || DEFAULT_VERSION);
+    // 手間の感じ方 (goalpath が world.costScale で渡す。2026-11-07):
+    //   unseen: まだ見ていない入手元を探す手間に掛ける (探検の T が高い人ほど小さい)
+    //   travel: 見えていない (前に見た・まだ見ていない) 入手元へ出かける手間に掛ける (夜の外歩きの危なさ。自分の夜の経験から)
+    this.cs = { unseen: 1, travel: 1, ...(world.costScale || opts.costScale || {}) };
     this.inv0 = invMap(world.inventory);
     this.vis = new Set(world.visibleBlocks || []);
     this.mobsVis = new Set(world.visibleMobs || []);
@@ -266,7 +270,8 @@ class Planner {
       const where = this.vis.has(s.block) ? 'visible' : this.known.has(s.block) ? 'known' : (this.natural(s.block) && !SAPLING_DROP.test(s.block) ? 'unseen' : null);
       if (!where) continue;
       // 落ちる確率が低い物は、期待値で 1/確率 回壊す手間を足す (りんご 0.5% → 200 回壊す)
-      let c = chanceCost(where === 'unseen' && !COMMON_BLOCKS.test(s.block) ? COST.unseenRare : COST[where], s.expect, COST.rebreak);
+      const base = (where === 'unseen' && !COMMON_BLOCKS.test(s.block) ? COST.unseenRare : COST[where]) * (where === 'unseen' ? this.cs.unseen * this.cs.travel : where === 'known' ? this.cs.travel : 1);
+      let c = chanceCost(base, s.expect, COST.rebreak);
       let tool = null;
       if (s.tools && !s.tools.some((t) => this.hasTool(t))) {
         let tb = { c: Infinity };
@@ -278,7 +283,7 @@ class Planner {
     }
     for (const { mob: m, expect } of this.ix.mobs.get(item) || []) {
       const where = this.mobsVis.has(m) ? 'visible' : 'unseen';
-      const base = where === 'visible' ? COST.mobVisible : COMMON_MOBS.test(m) ? COST.mobUnseen : COST.mobRare;
+      const base = where === 'visible' ? COST.mobVisible : COMMON_MOBS.test(m) ? COST.mobUnseen * this.cs.unseen * this.cs.travel : COST.mobRare;
       consider({ c: chanceCost(base, expect, COST.rekill), how: 'kill', from: m, where, expect: expect || 1 });
     }
     const tableC = this.stationAvail('crafting_table') ? 0 : cOf('crafting_table') * COST.stationShare;
