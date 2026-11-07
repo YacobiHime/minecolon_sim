@@ -6,7 +6,8 @@
   "main": "run.js",
   "scripts": {
     "start": "node run.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "postinstall": "patch-package"
   },
   "license": "MIT",
   "dependencies": {
@@ -14,5 +15,8 @@
     "mineflayer": "4.37.1",
     "mineflayer-pathfinder": "2.4.5",
     "vec3": "^0.1.10"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.0"
   }
 }

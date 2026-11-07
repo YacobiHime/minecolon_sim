@@ -21,11 +21,13 @@ class ScriptedDecider {
   }
 }
 
-// 一覧から一様に選ぶ (比較の基準)
+// 一覧から一様に選ぶ (比較の基準)。cfg.talkP (0〜1) があれば、その確率で「話す」(talkP = 1) を返す
+// (Jev を使わずに 2B の発言の負荷を試すため。agent は Jev の talk と同じに扱う)
 class RandomDecider {
   constructor(cfg = {}) {
     this.kind = 'random';
     this.rand = cfg.rand || Math.random;
+    this.talkP = Number.isFinite(cfg.talkP) ? cfg.talkP : null;
   }
 
   async decide(ctx) {
@@ -34,7 +36,9 @@ class RandomDecider {
     let arg = '';
     if (a.argType === 'choice') arg = a.choices[Math.floor(this.rand() * a.choices.length)].id;
     if (a.argType === 'number') arg = '2';
-    return { rawOutput: null, action: a.name, arg, say: '', parseOk: true, repaired: false, latencyMs: 0, promptChars: 0 };
+    const out = { rawOutput: null, action: a.name, arg, say: '', parseOk: true, repaired: false, latencyMs: 0, promptChars: 0 };
+    if (this.talkP != null) out.talkP = this.rand() < this.talkP ? 1 : 0;
+    return out;
   }
 }
 

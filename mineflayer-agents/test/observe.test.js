@@ -57,10 +57,48 @@ test('collectRaw: 壁の向こうのブロックは見えない (完全情報に
   assert.strictEqual(raw.blocks.find((b) => b.name === 'birch_log').notable, true);
 });
 
+test('collectRaw: exclude の場所 (拠点の小屋) のブロックは素材として見せない', () => {
+  const blocks = new Map();
+  blocks.set('-4,65,0', 'birch_log');
+  blocks.set('0,63,0', 'grass_block');
+  const bot = mockBot({ blocks, pos: new Vec3(0.5, 64, 0.5) });
+  const raw = collectRaw(bot, { visionRadius: 16, exclude: new Set(['-4,65,0']) });
+  assert.ok(!raw.blocks.some((b) => b.name === 'birch_log'));
+});
+
 test('collectRaw: 遠いエンティティ・壁の向こうのプレイヤーは入らない', () => {
   const blocks = new Map([['2,65,0', 'stone'], ['2,64,0', 'stone']]);
   const mk = (x, z, username) => ({ type: 'player', username, position: new Vec3(x, 64, z), height: 1.8 });
   const bot = mockBot({ blocks, entities: { 1: mk(5.5, 0.5, 'Behind'), 2: mk(-5, 0.5, 'Near'), 3: mk(-30, 0.5, 'Far') } });
   const raw = collectRaw(bot, { visionRadius: 16 });
   assert.deepStrictEqual(raw.entities.map((e) => e.name), ['Near']);
+});
+
+test('collectRaw: 近くの人 (people) は視線を見ず距離だけ。壁の向こうも入り、hearRadius・peopleRadius の外は入らない', () => {
+  const blocks = new Map([['2,65,0', 'stone'], ['2,64,0', 'stone']]);
+  const mk = (x, z, username) => ({ type: 'player', username, position: new Vec3(x, 64, z), height: 1.8 });
+  const ents = { 1: mk(5.5, 0.5, 'Behind'), 2: mk(-5, 0.5, 'Near'), 3: mk(-30, 0.5, 'Far'), 4: mk(60, 0.5, 'TooFar') };
+  const bot = mockBot({ blocks, entities: ents });
+  bot.players = Object.fromEntries(Object.values(ents).map((e) => [e.username, { username: e.username, entity: e }]));
+  const raw = collectRaw(bot, { visionRadius: 16, hearRadius: 48 });
+  assert.deepStrictEqual(raw.entities.map((e) => e.name), ['Near']);
+  assert.deepStrictEqual(raw.people.map((p) => [p.name, p.seen]), [['Behind', false], ['Near', true], ['Far', false]]);
+  assert.deepStrictEqual(collectRaw(bot, { visionRadius: 16, hearRadius: 24, peopleRadius: 10 }).people.map((p) => p.name), ['Behind', 'Near']);
+});
+
+test('summarizeObservation: 敵は「敵」と書き、showDay で何日目かを書く', () => {
+  const raw = mockRaw({ entities: [{ kind: 'hostile', name: 'zombie', pos: { x: 5, y: 64, z: 0 }, d: 5 }] });
+  raw.self = { ...raw.self, phase: '夜', day: 1 };
+  const txt = summarizeObservation(raw, { showDay: true });
+  assert.match(txt, /時間:夜 2日目/);
+  assert.match(txt, /敵zombie 東5\(5m\)/);
+  assert.doesNotMatch(summarizeObservation(raw), /日目/);
+});
+
+test('collectRaw: 敵の種類は kind hostile', () => {
+  const blocks = new Map([['0,63,0', 'grass_block']]);
+  const bot = mockBot({ blocks, pos: new Vec3(0.5, 64, 0.5), entities: { 7: { id: 7, name: 'zombie', type: 'mob', position: new Vec3(4, 64, 0.5), height: 1.9 }, 8: { id: 8, name: 'cow', type: 'mob', position: new Vec3(-4, 64, 0.5), height: 1.4 } } });
+  const raw = collectRaw(bot, { visionRadius: 16 });
+  assert.strictEqual(raw.entities.find((e) => e.name === 'zombie').kind, 'hostile');
+  assert.strictEqual(raw.entities.find((e) => e.name === 'cow').kind, 'mob');
 });

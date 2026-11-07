@@ -7,8 +7,15 @@ const DEFAULTS = {
   server: { host: '127.0.0.1', port: 25565, version: '1.20.1' },
   persona: { name: 'Bot1', personality: '', speech: '' },
   goal: { text: '', hints: [], success: null },
+  // 文を作る LLM の提供元 (src/llm_provider.js)。provider: 既定 (local = llama.cpp の 2B、luna = gpt-6-luna)、roles: 役ごと (goal・talk・reflect・answer・broadcast・act)、
+  //   providers: 提供元ごとの設定 (baseUrl・model・ctxTokens・pricing など)、maxUsd: 費用の上限 (null で無し)
+  llm: { provider: 'local', roles: {}, providers: {}, maxUsd: null },
   decider: { type: 'llm', llm: { baseUrl: 'http://127.0.0.1:18081', model: 'gemma-4-e2b', temperature: 0.4, maxTokens: 96, timeoutMs: 60000, constrained: true, retries: 0 } },
-  perception: { visionRadius: 16, hearRadius: 24, samplesPerType: 12, keepPerType: 5, maxTypes: 12, notable: null },
+  // hearRadius: 近くの声の届く距離 (m)。peopleRadius: follow・give・go_to(人) の対象になる「近くの人」の距離 (null なら hearRadius。call・ask は hearRadius)。
+  //   どちらも見えているか (視線) は問わず、サーバーが送ってくる相手の位置からの距離だけで決める (people.js)。
+  //   サーバーがプレイヤーの位置を送る距離 min(512 × entity-broadcast-range-percentage / 100, (view-distance − 1) × 16) 以下にする。
+  //   positionStaleMs: 相手の位置が一時的に来ないとき、最後に分かった位置を使う時間
+  perception: { visionRadius: 16, hearRadius: 48, peopleRadius: null, positionStaleMs: 15000, samplesPerType: 12, keepPerType: 5, maxTypes: 12, notable: null },
   memory: { file: null, limits: {} },
   act: { collectCount: 3, exploreDistance: 20, timeouts: {} },
   craftables: [

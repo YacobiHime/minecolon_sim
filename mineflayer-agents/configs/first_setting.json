@@ -1,0 +1,50 @@
+{
+  "_comment": "方針メモ 16章の最初の「1つの設定」。人数は run.js --agents 1|5|30 で変える (personas を順に使い、足りなければ名前に番号を付ける)",
+  "personas": [
+    { "name": "Taro", "personality": "まじめで少しのんびりしている。", "speech": "くだけた短い日本語。語尾に「〜だな」をよく使う。",
+      "temperament": { "bravery": 0.5, "empathy": 0.6, "obedience": 0.6, "greed": 0.3, "sociability": 0.5 } },
+    { "name": "Hanako", "personality": "世話好きで、人に教えるのが好き。", "speech": "やわらかい丁寧語。",
+      "temperament": { "bravery": 0.4, "empathy": 0.9, "obedience": 0.5, "greed": 0.2, "sociability": 0.8 } },
+    { "name": "Jiro", "personality": "せっかちで負けず嫌い。自分でやりたがる。", "speech": "ぶっきらぼうで短い。",
+      "temperament": { "bravery": 0.8, "empathy": 0.3, "obedience": 0.3, "greed": 0.6, "sociability": 0.3 } },
+    { "name": "Yuki", "personality": "慎重で怖がり。夜が苦手。", "speech": "控えめで、ときどき言いよどむ。",
+      "temperament": { "bravery": 0.2, "empathy": 0.6, "obedience": 0.7, "greed": 0.3, "sociability": 0.4 } },
+    { "name": "Ken", "personality": "陽気で話し好き。段取りを仕切りたがる。", "speech": "元気なくだけた話し方。",
+      "temperament": { "bravery": 0.6, "empathy": 0.5, "obedience": 0.4, "greed": 0.4, "sociability": 0.9 } }
+  ],
+  "goal": {
+    "text": "仲間と協力して、夜までに拠点(小屋)を作り、食べ物を確保する。",
+    "hints": [
+      "原木1個から板材(_planks)が4個作れる(作業台は要らない)。",
+      "板材4個から作業台(crafting_table)が1個作れる(作業台は要らない)。",
+      "板材2個から棒(stick)が4本作れる(作業台は要らない)。",
+      "小屋は拠点で build を選ぶと、決まった形(5x5、壁の高さ2、屋根つき)に数個ずつ置かれる。板材・原木・丸石・土で建てられ、全部で55個くらい要る。",
+      "牛・豚・羊・鶏を hunt すると肉が手に入る。肉は生のままでも食べられる。",
+      "夜は日が沈むと始まる。"
+    ],
+    "steps": [
+      { "text": "collect で原木(_log)を集める", "doneWhen": [{ "inventory": { "_log$": 4 } }, { "inventory": { "_planks$": 12 } }, { "hut": 0.9 }] },
+      { "text": "craft で板材(_planks)を作る", "doneWhen": [{ "inventory": { "_planks$": 8 } }, { "hut": 0.9 }] },
+      { "text": "拠点で build して小屋を建てる", "doneWhen": [{ "hut": 0.9 }] },
+      { "text": "hunt で食べ物(肉)を2個手に入れる", "doneWhen": [{ "food": 2 }] }
+    ],
+    "success": { "hut": 0.9, "food": 2 }
+  },
+  "world": {
+    "base": "spawn",
+    "baseOffset": { "x": 0, "z": 6 },
+    "hut": { "size": 5, "height": 2, "roof": true, "door": "south" }
+  },
+  "help": { "hints": true, "steps": true, "progress": true, "askOthers": true, "excludeFailures": false, "noChange": true, "askHint": false },
+  "noChange": { "_comment": "help.noChange のとき: 同じ行動で状態が変わらないのが直近 window 回で repeat 回 → 困っている。直近 weightWindow 回で変わらなかった回数 n だけ Jev の確率に weight^n を掛ける",
+    "window": 4, "repeat": 2, "weight": 0.5, "weightWindow": 6 },
+  "decider": { "type": "jev", "jev": { "provider": "openrouter", "model": "jev-latest", "maxConcurrent": 8, "timeoutMs": 15000 }, "llm": { "think": true } },
+  "talk": { "threshold": 0.6, "llm": { "maxTokens": 64, "temperature": 0.7 } },
+  "ask": { "waitMs": 45000, "cooldown": 10, "useWindow": 6 },
+  "usage": { "maxJevInputTokens": 3000000 },
+  "memory": { "perRun": true, "limits": { "promptItems": 20, "promptPlaces": 6, "halfLife": 40, "impBoost": 6, "forgetBelow": 0.08 } },
+  "perception": { "visionRadius": 16, "hearRadius": 24 },
+  "act": { "buildPerAction": 4,
+    "explore": { "_comment": "varied: 8方位 x 近く(near)/遠く(far)・まだ行っていないマス・でたらめ。マスの一辺は memory.limits.exploreCell (既定 16)", "mode": "varied", "near": 12, "far": 35, "randomMin": 15, "randomMax": 35, "maxRing": 6 } },
+  "loop": { "minutes": 15, "failWindow": 4, "failRepeat": 2 }
+}
