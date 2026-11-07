@@ -107,6 +107,13 @@ const SENT = [
   [new RegExp(`^${W}を${N}個作った$`), (m) => `made ${m[2]} ${m[1]}`],
   [new RegExp(`^${W}の材料が足りない(.*)$`), (m) => `not enough materials for ${m[1]}${/作業台/.test(m[2]) ? ' (may need a crafting_table)' : ''}`],
   [new RegExp(`^${W}を作れなかった: (.*)$`), (m) => `could not make ${m[1]}: ${reason(m[2])}`],
+  // search (search.js / act.js): 「Xを探して東へ30m進んだ 新しいマス。Yが見えた」
+  [new RegExp(`^${W}を探して${W}へ${N}m進んだ ?(.*)$`), (m) => `walked ${distWord(Number(m[3]))} ${dirName(m[2])} looking for ${m[1]}${areaTag(m[4])}`],
+  [new RegExp(`^${W}を探して${W}へ進めなかった(?:: (.*))?$`), (m) => `could not walk ${dirName(m[2])} looking for ${m[1]}${m[3] ? `: ${reason(m[3])}` : ''}`],
+  [new RegExp(`^敵の${W}が見えた$`), (m) => `saw an enemy: ${m[1]}`],
+  [new RegExp(`^しばらく見ていなかった${W}が見えた$`), (m) => `saw ${m[1]}, not seen for a while`],
+  [new RegExp(`^${W}に呼ばれた$`), (m) => `heard ${m[1]} say your name`],
+  [new RegExp(`^${W}が見えた$`), (m) => `saw ${m[1]}`],
   [/^まだ行っていないマスの方へ(\d+)m進んだ ?(.*)$/, (m) => `walked ${distWord(Number(m[1]))} toward an unvisited area${areaTag(m[2])}`],
   [new RegExp(`^${W}へ${N}m進んだ ?(.*)$`), (m) => `walked ${distWord(Number(m[2]))} ${dirName(m[1])}${areaTag(m[3])}`],
   [new RegExp(`^${W}へ進めなかった(?:: (.*))?$`), (m) => `could not walk ${dirName(m[1])}${m[2] ? `: ${reason(m[2])}` : ''}`],

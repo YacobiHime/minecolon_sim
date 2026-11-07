@@ -81,7 +81,7 @@ function actionActivity(action, arg) {
   const a = String(action || '');
   const x = String(arg || '').split(':')[0];
   if (['ask', 'say', 'broadcast', 'call', 'follow', 'give', 'trade', 'propose', 'report_find', 'share_chest'].includes(a)) return 'social';
-  if (a === 'explore') return 'exploring';
+  if (a === 'explore' || a === 'search') return 'exploring';
   if (['attack', 'hunt', 'lure'].includes(a)) return 'hunting';
   if (a === 'use_on') return itemActivity(x) === 'farming' || /farmland|seed|wheat|carrot|potato|beetroot|bone_meal|dirt|grass/.test(x) || !x ? 'farming' : itemActivity(x) || 'farming';
   if (['place', 'build', 'enclose'].includes(a)) { const k = itemActivity(x); return k === 'building' || !k || k === 'wood' || k === 'mining' ? 'building' : k === 'crafting' ? 'building' : k; }

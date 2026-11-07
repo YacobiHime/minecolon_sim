@@ -35,7 +35,7 @@ const SOFT_RE = /bamboo|leaves|scaffolding|vine|cobweb|_carpet$|snow|pointed_dri
 // 柔らかくなくても掘ってよい物: 自然の地面と、pathfinder が足場に使う土・丸石 (板材・原木などは小屋の壁かもしれないので掘らない)
 const NATURAL_RE = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|sand|red_sand|gravel|clay|stone|cobblestone|deepslate|cobbled_deepslate|andesite|diorite|granite|tuff|calcite|netherrack|snow_block|moss_block)$/;
 // 動くための行動 (失敗して動かなければ、打ち切りでなくても「動けない」に数える)
-const MOVE_ACTIONS = new Set(['go_to', 'explore', 'flee', 'pick_up', 'follow', 'call']);
+const MOVE_ACTIONS = new Set(['go_to', 'explore', 'search', 'flee', 'pick_up', 'follow', 'call']);
 
 function cfgOf(bot, o = {}) { return { ...UNSTUCK_DEFAULTS, ...((bot && bot.__unstuckCfg) || {}), ...o }; }
 

@@ -17,6 +17,7 @@
 const { JevClient } = require('../jev_client');
 const { estimateTokens } = require('../usage');
 const { reweight } = require('../nochange');
+const { reweightMult } = require('../choice_weight');
 const { selectFacts, namesInView, factText } = require('../knowledge');
 const { countWord } = require('../en');
 const { familyKey } = require('../vocab');
@@ -394,6 +395,7 @@ function pathMatch(s, action, arg) {
   const a = String(arg || '');
   const fam = (x, y) => !!x && !!y && (x === y || familyKey(x) === familyKey(y));
   const src = s.from || s.item;
+  if (action === 'search') return 'search'; // 探しながら歩く (search.js)。道筋の物を探す移動
   if (!s.act) {
     if (s.how === 'collect' && ((action === 'collect' && fam(a, src)) || (action === 'pick_up' && fam(a, s.item)))) return 'step';
     if (s.how === 'collect' && action === 'use_on' && fam(a.split('>')[1], src)) return 'step';
@@ -453,6 +455,29 @@ class JevDecider {
     return { r, inputChars: inputText.length, inputTokens: rec.inputTokens, estimated: rec.estimated };
   }
 
+  // Jev の確率に、状態が変わらなかった回数の負の重み (weight^n) と、選択肢の重み (choice_weight.js。人の所へ行く・ついて行くなど) を掛けて選び直す。
+  //   pens = { 選択肢の key: 回数 }、cw = { 選択肢の key: 係数 }
+  static applyWeights(ans, pens, weight, cw) {
+    if (!ans || !ans.probabilities) return null;
+    const keys = Object.keys(ans.probabilities);
+    const mult = {};
+    for (const k of keys) {
+      const n = (pens && pens[k]) || 0;
+      const f = (n && weight != null ? Math.pow(weight, n) : 1) * (cw && cw[k] != null ? cw[k] : 1);
+      if (f !== 1) mult[k] = f;
+    }
+    if (!Object.keys(mult).length) return null;
+    const rw = reweightMult(ans.probabilities, mult);
+    if (!rw) return null;
+    const touchedP = keys.filter((k) => pens && pens[k]);
+    const touchedW = keys.filter((k) => cw && cw[k] != null && cw[k] !== 1);
+    const info = { from: rw.original, to: rw.choice, changed: rw.changed,
+      pFrom: Number((ans.probabilities[rw.original] || 0).toFixed(3)), pTo: Number((rw.probs[rw.choice] || 0).toFixed(3)) };
+    if (touchedP.length) { info.weight = weight; info.penalties = Object.fromEntries(touchedP.map((k) => [k, pens[k]])); }
+    if (touchedW.length) info.choiceWeights = Object.fromEntries(touchedW.map((k) => [k, cw[k]]));
+    return { rw, info };
+  }
+
   // Jev の確率に、状態が変わらなかった回数だけ負の重みを掛けて選び直す。pens = { 選択肢の key: 回数 }
   static applyPenalties(ans, pens, weight) {
     if (!ans || !ans.probabilities || !Object.keys(pens).length) return null;
@@ -496,15 +521,20 @@ class JevDecider {
     let chosen = a.next_action ? a.next_action.choice : null;
     // 状態が変わらなかった行動に負の重み (help.noChange のとき、agent が ctx.noChange を渡す)。
     // 分類の選択肢は、中の対象の回数の一番少ないもの (変わらなかったことのない対象が1つでもあれば重みなし)
+    // 選択肢の重み (ctx.choiceWeights。choice_weight.js): 人の所へ行く・ついて行く・道筋に関係しない覚えた場所。分類の選択肢は、中の対象の重みの一番大きいもの
     const pens = (ctx.noChange && ctx.noChange.penalties) || {};
-    if (ctx.noChange && Object.keys(pens).length) {
+    const cwAll = ctx.choiceWeights || {};
+    if ((ctx.noChange && Object.keys(pens).length) || Object.keys(cwAll).length) {
       const p1 = {};
+      const w1 = {};
       for (const k of Object.keys(criteria)) {
         const m = map[k];
         const n = m.group ? Math.min(...groups[m.group].choices.map((c) => pens[`${m.group}:${c.id}`] || 0)) : (pens[`${m.action}:${m.arg}`] || 0);
-        if (n) p1[k] = n;
+        if (n && ctx.noChange) p1[k] = n;
+        const w = m.group ? Math.max(...groups[m.group].choices.map((c) => cwAll[`${m.group}:${c.id}`] ?? 1)) : (cwAll[`${m.action}:${m.arg}`] ?? 1);
+        if (w !== 1) w1[k] = w;
       }
-      const x = JevDecider.applyPenalties(a.next_action, p1, ctx.noChange.weight);
+      const x = JevDecider.applyWeights(a.next_action, p1, ctx.noChange ? ctx.noChange.weight : null, w1);
       if (x) { jev.reweight = x.info; chosen = x.rw.choice; }
     }
     jev.choice = a.next_action ? { choice: a.next_action.choice, confidence: a.next_action.confidence ?? null, ...probStats(a.next_action, Object.keys(criteria)) } : null;
@@ -537,10 +567,14 @@ class JevDecider {
       if (t) {
         id = t.choice;
         s2.choice = { choice: t.choice, confidence: t.confidence ?? null, ...probStats(t, Object.keys(q2.target.criteria)) };
-        if (ctx.noChange) {
+        if (ctx.noChange || Object.keys(cwAll).length) {
           const p2 = {};
-          for (const c of act.choices) { const n = pens[`${act.name}:${c.id}`]; if (n) p2[c.id] = n; }
-          const x = JevDecider.applyPenalties(t, p2, ctx.noChange.weight);
+          const w2 = {};
+          for (const c of act.choices) {
+            const n = pens[`${act.name}:${c.id}`]; if (n && ctx.noChange) p2[c.id] = n;
+            const w = cwAll[`${act.name}:${c.id}`]; if (w != null && w !== 1) w2[c.id] = w;
+          }
+          const x = JevDecider.applyWeights(t, p2, ctx.noChange ? ctx.noChange.weight : null, w2);
           if (x) { s2.reweight = x.info; id = x.rw.choice; }
         }
       }

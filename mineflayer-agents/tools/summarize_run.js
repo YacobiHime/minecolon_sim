@@ -11,6 +11,7 @@ const scale = require('./scale_stats');
 const { parsePlaces } = require('../src/places');
 const divisionTool = require('./division_stats');
 const toolVoiceTool = require('./toolvoice_stats');
+const searchTool = require('./search_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -115,8 +116,9 @@ function summarizeAgent(file, rows) {
       troubledLoops: loops.filter((r) => (r.troubles || []).length).length,
       troubledFail: loops.filter((r) => (r.troubleKinds || []).includes('fail')).length,
       troubledNoChange: loops.filter((r) => (r.troubleKinds || []).includes('noChange')).length,
-      reweighted: loops.filter((r) => r.jev && r.jev.reweight).length,
-      reweightChanged: loops.filter((r) => r.jev && r.jev.reweight && r.jev.reweight.changed).length,
+      // noChange の重みを掛けた判断 (選択肢の重みだけのもの (penalties が無い) は movement.reweight に数える)
+      reweighted: loops.filter((r) => r.jev && r.jev.reweight && r.jev.reweight.penalties).length,
+      reweightChanged: loops.filter((r) => r.jev && r.jev.reweight && r.jev.reweight.penalties && r.jev.reweight.changed).length,
       maxSameInRow: maxRun(loops),
     },
     end: last ? { inventory: last.inventory, foodCount: last.foodCount ?? null, hut: last.hutTrue ? last.hutTrue.ratio : null, social: last.social ? last.social.words : null, timeOfDay: last.timeOfDay ?? null } : null,
@@ -956,6 +958,8 @@ function main() {
     division: divisionTool.divisionStats(all),
     // 道具の不満と声 (tools/toolvoice_stats.js): 不満の推移・独り言/頼みごとの数と性格・頼みごとから作った/渡したまで・壊れた回数と止まった時間・共有のチェストの道具の数
     toolVoice: toolVoiceTool.toolVoiceStats(all),
+    // 動き方 (tools/search_stats.js): 行動の割合・search の距離と見つけた物・割り込み・寄り道/そのまま・1人でいた割合・踏破したマス・選択肢の重み
+    movement: searchTool.movementStats(all, { names: agents.map((a) => a.name) }),
     placed: loops.filter((r) => r.action === 'place' && r.result && r.result.ok).reduce((m, r) => { m[r.arg] = (m[r.arg] || 0) + 1; return m; }, {}),
     perAgent: agents,
     conversation: conversation(all, nEx),
@@ -981,6 +985,7 @@ function main() {
     console.log(`状態が変わらなかった行動 ${nc('unchanged')} 回 (うち成功扱い ${nc('unchangedOk')})、困っていた判断 ${nc('troubledLoops')} 回 (失敗の繰り返し ${nc('troubledFail')}・変わらない繰り返し ${nc('troubledNoChange')})、重みで選び直し ${nc('reweightChanged')}/${nc('reweighted')} 回、同じ行動の連続 最長 ${maxOf(agents.map((a) => a.noChange.maxSameInRow))} 回`);
     const allCells = new Set(agents.flatMap((a) => a.explore.cellKeys));
     console.log(`訪れたマス ${allCells.size} 個 (${agents[0] ? agents[0].explore.cell : 16} 四方、1人あたり ${agents.map((a) => a.explore.visitedCells).join('/')})、explore ${sum(agents.map((a) => a.explore.n))} 回 (新しいマスに着いた ${sum(agents.map((a) => a.explore.newCell))}、種類 ${JSON.stringify(agents.reduce((m, a) => { for (const [k, v] of Object.entries(a.explore.byKind)) m[k] = (m[k] || 0) + v; return m; }, {}))})`);
+    for (const l of searchTool.lines(out.movement)) console.log(l);
     const bs = (k, f) => sum(agents.map((a) => a.build[k][f]));
     console.log(`build で置いた物: 原木 ${bs('log', 'placed')} 個 (${bs('log', 'n')} 回)・板材 ${bs('planks', 'placed')} 個 (${bs('planks', 'n')} 回)・そのほか ${bs('other', 'placed')} 個 (${bs('other', 'n')} 回)`);
     console.log(`pillar ${acts('pillar')} 回 (成功 ${actsOk('pillar')})、pick_up ${acts('pick_up')} 回 (成功 ${actsOk('pick_up')})、go_to ${acts('go_to')} 回 (成功 ${actsOk('go_to')})`);

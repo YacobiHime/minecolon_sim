@@ -7,14 +7,15 @@ const { goals } = require('mineflayer-pathfinder');
 const { blockVisible, HOSTILE, cropRipe } = require('./observe');
 const { sleep, withTimeout, dist3 } = require('./util');
 const { hutSlots, hutStatus } = require('./hut');
-const { exploreTarget } = require('./explore');
+const { exploreTarget, dirJp } = require('./explore');
+const search = require('./search');
 const { moreHandlers, MORE_TIMEOUTS, noteContainer, furnaceItems, invDiff } = require('./act_more');
 const { penHandlers, PEN_TIMEOUTS } = require('./act_pen');
 const unstuck = require('./unstuck');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
-const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, craft: 30000, place: 25000 /* 置けなかったら別の所で置き直す (3回まで。1回 blockUpdate の時間切れ 5 秒) */, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
+const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, search: 90000, craft: 30000, place: 25000 /* 置けなかったら別の所で置き直す (3回まで。1回 blockUpdate の時間切れ 5 秒) */, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
   attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS };
 const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
 const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
@@ -284,6 +285,52 @@ const handlers = {
     const tag = newCell == null ? '' : newCell ? ' 新しいマス' : ' 行ったことのあるマス';
     if (moved < 4) return { ok: false, msg: `${where}へ進めなかった${err ? ': ' + err : ''}`, explore };
     return { ok: true, msg: `${where}へ${moved}m進んだ${tag}${err ? '(' + err + ')' : ''}`, explore };
+  },
+
+  // search: 道筋に要る物を探しながら歩く (search.js)。scanMs ごとに周りを見て、割り込み (道筋の物・敵・呼ばれた・しばらく見ていなかった人) で区切る。
+  //   歩き始めたときに見えていた物は割り込みにしない (それを見たうえで search を選んだので)。見つけたブロックは場所として覚える
+  async search(bot, ch, ctx) {
+    const start = bot.entity.position.clone();
+    const t = ch.target || { x: start.x, z: start.z };
+    const sc = ctx.search || {};
+    const w = ctx.searchWatch ? ctx.searchWatch() : null;
+    const watch = w ? { visionRadius: ctx.visionRadius ?? 16, hostile: HOSTILE, blockVisible, ...w } : null;
+    const kinds = sc.interrupts || search.SEARCH_DEFAULTS.interrupts;
+    const ignore = new Set();
+    if (watch) for (const h of search.scanAll(bot, watch)) ignore.add(h.id);
+    let hit = null;
+    let err = '';
+    const timer = watch ? setInterval(() => {
+      if (hit || (ctx.signal && ctx.signal.aborted)) return;
+      let h = null;
+      try { h = search.pickInterrupt(search.scanAll(bot, watch), { ignore, known: watch.known || new Set(), kinds }); } catch (_) { h = null; }
+      if (h) { hit = h; haltPath(bot); }
+    }, sc.scanMs ?? search.SEARCH_DEFAULTS.scanMs) : null;
+    try {
+      await gotoGoal(bot, new goals.GoalNearXZ(t.x, t.z, 3));
+    } catch (e) { if (!hit) err = pathErr(e); } finally { if (timer) clearInterval(timer); }
+    const end = bot.entity.position;
+    const moved = Math.round(dist3(start, end));
+    let newCell = null; let cell = null;
+    if (ctx.memory && typeof ctx.memory.cellOf === 'function') {
+      const k = ctx.memory.cellOf(end);
+      const known = ctx.memory.cellAt(k.cx, k.cz);
+      newCell = !(known && known.n);
+      cell = [k.cx, k.cz];
+    }
+    // 見つけたブロックを場所として覚える (次の判断の go_to に M番号で出る。【発見】・会話で伝えられる)
+    let place = null;
+    if (hit && hit.kind === 'goal' && !hit.mob && ctx.memory && typeof ctx.memory.notePlace === 'function') {
+      try { const q = ctx.memory.notePlace(hit.what, hit.pos); place = q ? { kind: hit.what, pos: hit.pos } : null; } catch (_) { place = null; }
+    }
+    const dj = ch.dir ? ({ north: '北', northeast: '北東', east: '東', southeast: '南東', south: '南', southwest: '南西', west: '西', northwest: '北西' }[ch.dir] || ch.dir) : dirJp(t.x - start.x, t.z - start.z);
+    const left = Math.round(Math.hypot(t.x - end.x, t.z - end.z));
+    const info = { dir: ch.dir || null, what: ch.what || null, continued: !!ch.continued, planned: ch.dist ?? null, target: { x: Math.round(t.x), z: Math.round(t.z) }, moved, left, newCell, cell,
+      interrupt: hit ? { kind: hit.kind, what: hit.what, pos: hit.pos || null, d: hit.d ?? null, ...(hit.text ? { text: hit.text } : {}) } : null, ...(place ? { place } : {}) };
+    const tag = newCell == null ? '' : newCell ? ' 新しいマス' : ' 行ったことのあるマス';
+    const head = `${ch.what || '何か'}を探して`;
+    if (moved < 4 && !hit) return { ok: false, msg: `${head}${dj}へ進めなかった${err ? ': ' + err : ''}`, search: info };
+    return { ok: true, msg: `${head}${dj}へ${moved}m進んだ${tag}${hit ? `。${search.interruptText(hit)}` : ''}${err ? `(${err})` : ''}`, search: info };
   },
 
   async craft(bot, ch, ctx) {

@@ -26,7 +26,7 @@ const en = require('../src/en');
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : d; };
 const runDir = args.find((a) => !a.startsWith('--') && fs.existsSync(a));
-if (!runDir) { console.error('usage: node tools/jev_state_compare.js runs/<時刻>/ [--scenes 6] [--call] [--show 1]'); process.exit(2); }
+if (!runDir && require.main === module) { console.error('usage: node tools/jev_state_compare.js runs/<時刻>/ [--scenes 6] [--call] [--show 1]'); process.exit(2); }
 const nScenes = Number(opt('--scenes', 6));
 const doCall = args.includes('--call');
 const nShow = Number(opt('--show', 1));
@@ -57,7 +57,7 @@ function rawFromObs(obs, inventory, version = '1.20.1') {
   const hasPick = (inventory || []).some((i) => /_pickaxe$/.test(i.name));
   for (const l of lines.slice(1)) {
     if (l.startsWith('見えるブロック: ') && !/なし$/.test(l)) {
-      for (const part of l.slice(8).split(', ')) {
+      for (const part of l.slice(l.indexOf(': ') + 2).split(', ')) {
         const m = part.match(/^([a-z0-9_]+)(?:\(育ちきった(\d+)\/(\d+)\))? (\S+?\(\d+m\))(?: 他(\d+)\+)?$/);
         if (!m) continue;
         const r = parseRel(m[4]);
@@ -99,11 +99,12 @@ function memoryFrom(memText, pos, limits) {
   m.tick = 100;
   for (const l of String(memText || '').split('\n')) {
     if (l.startsWith('覚えている場所: ') && !/なし$/.test(l)) {
-      for (const part of l.slice(8).split(', ')) {
-        const mm = part.match(/^M\d+=(\S+) (\S+?\(\d+m\))$/);
+      for (const part of l.slice(l.indexOf(': ') + 2).split(', ')) {
+        // "M2=聞いた場所(Mioが言っていた所) 西1(1m)・出現地点のすぐ近く" (聞いた場所・後ろの添え書きも読む)
+        const mm = part.match(/^M\d+=(\S+?)(?:\((\S+?)が言っていた所\))? (\S+?\(\d+m\))(?:・.*)?$/);
         if (!mm) continue;
-        const r = parseRel(mm[2]);
-        m.places.push({ kind: mm[1], x: pos.x + r.dx, y: pos.y + r.dy, z: pos.z + r.dz, firstSeen: 99, lastSeen: 99, n: 1 });
+        const r = parseRel(mm[3]);
+        m.places.push({ kind: mm[1], x: pos.x + r.dx, y: pos.y + r.dy, z: pos.z + r.dz, firstSeen: 99, lastSeen: 99, n: 1, ...(mm[2] ? { from: mm[2] } : {}) });
       }
     }
     if (l.startsWith('やったこと: ') && !/まだ何もしていない$/.test(l)) {
@@ -132,6 +133,39 @@ function socialFrom(rec, persona) {
   return s;
 }
 
+// 記録の1場面 (sc = { rows, row, prev }) から、Jev に渡す ctx を作り直す (weight_check.js からも使う)。返り値 { ctx, name, persona, cfg, raw, mem, gp }
+function sceneContext(sc, base, cfgFile) {
+  const { row, prev } = sc;
+  const name = row.obs.match(/^自分: (\S+)/)[1];
+  const persona = (base.personas || []).find((p) => p.name === name) || { name };
+  const cfg = loadConfig(cfgFile, { persona });
+  cfg.persona = persona;
+  const raw = rawFromObs(row.obs.split('\n').filter((l) => /^(自分|持ち物|見えるブロック|近くの人|今聞こえた話)/.test(l)).join('\n'), prev.inventory || []);
+  const mem = memoryFrom(row.memText, raw.self.pos, cfg.memory.limits);
+  const social = socialFrom(row, persona);
+  const lastJa = `${prev.action}${prev.arg ? '(' + prev.arg + ')' : ''}→${prev.result.ok ? '成功' : '失敗'}: ${prev.result.msg}`;
+  const prev2 = sc.rows.filter((r) => r.loop && r.action && r.result && r.jev && r.obs && r.loop < prev.loop).pop();
+  const lastEn = en.resultEn({ action: prev.action, arg: prev.arg, ok: prev.result.ok, msg: prev.result.msg, delta: en.invDelta(prev2 ? prev2.inventory : [], prev.inventory || []) });
+  const ctx = buildContext(raw, mem, cfg, { foods: new Set(Object.keys(index().md.foodsByName || {})), socialText: row.social ? row.social.words : '', socialEn: social.words({ lang: 'en' }), lastResult: lastJa, lastResultEn: lastEn, planText: row.progress || '' });
+  ctx.obsText = row.obs; ctx.memText = row.memText; // 日本語の state は記録の文のまま
+  ctx.policy = row.policy || null;
+  // ゴール: この判断より前の最後のゴールの event から作り直し、英語の plan を作る
+  const g = sc.rows.filter((r) => r.event === 'goal_path' && r.kind === 'goal' && r.ok && r.ts <= row.ts).pop();
+  let gp = null;
+  if (g) {
+    gp = new GoalPath({ llm: { complete: async () => ({ text: '' }) }, cfg: cfg.goalPath });
+    const gctx = { raw, people: [], places: mem.placesForPrompt(raw.self.pos), base: null };
+    const pl = g.goalKind === 'place' ? gp.rawCandidates(gctx).places.find((x) => x.name === g.target) || null : null;
+    gp.goal = { kind: g.goalKind, target: g.target, count: g.count, give: g.give, why: g.why, need: g.need, state: g.goalKind === 'state' ? states.parseStateId(g.target) : null, place: pl, startPos: raw.self.pos, metAt: null, setAt: 0, best: Infinity, bestAt: 0 };
+    gp.refresh(gctx, 1);
+    if (row.goalPath && row.goalPath.met) gp.goal.metAt = 0;
+    ctx.en.plan = gp.planEn();
+    ctx.pathNext = gp.pathNext();
+    ctx.en.obs = require('../src/agent').obsEn(raw, cfg, row.progress || '');
+  }
+  return { ctx, name, persona, cfg, raw, mem, gp: g ? gp : null };
+}
+
 function main() {
   const files = fs.readdirSync(runDir).filter((f) => f.endsWith('.jsonl') && !f.startsWith('monitor'));
   const scenes = [];
@@ -149,33 +183,8 @@ function main() {
   return (async () => {
     const out = [];
     for (const [si, sc] of pick.entries()) {
-      const { row, prev } = sc;
-      const name = row.obs.match(/^自分: (\S+)/)[1];
-      const persona = (base.personas || []).find((p) => p.name === name) || { name };
-      const cfg = loadConfig(cfgFile, { persona });
-      cfg.persona = persona;
-      const raw = rawFromObs(row.obs.split('\n').filter((l) => /^(自分|持ち物|見えるブロック|近くの人|今聞こえた話)/.test(l)).join('\n'), prev.inventory || []);
-      const mem = memoryFrom(row.memText, raw.self.pos, cfg.memory.limits);
-      const social = socialFrom(row, persona);
-      const lastJa = `${prev.action}${prev.arg ? '(' + prev.arg + ')' : ''}→${prev.result.ok ? '成功' : '失敗'}: ${prev.result.msg}`;
-      const prev2 = sc.rows.filter((r) => r.loop && r.action && r.result && r.jev && r.obs && r.loop < prev.loop).pop();
-      const lastEn = en.resultEn({ action: prev.action, arg: prev.arg, ok: prev.result.ok, msg: prev.result.msg, delta: en.invDelta(prev2 ? prev2.inventory : [], prev.inventory || []) });
-      const ctx = buildContext(raw, mem, cfg, { foods: new Set(Object.keys(index().md.foodsByName || {})), socialText: row.social ? row.social.words : '', socialEn: social.words({ lang: 'en' }), lastResult: lastJa, lastResultEn: lastEn, planText: row.progress || '' });
-      ctx.obsText = row.obs; ctx.memText = row.memText; // 日本語の state は記録の文のまま
-      ctx.policy = row.policy || null;
-      // ゴール: この判断より前の最後のゴールの event から作り直し、英語の plan を作る
-      const g = sc.rows.filter((r) => r.event === 'goal_path' && r.kind === 'goal' && r.ok && r.ts <= row.ts).pop();
-      if (g) {
-        const gp = new GoalPath({ llm: { complete: async () => ({ text: '' }) }, cfg: cfg.goalPath });
-        const gctx = { raw, people: [], places: mem.placesForPrompt(raw.self.pos), base: null };
-        const pl = g.goalKind === 'place' ? gp.rawCandidates(gctx).places.find((x) => x.name === g.target) || null : null;
-        gp.goal = { kind: g.goalKind, target: g.target, count: g.count, give: g.give, why: g.why, need: g.need, state: g.goalKind === 'state' ? states.parseStateId(g.target) : null, place: pl, startPos: raw.self.pos, metAt: null, setAt: 0, best: Infinity, bestAt: 0 };
-        gp.refresh(gctx, 1);
-        if (row.goalPath && row.goalPath.met) gp.goal.metAt = 0;
-        ctx.en.plan = gp.planEn();
-        ctx.pathNext = gp.pathNext();
-        ctx.en.obs = require('../src/agent').obsEn(raw, cfg, row.progress || '');
-      }
+      const { row } = sc;
+      const { ctx, name } = sceneContext(sc, base, cfgFile);
       const oJa = actionOptions(ctx.actions, { lang: 'ja' });
       const stJa = buildState(ctx, { table: oJa.table, lang: 'ja' });
       const qJa = buildQuestions(ctx, { criteria: oJa.criteria, hasTable: true, lang: 'ja' }).questions;
@@ -204,4 +213,6 @@ function main() {
   })();
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
+
+module.exports = { parseRel, rawFromObs, memoryFrom, socialFrom, sceneContext };

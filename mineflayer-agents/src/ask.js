@@ -21,6 +21,7 @@ const ABOUT = {
   place: (a) => `${a}の置き方`,
   hunt: (a) => `${a}のつかまえ方`,
   explore: (a) => `${a}の方へ進む方法`,
+  search: (a) => `${a}の方へ進む方法`,
   eat: (a) => `${a}の食べ方`,
   pillar: (a) => `高い所の${a}への登り方`,
   pick_up: (a) => `落ちている${a}の拾い方`,

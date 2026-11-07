@@ -40,6 +40,8 @@ const { Division, countsText, MUTTER_MARK } = require('./division');
 const { ToolWant } = require('./toolwant');
 const TF = require('./toolfacts');
 const { Experience, expKey } = require('./experience');
+const searchMod = require('./search');
+const choiceWeight = require('./choice_weight');
 const { sleep, dist3, relDir, timePhase } = require('./util');
 
 const BASE_KIND = '拠点';
@@ -158,7 +160,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     useOnSkip: cfg.act.useOnPlaceable === false ? (n) => isPlaceableBlockItem(n, (cfg.server && cfg.server.version) || undefined) : null,
     visionRadius: cfg.perception.visionRadius, followMs: cfg.act.followMs, useRadius: cfg.act.useRadius, maxUseChoices: cfg.act.maxUseChoices, maxGiveChoices: cfg.act.maxGiveChoices,
     explore: { ...((cfg.act && cfg.act.explore) || {}), distance: cfg.act.exploreDistance ?? 20, cells: memory.cells, cellSize: memory.limits.exploreCell, tick: memory.tick,
-      allCells: extra.allCells || null, others: extra.others || null, base: extra.base || null },
+      allCells: extra.allCells || null, others: extra.others || null, base: extra.base || null, othersCells: extra.othersCells || null },
     board: extra.boardActs || null,
     farmTargets: farmTargets(raw, memPlaces, extra.farm || null, cfg),
   });
@@ -230,6 +232,12 @@ function updateMemoryFromObservation(memory, raw) {
   return learned;
 }
 
+// 近くの人の数 (8m・16m・48m 以内。集まりの集計に使う)
+function nearCounts(raw) {
+  const ds = peopleOf(raw).map((p) => p.d).filter((d) => Number.isFinite(d));
+  return { n8: ds.filter((d) => d <= 8).length, n16: ds.filter((d) => d <= 16).length, n48: ds.filter((d) => d <= 48).length };
+}
+
 function goalMet(goal, inventory, raw = null) {
   const s = goal && goal.success;
   if (!s) return false;
@@ -274,6 +282,12 @@ class Agent {
       ? Experience.fromJSON(this.memory.extra.experience, { cfg: cfg.experience || {} }) : null;
     this.recorder = new Recorder(recordDir || cfg.record.dir, cfg.persona.name, recordStamp);
     this.heardBuf = [];
+    // 探しながら歩く (search.js) と、選択肢の重み (choice_weight.js)。cfg.act.search / cfg.choiceWeights
+    this.searchCfg = searchMod.cfgOf(cfg.act && cfg.act.search);
+    this.cwCfg = choiceWeight.cfgOf(cfg.choiceWeights);
+    this.searchState = null; // 割り込みで区切った search の続き { dir, target, what, tick, awaiting, interrupt }
+    this.peopleSeenAt = {}; // 名前 → 最後に近くにいたループ (search の「しばらく見ていなかった人」)
+    this.calledBy = {}; // 名前 → 自分の名前を呼んだ・頼んだループ (選択肢の重みで、その人の所へ行くのは下げない)
     // 近くの人の位置 (people.js)。entity が一時的に無いときに最後の位置を staleMs まで使う。onChat の距離・raw.people に使う
     this.playerCache = new PlayerCache({ staleMs: (cfg.perception && cfg.perception.positionStaleMs) ?? 15000 });
     this.chatCount = { heard: 0, far: 0, unknown: 0, cache: 0 }; // 近くの声: 拾った・遠くて捨てた・位置が分からず捨てた・最後の位置で判定した (判断ごとに記録して0に戻す)
@@ -836,6 +850,7 @@ class Agent {
     this.heardBuf.push({ from: username, text, d: Math.round(d) });
     if (this.heardBuf.length > 10) this.heardBuf.shift();
     const me = bot.username;
+    if (choiceWeight.isCalled(text, me)) this.calledBy[username] = this.memory.tick;
     const q = ask.parseQuestion(text);
     if (q && q.to === me && this.help.askOthers) {
       this.questionQueue.push({ from: username, question: q.question, loop: this.memory.tick, t: Date.now() });
@@ -1154,6 +1169,9 @@ class Agent {
     const cell0 = this.memory.cellOf(raw.self.pos);
     const knownCell = this.memory.cellAt(cell0.cx, cell0.cz);
     const learnedNear = updateMemoryFromObservation(this.memory, raw);
+    // 近くの人 (見かけた人) の居たマスを覚える (search の方角で「ほかの人が行った」方に使う)・最後に見たループ
+    for (const p of peopleOf(raw)) this.peopleSeenAt[p.name] = tick;
+    if (this.searchCfg.enabled) searchMod.noteOthersSeen(this.memory, peopleOf(raw), { cellSize: this.memory.limits.exploreCell, tick, me: cfg.persona.name });
     // 近くの声 (発言・答え) の中の場所を覚えた (共有の分析用。【発見】は onBoardLine で via: 'board')
     for (const l of learnedNear) this.recorder.write({ event: 'heard_place', via: 'near', from: l.from, to: cfg.persona.name, text: l.text, places: l.places, d: l.d, loop: tick });
     for (const h of raw.heard) this.social.onHeard(h.from, tick, h.text);
@@ -1225,7 +1243,8 @@ class Agent {
       for (const e of evs) this.recorder.write({ event: 'prospect', ...e, gameTime: gameNow });
     }
     const { allCells, others } = this.exploreShare(tick, raw);
-    const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
+    const othersCells = this.searchCfg.enabled ? searchMod.othersCells(this.memory, this.memory.limits.exploreCell) : null;
+    const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, othersCells, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
       boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
@@ -1316,6 +1335,9 @@ class Agent {
       ctx.pathNext = this.goalPath.pathNext();
       if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
     }
+    // 探しながら歩く (search) の候補と、選択肢の重み (人の所へ行く・ついて行く・道筋に関係しない覚えた場所)
+    const searchInfo = this.addSearchAction(ctx, raw, tick);
+    if (this.cwCfg.enabled) ctx.choiceWeights = choiceWeight.choiceWeights(ctx.actions, this.weightContext(tick), this.cwCfg);
     const obsMs = Date.now() - tObs;
 
     const dec = await this.decider.decide(ctx);
@@ -1351,8 +1373,10 @@ class Agent {
       base: this.base, hutShape: this.help.hut === false ? null : ((cfg.world && cfg.world.hut) || {}), ask: (ch) => this.doAsk(ch),
       setBase: () => this.setBase(),
       broadcast: () => this.doBroadcast(ctx), reportFind: () => this.doReportFind(ctx), propose: () => this.doPropose(ctx), shareChest: (ch) => this.doShareChest(ch),
+      search: this.searchCfg, searchWatch: () => this.searchWatch(searchInfo, tick),
     });
     this.afterBoardAction(resolved, result);
+    const searchAfter = this.afterSearch(resolved, result, tick);
     const actMs = Date.now() - tAct;
     // 移動の記録 (goto の回数・打ち切り・押し戻し・path_reset の理由・掘る/置く/動くの割合・returningPos)。行動の終わりに returningPos を消す
     const move = unstuck.endAction(bot);
@@ -1495,12 +1519,88 @@ class Agent {
       hutSeen: raw.hut,
       hutTrue: this.trueHut || null,
       goalMet: met,
+      // 探しながら歩く: 出した候補の探す物・割り込みの次の判断で寄り道したか (searchAfter)。近くの人の数 (集まりの集計)
+      searchOffer: searchInfo ? { what: searchInfo.primary, names: searchInfo.names, dist: searchInfo.dist, continue: searchInfo.hasContinue } : undefined,
+      searchAfter: searchAfter || undefined,
+      nearPeople: nearCounts(raw),
       growWait: growWait || undefined, // 作物が育つのを待っている間の 待つ・見回す (困りごと・変わらなかったに数えない)
     });
     this.memory.save();
     this.log(`[${bot.username}] #${loopNo} ${valid ? '' : '(fallback) '}${resolved.action}(${resolved.arg}) -> ${result.ok ? 'OK' : 'NG'} ${result.msg}${said ? ` / say「${said}」` : ''} [decide ${dec.latencyMs}ms, act ${actMs}ms]`);
     if (stuckNow) await this.recoverStuck(loopNo, tick, resolved, move);
     return { met };
+  }
+
+  // 探しながら歩く (search.js) の候補を ctx.actions に足す。返り値 { primary, names, dist, hasContinue } | null
+  addSearchAction(ctx, raw, tick) {
+    ctx.actions = ctx.actions.filter((a) => a.name !== 'search');
+    const c = this.searchCfg;
+    if (!c.enabled || !this.goalPath || !this.goalPath.pathNext()) return null;
+    if (c.disabledWhen && ctx.actions.some((a) => a.name === c.disabledWhen)) return null;
+    const visible = new Set([...raw.blocks.map((b) => b.name), ...raw.entities.map((e) => e.name)]);
+    const targets = searchMod.searchTargets(this.goalPath.path, visible);
+    if (!targets) return null;
+    const st = this.searchState && tick - this.searchState.tick <= c.continueTicks ? this.searchState : null;
+    if (!st) this.searchState = null;
+    const T = this.division && this.division.T ? this.division.T.exploring : 0;
+    const dist = searchMod.searchDistance(T, c);
+    const cellSize = this.memory.limits.exploreCell;
+    const act = searchMod.searchAction({ cfg: c, targets, here: raw.self.pos, cells: this.memory.cells, othersCells: searchMod.othersCells(this.memory, cellSize), cellSize, dist, name: this.cfg.persona.name, active: st });
+    if (!act) return null;
+    ctx.actions.push(act);
+    return { primary: targets.primary, names: targets.names.slice(0, c.maxNames), dist, T: T ?? null, hasContinue: act.choices.some((ch) => ch.id === 'continue') };
+  }
+
+  // 歩いている間の見張りの材料 (act.js の search)。歩き始めたときに呼ぶ
+  searchWatch(info, tick) {
+    const c = this.searchCfg;
+    const start = new Set(this.heardBuf);
+    const known = new Set(Object.entries(this.peopleSeenAt).filter(([, t]) => tick - t <= c.newPersonTicks).map(([n]) => n));
+    return { names: new Set(info ? info.names : []), me: this.bot ? this.bot.username : this.cfg.persona.name, hostileRadius: c.hostileRadius,
+      visionRadius: this.cfg.perception.visionRadius ?? 16, known, heard: () => this.heardBuf.filter((h) => !start.has(h)) };
+  }
+
+  // search の結果で続きの状態を持つ。割り込みの次の判断で「寄り道したか・そのまま進んだか」を返す (記録用)
+  afterSearch(resolved, result, tick) {
+    let after = null;
+    const st = this.searchState;
+    if (st && st.awaiting) {
+      const cont = resolved.action === 'search' && resolved.arg === 'continue';
+      after = { interrupt: st.interrupt.kind, what: st.interrupt.what, choice: cont ? 'continue' : resolved.action === 'search' ? 'other_direction' : 'detour', action: `${resolved.action}:${resolved.arg}` };
+      st.awaiting = false;
+    }
+    if (resolved.action === 'search') {
+      const s = result.search;
+      if (s && s.interrupt && s.left >= this.searchCfg.minLeft) {
+        this.searchState = { dir: s.dir, target: s.target, what: s.what, tick, awaiting: true, interrupt: s.interrupt };
+      } else this.searchState = null;
+    }
+    return after;
+  }
+
+  // 選択肢の重みの材料: 下げない人 (ゴールの人・最近呼んだ/頼んだ人)、ゴール・道筋に関係する場所の種類と位置
+  weightContext(tick) {
+    const exemptPeople = new Set();
+    const calledPeople = new Set();
+    const relatedKinds = new Set();
+    const relatedPos = [];
+    const g = this.goalPath && this.goalPath.goal;
+    if (g && g.metAt == null && g.kind === 'person' && g.target) exemptPeople.add(g.target);
+    for (const [n, t] of Object.entries(this.calledBy)) if (tick - t <= this.cwCfg.exemptTicks) calledPeople.add(n);
+    if (g && g.metAt == null) {
+      if (g.kind === 'place') { if (g.pos) relatedPos.push(g.pos); if (g.place && g.place.kind) relatedKinds.add(g.place.kind); }
+      if (g.kind === 'item' && g.target) relatedKinds.add(g.target);
+      const p = this.goalPath.path;
+      if (p && p.ok) {
+        for (const s of [p.next, ...(p.steps || [])]) {
+          if (!s) continue;
+          for (const k of [s.item, s.from, s.station, s.crop, s.seed, s.animal]) if (k) relatedKinds.add(k);
+          if (s.water) relatedKinds.add('water');
+          if (s.how === 'farm') relatedKinds.add('farmland');
+        }
+      }
+    }
+    return { exemptPeople, calledPeople, relatedKinds, relatedPos };
   }
 
   // 行動の結果から、あとでやること (prospect.js) を足す・済んだにする。記録は event 'prospect'

@@ -179,6 +179,7 @@ run.js               1プロセスで --agents 人。使用量と 2B は全員�
 | pillar (新) | 目印で掘れる物が、手の届く高さより 1〜4 段上にしか見えず、足場にするブロックを持っている。足場は土 → 丸石 → 石の類 → 板材 → 原木の順に選ぶ (板材・原木は小屋の材料なので後回し) | 目標の真下近くまで歩き、跳びながら足元にブロックを置いて登る。**降りるときは何もしない (足場は残す)**: 次に歩くとき pathfinder が飛び降りる。4 段までなので落下の傷は小さい。登ったあとの採掘は collect |
 | pick_up (新) | 落ちている物 (原木に限らない) が見える | その物の所へ歩いて拾う。collect のあとに拾い損ねた物にも使う |
 | explore | `act.explore.mode` が `basic` (既定・段階1) なら東西南北。`varied` (first_setting) なら 8方位 × 近く 12m / 遠く 35m、`unvisited` (まだ行っていない一番近いマス、6マス以内)、`random` (でたらめな方へ 15〜35m) の 18 個。方角の選択肢の文に、行き先のマスに行ったことがあるか (「行ったことなし」「行った 3回・6回前」) を入れる | GoalNearXZ で歩く。記録の `result.explore` に種類・行き先・予定と実際の距離・新しいマスだったか |
+| search (新、`act.search`) | ゴールの道筋に要る物 (掘る元のブロック・倒す生き物・畑の水) が見えていない。方角は点の高い `choices` 個と、割り込みのあとの「このまま進む (continue)」 | `scanMs` ごとに周りを見ながら GoalNearXZ で歩き、道筋の物・敵・呼ばれた/頼まれた・しばらく見ていなかった人が見えたら区切る (下の「探しながら歩く」)。記録の `result.search` |
 | craft | 今の持ち物で作れる物 (作業台が見えれば作業台の要る物も) | recipesFor → craft |
 | build (新) | 拠点を知っていて、板材・原木・丸石・土を持っている | 設計図の空いている所のうち隣に支えがある所へ、GoalPlaceBlock で近づき placeBlock。1回に4個まで。座標は選ばせない |
 | hunt (新) | 牛・豚・羊・鶏・兎が見える | 追いかけて attack、落ちた肉を拾う (30 秒まで) |
@@ -267,6 +268,20 @@ help.goalPlan のゴール作りには、これに加えて「いちばんつら
 毎ループの観測で今いるマスを記録し、前のループと違うマスに入ったときだけ回数を増やす。時間で忘れる (記憶と同じ強さの式。忘れた数は `forgotten` に入れない)。
 マスの件数や一覧はプロンプトに入れず、explore の選択肢の文にだけ使う。summarize_run は記録の位置から「訪れたマスの数」を数える (忘れとは関係なし)。
 少し前の状態に戻る往復は、下の「状態が変わらない繰り返し」の正味の変化 (`noChange.net`) で見る。
+
+## 探しながら歩く (`act.search`、src/search.js) と選択肢の重み (`choiceWeights`、src/choice_weight.js)
+
+2026-11-07 ユーザー決定 (「大体の人が固まって話すだけ」への対応)。
+- **search**: ゴールの道筋に要る物が見えていないときだけ出す。歩く距離は探検の反応の強さ T (division の exploring) で `minDist`〜`maxDist`。
+  歩き始めに見えていた物では止まらない。区切りの種類は `interrupts` (`hostile` 敵が `hostileRadius` 以内・`called` 自分の名前と、呼ぶ/聞く/頼む/誘う形の発言・
+  `goal` 道筋に出るブロック/生き物・`person` `newPersonTicks` 判断のあいだ近くにいなかった人)。見つけたブロックは `memory.notePlace` で場所として覚える (次の判断の go_to に M番号で出る)。
+  区切ったあと `continueTicks` 判断のあいだ「このまま進む」を出し、次の判断で寄り道したか (`searchAfter.choice`: detour / continue / other_direction) を記録する。
+- **方角の散らし方**: 8方位それぞれ、行き先までのマスのうち「自分も行っていない・ほかの人が行ったとも分かっていない」割合 + 人ごとの好みの方角 (名前から決まる、`jitter`)。
+  「ほかの人が行った」は見聞きした範囲だけ: 人から聞いた場所 (memory.places の from。【発見】・近くの声) と、近くにいた人の居たマス (`memory.extra.othersSeen`)。全員の踏破は見ない。
+  explore の方角の文にも、行き先のマスについて「Ken が言っていた場所がある」「Mai を見かけた」を足し、least_explored はそのマスも数える。
+- **選択肢の重み**: Jev の確率に掛けて足して 1 にし、一番を選ぶ (noChange の 0.5^n と同じ所)。go_to(人)・follow × `people` (0.4)。ゴールがその人なら掛けない、
+  `exemptTicks` 判断以内にその人に呼ばれた/頼まれた/誘われたら `called` (1)。ゴール・道筋に関係しない覚えた場所 (M) への go_to × `memPlace` (0.7)。記録は `jev.reweight.choiceWeights`。
+- 集計: `tools/search_stats.js` (summarize_run の `movement`)。重みの確かめ: `tools/weight_offline.js` (記録の Jev の上位3つに掛け直す)、`tools/weight_check.js` (記録の場面を作り直して Jev を呼ぶ)。
 
 ## 状態が変わらない繰り返し (実験的、`help.noChange`)
 
