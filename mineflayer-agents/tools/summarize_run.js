@@ -358,6 +358,31 @@ function goalSelectStats(all, n = 12) {
     effortChanged: goals.filter((r) => r.select.effortChanged).length, // 手間で割らなければ別の案だった
     calls: twoBCallStats(ev),
     examples,
+    spread: proposalSpread(ev),
+  };
+}
+
+// 案の広がり (goalpath の diversity。2026-11-07): 1回の案の種類 (正式名) の数・使えた案の数・kind の内訳・例の一覧に無い物、
+//   全体で出た種類の数、自由記述 (freeform) なら名前の直し方・書き直し・直せなかった理由。Jev の呼び出しの数 (案を分けた回数)
+function proposalSpread(ev) {
+  const rows = ev.filter((r) => r.kind === 'proposals' || (r.kind === 'goal' && r.proposals));
+  const dv = rows.map((r) => r.diversity).filter(Boolean);
+  if (!rows.length) return null;
+  const avg = (a) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 100) / 100 : null);
+  const merge = (list) => { const m = {}; for (const o of list) for (const [k, v] of Object.entries(o || {})) m[k] = (m[k] || 0) + v; return m; };
+  const allProps = rows.flatMap((r) => r.proposals || []);
+  const targets = new Set(allProps.filter((p) => p.ok && p.target).map((p) => `${p.kind}|${p.target}`));
+  const rewrites = rows.flatMap((r) => r.rewrites || []);
+  const unresolved = allProps.filter((p) => p.result === 'unresolved');
+  const ex = allProps.filter((p) => p.written && p.target && p.written !== p.target).slice(0, 12).map((p) => `${p.written} → ${p.target} (${p.via})`);
+  const jevCalls = rows.filter((r) => r.select && r.select.jev).map((r) => r.select.jev.calls || 1);
+  return {
+    rounds: rows.length, freeform: rows.filter((r) => r.freeform).length, k: countBy(rows, (r) => r.k ?? '-'),
+    perRound: { written: avg(dv.map((d) => d.written)), valid: avg(dv.map((d) => d.valid)), distinctValid: avg(dv.map((d) => d.distinctValid)), outsideExamples: avg(dv.map((d) => d.outsideExamples)) },
+    kinds: merge(dv.map((d) => d.kinds)), distinctTargetsAll: targets.size, via: merge(dv.map((d) => d.via)), dropped: merge(dv.map((d) => d.dropped)),
+    rewrites: { rounds: rewrites.length, asked: sum(rewrites.map((w) => w.asked || 0)), ok: sum(rewrites.map((w) => w.ok || 0)) },
+    unresolved: unresolved.length, unresolvedExamples: unresolved.slice(0, 6).map((p) => `${p.written}: ${p.reason}`), resolvedExamples: ex,
+    jevCallsPerSelect: avg(jevCalls), textChecks: ev.filter((r) => r.kind === 'text_check').length,
   };
 }
 
@@ -981,6 +1006,13 @@ function main() {
         const gs = out.goalSelect;
         console.log(`ゴールの案 ${gs.proposals} 個 (${gs.rounds} 回、外した ${JSON.stringify(gs.dropped)}、1案のとき満たされていて外した ${gs.satisfiedSingle})、Jev の点で選んだ ${gs.goalsSelected} 回 (${JSON.stringify(gs.rules)}、2B の最初の案以外 ${gs.notFirst}、Jev ${gs.jevTokens} トークン)`);
         for (const l of gs.examples.slice(0, 6)) console.log(`  ${l}`);
+        const sp = gs.spread;
+        if (sp) {
+          console.log(`  案の広がり: ${sp.rounds} 回 (自由記述 ${sp.freeform}、k ${JSON.stringify(sp.k)})、1回あたり 書いた ${sp.perRound.written}・使えた ${sp.perRound.valid}・種類 ${sp.perRound.distinctValid}・例の一覧に無い ${sp.perRound.outsideExamples}、全体の種類 ${sp.distinctTargetsAll}、kind ${JSON.stringify(sp.kinds)}`);
+          if (sp.freeform) console.log(`  名前の直し方 ${JSON.stringify(sp.via)}、外した ${JSON.stringify(sp.dropped)}、書き直し ${sp.rewrites.rounds} 回 (${sp.rewrites.asked} 案 → 使えた ${sp.rewrites.ok})、直せなかった ${sp.unresolved}、Jev ${sp.jevCallsPerSelect} 回/選び、文の状態の確かめ ${sp.textChecks} 回`);
+          for (const l of sp.resolvedExamples.slice(0, 6)) console.log(`    ${l}`);
+          for (const l of sp.unresolvedExamples) console.log(`    直せなかった: ${l}`);
+        }
       }
       if (out.reflect) {
         console.log(`振り返り ${out.reflect.count} 回 (方針を書けた ${out.reflect.ok}、${JSON.stringify(out.reflect.byReason)})`);

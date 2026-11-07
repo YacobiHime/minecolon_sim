@@ -158,6 +158,7 @@ function stateGoalText(st, count) {
   if (st.type === 'chest') return `拠点の近くのチェストに ${st.item} が${n}個ある`;
   if (st.type === 'planted') return `近くの耕地に ${st.crop} が${n}本植わっている`;
   if (st.type === 'shared') return `共有のチェスト ${st.chest} に ${st.item} が${n}個ある`;
+  if (st.type === 'text') return String(st.text || ''); // 自由に書かれた状態 (goalpath の freeform。済んだかは Jev の noul で聞く)
   return '';
 }
 
@@ -171,6 +172,7 @@ function stateGoalTextEn(st, count) {
   if (st.type === 'chest') return `${n} ${st.item} in a chest near the base`;
   if (st.type === 'planted') return `${n} ${st.crop} planted on farmland nearby`;
   if (st.type === 'shared') return `${n} ${st.item} in ${chestLabelEn(st.chest)}`;
+  if (st.type === 'text') return String(st.text || '');
   return '';
 }
 

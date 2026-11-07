@@ -485,6 +485,16 @@
     "_comment_states": "states: 状態のゴール (kind: state。src/states.js) を候補に出す: 囲いの中の動物 (pen_cow 等)・水の近くの耕地 (farmland)・拠点の明かり (lit_base)・拠点が囲われている (walled_base)・拠点のチェストの物 (chest_<物>)。済んだかはプログラムが確かめる。物の候補には先にたどった道筋の事実 (入手元が見えるか・要る物・手間 小/中/大) を添える (annotate)",
     "states": true,
     "annotate": true,
+    "freeform": {
+      "_comment": "自由記述のゴール (src/resolve.js。2026-11-07 ユーザー決定): enabled 'auto' なら local (2B) 以外の提供元 (luna) で使う。ゴールの物・状態・人・場所を候補の enum から選ばせず自由に書かせ、プログラムが正式名に直す (minecraft-data の名前・表示名・names_ja の日本語名・表記ゆれ・複数形・打ち間違い・種類違い (木・色) は 持っている > 見えている > 例 > 手間 の順)。直せない・たどれない・もう満たされている・重複の案は理由を添えて maxRewrites 回まで書き直させる。候補の一覧は例として maxExamples 個まで見せる。textStates: 今の状態の型に当てはまらない状態の文は、済んだかを Jev の noul で聞く (選ぶ前に「見て確かめられるか」が checkableP 未満なら外す、textCheckEvery 判断ごとに聞き textDoneP 以上で済んだ)",
+      "enabled": "auto",
+      "maxRewrites": 2,
+      "maxExamples": 120,
+      "textStates": true,
+      "textCheckEvery": 4,
+      "textDoneP": 0.7,
+      "checkableP": 0.5
+    },
     "stateOpts": {
       "penSize": 5,
       "wallSize": 3,
@@ -499,7 +509,14 @@
     "select": {
       "_comment": "ゴールの選び方 (サーベイ R1、D2A の形。ユーザー了承 2026-11-05): 2B が案を k 個 (今の候補から、schema の enum) → もう満たされている・たどれない案を外す → Jev に「この案を果たすと、この欲求が和らぐか」を 案 × 欲求 (今つらい上位 needs 個。しきい値に対する割合 minRatio 以上) の noul で1回に聞く → 点 = Σ つらさ^power × P の最大を選ぶ。最大との差 tieEps 以内は 2B が先に書いた案。全部の P が lowP 未満なら onAllLow (best: 点の最大 / first: 2B の最初の案)。つらい欲求が無いときは Jev を呼ばず 2B の最初の案。つらさ = (効いている強さ / しきい値) × ストレスの重み × (1 + 満たされない時間 / T) (needs.js distress)。maxTokens・temperature は案を出す 2B の呼び出し",
       "enabled": true,
-      "k": 4,
+      "_comment_k": "k: 案の数。提供元ごと (2026-11-07 ユーザー決定: luna 10、local (2B) 4)。数を1つ書けば全部それ。tokensPerProposal: 案1つあたりの出力の上限 (maxTokens と大きい方を使う)。maxQuestions・maxBodyBytes: Jev の1回の呼び出しの質問の数・本文の大きさ (OpenRouter は 32,000 バイトを超えると long-context) の上限。超えるなら案を分けて並列に呼ぶ",
+      "k": {
+        "local": 4,
+        "luna": 10
+      },
+      "tokensPerProposal": 110,
+      "maxQuestions": 60,
+      "maxBodyBytes": 30000,
       "needs": 3,
       "minRatio": 0.6,
       "power": 1,

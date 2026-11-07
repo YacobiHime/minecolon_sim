@@ -99,16 +99,30 @@ function itemCandidates(ctx) {
   const annotate = ctx.annotate !== false;
   // 持っている物は「もう持っている n」を事実として付ける (R2。2B が選んだ数が持っている数以下なら goalpath が外す)
   // descEn: Jev に渡す英語 (同じ値から)
-  return out.slice(0, ctx.maxItems ?? 40).map((x) => {
-    const head = [jaName(x.name), useSpec(x.name, md, foods), x.have ? `もう持っている${x.have}` : null, !annotate && x.seen ? '見える' : null].filter(Boolean).join('・');
-    const headEn = [x.name, useSpec(x.name, md, foods, 'en'), x.have ? `already have ${x.have}` : null, !annotate && x.seen ? 'visible' : null].filter(Boolean).join('; ');
-    if (!annotate || x.have) return { name: x.name, desc: head, descEn: headEn, have: x.have };
-    const ex = planner.explain(x.name);
-    const ann = ex.ok ? pathFacts(ex, raw, { target: x.name }) : [];
-    const annEn = ex.ok ? pathFacts(ex, raw, { target: x.name, lang: 'en' }) : [];
-    const eff = ex.ok ? effortWord(ex.c) : null;
-    return { name: x.name, desc: [head, ...ann, eff ? `手間: ${eff}` : null].filter(Boolean).join('。'), descEn: [headEn, ...annEn, eff ? `effort ${EFFORT_EN[eff] || eff}` : null].filter(Boolean).join('; '), effort: eff, have: 0 };
-  });
+  return out.slice(0, ctx.maxItems ?? 40).map((x) => describeOne(x, { md, foods, planner, raw, annotate }));
+}
+
+// 1つの物の説明 { name, desc, descEn, effort?, have }。x = { name, have, seen }
+function describeOne(x, { md, foods = md.foodsByName || {}, planner, raw, annotate = true }) {
+  const head = [jaName(x.name), useSpec(x.name, md, foods), x.have ? `もう持っている${x.have}` : null, !annotate && x.seen ? '見える' : null].filter(Boolean).join('・');
+  const headEn = [x.name, useSpec(x.name, md, foods, 'en'), x.have ? `already have ${x.have}` : null, !annotate && x.seen ? 'visible' : null].filter(Boolean).join('; ');
+  if (!annotate || x.have) return { name: x.name, desc: head, descEn: headEn, have: x.have };
+  const ex = planner.explain(x.name);
+  const ann = ex.ok ? pathFacts(ex, raw, { target: x.name }) : [];
+  const annEn = ex.ok ? pathFacts(ex, raw, { target: x.name, lang: 'en' }) : [];
+  const eff = ex.ok ? effortWord(ex.c) : null;
+  return { name: x.name, desc: [head, ...ann, eff ? `手間: ${eff}` : null].filter(Boolean).join('。'), descEn: [headEn, ...annEn, eff ? `effort ${EFFORT_EN[eff] || eff}` : null].filter(Boolean).join('; '), effort: eff, have: 0 };
+}
+
+// 候補の一覧に無い物 (自由に書かれたゴール。goalpath の freeform) の説明。world: planner の world
+function describeItem(name, { raw = null, world = null, version, annotate = true } = {}) {
+  const ix = index(version);
+  const r = raw || { inventory: [], blocks: [], entities: [] };
+  const have = (r.inventory || []).filter((i) => i.name === name).reduce((t, i) => t + i.count, 0);
+  const seen = (r.blocks || []).some((b) => b.name === name);
+  const planner = new Planner(world || { inventory: r.inventory, visibleBlocks: (r.blocks || []).map((b) => b.name),
+    visibleMobs: (r.entities || []).filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name) }, { index: ix });
+  return describeOne({ name, have, seen }, { md: ix.md, planner, raw: r, annotate });
 }
 
 // 仕様の事実 (物の働き。どう使うとよいかは書かない): 食べ物と満腹度・寝られる・明るさ・入れられる数・柵の高さ・耕せる
@@ -218,4 +232,4 @@ function placeCandidates({ here, base = null, baseLabel = null, places = [], cel
   return out;
 }
 
-module.exports = { pathFactsEn, itemCandidates, personCandidates, placeCandidates, familyKey, collapse, DIRS8, useSpec, pathFacts, dir8, rareWord };
+module.exports = { describeItem, pathFactsEn, itemCandidates, personCandidates, placeCandidates, familyKey, collapse, DIRS8, useSpec, pathFacts, dir8, rareWord };

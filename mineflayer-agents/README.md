@@ -343,6 +343,14 @@ summarize_run の「build で置いた物」(原木・板材・そのほかの�
 - **ゴールの選び方** (`goalPath.select`、D2A の形): 2B が案を k 個 → もう満たされている案 (持っている数以下の物・もう近くの人・着いている所) と
   たどれない案を外す → Jev に 案 × 今つらい欲求 (上位 `needs` 個) の noul を1回で聞く → 点 = Σ つらさ^power × P の最大 (同点は 2B が先に書いた案)。
   点は event `goal_path` (kind: goal) の `select` に残す。1案のとき (select なし) も、満たされている案は外して聞き直す (kind: satisfied)。
+  案の数 `select.k` は提供元ごと (`{local: 4, luna: 10}`)。Jev の1回の質問の数・本文の大きさが `maxQuestions`・`maxBodyBytes` を超えるなら案を分けて並列に呼ぶ。
+- **自由記述のゴール** (`goalPath.freeform`、`src/resolve.js`、2026-11-07): 文脈の広い提供元 (luna) では、案の物・状態・人・場所を enum で縛らず自由に書かせる
+  (`enabled: 'auto'` で local 以外)。名前は正式名に直す (正式名・表示名・日本語名・表記ゆれ・複数形・打ち間違い・種類違い (木・色) は
+  持っている > 見えている > 例 > 手間 の順)。直せない・たどれない・もう満たされている・重複の案は理由を添えて `maxRewrites` 回まで書き直させる。
+  状態は今の型 (pen・farmland・lit・walled・chest・planted) に当てはめ、当てはまらない文は type: text (選ぶ前に Jev に「見て確かめられるか」
+  「もうそうなっているか」を聞き、ゴールにしたら `textCheckEvery` 判断ごとに「そうなったか」を聞く)。候補の一覧は例として見せる (`maxExamples`)。
+  記録は proposals の `written`・`via`・`round`、`diversity` (種類の数・kind・例に無い物・直し方)・`rewrites`。summarize_run の `goalSelect.spread`。
+  実際に呼ぶ: `node tools/goalpath_demo.js --select --provider luna --jev-provider typesafe [--k N] [--freeform off] [--examples N]`。
 - **記録**: `jev.choice` に選んだ選択肢の確率 `p`・1位÷2位 `ratio`・上位3つ・並びの位置 `pos`。道筋の「次」が今すぐできるかを noul `next_now` で
   同じ呼び出しに聞き (`jev.nextNowP`。行動の選び方には使わない)、選んだ行動が道筋どおりか (`jev.path.match`: step/approach/other)。
   summarize_run の `jevChoice` (分布・位置・できると判定した割合と、そのとき道筋どおりの割合) と `goalSelect`。

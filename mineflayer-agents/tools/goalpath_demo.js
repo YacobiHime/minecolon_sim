@@ -4,6 +4,9 @@
 //   LLM_BASE_URL=http://192.168.15.30:18081 node tools/goalpath_demo.js [--json] [--only 名前] [--select] [--seed N]
 //   --select: ゴールの選び方 (R1) を使う。2B が案を k 個 → Jev (本物、/root/.config/typesafe.env のキー) に 案 × 欲求 の noul → 点の最大。
 //             欲求の値は場面ごとの needs (Needs モデルに入れて pressing を作る)
+//   --provider luna: ゴールの案を gpt-6-luna で (キーは /root/.config/luna.env。自由記述 freeform は 'auto' で入る)。--freeform off で enum のまま
+//   --examples N: 自由記述のとき例に見せる物の数 (freeform.maxExamples)
+//   --k N: 案の数 (無ければ config の提供元ごとの既定)。--jev-provider typesafe|openrouter: Jev の提供元
 const { GoalPath, statePathText } = require('../src/goalpath');
 const { summarizeObservation } = require('../src/observe');
 const { pathText } = require('../src/planner');
@@ -14,6 +17,8 @@ const { Needs } = require('../src/needs');
 const { JevDecider } = require('../src/deciders/jev');
 const { UsageMeter } = require('../src/usage');
 const { Order } = require('../src/order');
+const { llmOptsFor } = require('../src/llm_provider');
+const arg = (name) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : null; };
 // 場面ごとの欲求の値 (--select のとき。worst と合うように)
 const NEEDS_OF = { Yuki: { safety: 0.6, sleep: 0.4 }, Taro: { hunger: 0.85 }, Jiro: { sleep: 0.9, _missed: 2 }, Hanako: { connection: 0.75, care: 0.6 }, Ken: { curiosity: 0.75 } };
 
@@ -51,11 +56,19 @@ async function main() {
   const select = process.argv.includes('--select');
   const si = process.argv.indexOf('--seed');
   const meter = new UsageMeter();
-  const jev = select ? new JevDecider({ ...(cfg.decider.jev || {}), meter }) : null;
+  const jevProvider = arg('--jev-provider');
+  const jev = select ? new JevDecider({ ...(cfg.decider.jev || {}), ...(jevProvider ? { provider: jevProvider } : {}), timeoutMs: 60000, meter }) : null;
+  const provider = arg('--provider') || 'local';
+  const kArg = arg('--k');
+  const ffArg = arg('--freeform');
+  const llmOpts = provider === 'local' ? { ...cfg.decider.llm, baseUrl } : llmOptsFor({ ...cfg, llm: { ...(cfg.llm || {}), provider } }, 'goal', (cfg.goalPath && cfg.goalPath.llm) || {});
   for (const sc of SCENARIOS) {
     if (only && sc.who !== only) continue;
     const ev = [];
-    const gp = new GoalPath({ cfg: { ...cfg.goalPath, select: { ...(cfg.goalPath.select || {}), enabled: select } }, llmOpts: { ...cfg.decider.llm, baseUrl }, log: (e) => ev.push(e),
+    const exArg = arg('--examples');
+    const ffCfg = { ...(cfg.goalPath.freeform || {}), ...(ffArg ? { enabled: ffArg === 'on' } : {}), ...(exArg ? { maxExamples: Number(exArg) } : {}) };
+    const gp = new GoalPath({ cfg: { ...cfg.goalPath, freeform: ffCfg,
+      select: { ...(cfg.goalPath.select || {}), enabled: select, ...(kArg ? { k: Number(kArg) } : {}) } }, llmOpts, log: (e) => ev.push(e),
       jev, order: new Order({ enabled: true, seed: si >= 0 ? Number(process.argv[si + 1]) : 1 }) });
     const nv = NEEDS_OF[sc.who] || {};
     const needs = new Needs({ cfg: { start: Object.fromEntries(Object.entries(nv).filter(([k]) => !k.startsWith('_'))) } });
@@ -68,17 +81,20 @@ async function main() {
     const ctx = { persona: persona(sc.who), goalText: '', obsText, raw, facts, allFacts: kn, memText: '覚えている場所: なし\nやったこと: まだ何もしていない', socialText: sc.social, worst: sc.worst,
       peopleText: people.map((p) => `${p.name}: ${p.relation}。${p.seen ? `今は${p.seen}にいる` : '今は見えない'}`).join('\n'), people,
       places: sc.base ? [{ id: 'M1', kind: '拠点', label: '拠点 南東3' }] : [], placeKinds: sc.base ? ['拠点', 'crafting_table', 'chest'] : [], base: sc.base || null, needNow: () => 0.7,
-      pressing: (o) => needs.pressing(o) };
+      pressing: (o) => needs.pressing(o), later: (o) => needs.later(o) };
     const t0 = Date.now();
     await gp.update(ctx, 1);
     const g = ev.filter((e) => e.kind === 'goal' || e.kind === 'unplannable' || e.kind === 'proposals');
-    const r = { who: sc.label || sc.who, worst: sc.worst.need, goals: g.map((e) => ({ kind: e.goalKind, target: e.target, count: e.count, give: e.give, why: e.why, need: e.need, ok: e.ok, raw: e.rawOutput, promptTokens: e.promptTokens, completionTokens: e.completionTokens, ms: e.ms, error: e.error, proposals: e.proposals || null, select: e.select || null })),
+    const r = { who: sc.label || sc.who, worst: sc.worst.need, goals: g.map((e) => ({ kind: e.goalKind, target: e.target, count: e.count, give: e.give, why: e.why, need: e.need, ok: e.ok, raw: e.rawOutput, promptTokens: e.promptTokens, completionTokens: e.completionTokens, ms: e.ms, error: e.error, proposals: e.proposals || null, select: e.select || null,
+        diversity: e.diversity || null, rewrites: e.rewrites || null, textJev: e.textJev || null, written: e.written || null })),
       plan: gp.planText(), path: gp.path ? (gp.goal && gp.goal.kind === 'state' ? statePathText(gp.path, { maxShown: 20 }) : pathText(gp.path, { maxShown: 20 })) : null, ms: Date.now() - t0 };
     out.push(r);
     if (!json) {
       console.log(`\n## ${r.who} (いちばんつらい: ${r.worst})`);
       for (const x of r.goals) console.log(`  2B: ${x.ok ? `${x.kind} ${x.target}${x.count ? ` ×${x.count}` : ''}${x.give ? ` give=${x.give}` : ''} / why: ${x.why} / need: ${x.need}` : `(${x.error || '読めない/たどれない'}) ${x.raw || ''}`} [入力 ${x.promptTokens} / 出力 ${x.completionTokens} トークン, ${x.ms}ms]`);
-      for (const x of r.goals) if (x.proposals) console.log(`  案: ${x.proposals.map((p) => `${p.target}${p.count ? ` ×${p.count}` : ''} (${p.need || '-'}${p.ok ? '' : `、外した: ${p.result}`})`).join(' / ')}`);
+      for (const x of r.goals) if (x.proposals) console.log(`  案:\n${x.proposals.map((p) => `    ${p.round ? `[書き直し${p.round}] ` : ''}${p.written && p.written !== p.target ? `「${p.written}」→ ` : ''}${p.kind || '?'} ${p.target || ''}${p.count ? ` ×${p.count}` : ''}${p.via ? ` [${p.via}]` : ''} (${p.need || '-'}${p.ok ? '' : `、外した: ${p.result}${p.reason ? ` — ${p.reason}` : ''}`}${p.replaced ? '、書き直させた' : ''})`).join('\n')}`);
+      for (const x of r.goals) if (x.diversity) console.log(`  広がり: ${JSON.stringify(x.diversity)}`);
+      for (const x of r.goals) for (const w of x.rewrites || []) console.log(`  書き直し${w.round}: ${w.asked} 案を頼んで ${w.ok} 案が使えた [入力 ${w.promptTokens} / 出力 ${w.completionTokens}, ${w.ms}ms]`);
       for (const x of r.goals) if (x.select) console.log(`  選び方 [${x.select.rule}] 欲求 ${x.select.needs.map((n) => `${n.need}=${n.distress}`).join(' ')} / ${x.select.scores.map((sc2, i) => `${i === x.select.chosen ? '*' : ''}${sc2.target}=${sc2.score} ${JSON.stringify(sc2.P)}`).join(' / ')}${x.select.jev ? ` (Jev ${x.select.jev.inputTokens} トークン)` : ''}`);
       console.log(`  Jev の plan: ${r.plan}`);
       if (r.path && r.path !== r.plan) console.log(`  道筋 (全部): ${r.path}`);

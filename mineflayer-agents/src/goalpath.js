@@ -24,6 +24,8 @@ const { relDir, dist3 } = require('./util');
 const promptfit = require('./promptfit');
 const farmwater = require('./farmwater');
 const { goalActivity } = require('./division');
+const resolve = require('./resolve');
+const { describeItem } = require('./vocab');
 
 const DEFAULTS = {
   maxItems: 40,
@@ -62,9 +64,25 @@ const DEFAULTS = {
   //     laterMinRatio: しきい値に対する割合がこれ未満の先のつらさは入れない。laterNeeds: いくつまで
   //   effort: 手間で割る (2026-11-06)。点 = (Σ つらさ × P) ÷ (1 + alpha × 手間)。手間 = planner の手間 (物: effort、状態: planState の effort)、
   //     人・場所: 距離 × perMeter (見えない人は unseenPerson)。alpha: 0 で手間を見ない
-  select: { enabled: false, k: 4, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.5,
+  //   k: 案の数。数か、提供元ごとの { local, luna, default } (2026-11-07: luna 10、local 4)。tokensPerProposal: 案1つあたりの出力の上限 (maxTokens と大きい方)
+  //   maxQuestions・maxBodyBytes: Jev の1回の呼び出しの質問の数・本文の大きさの上限。超えるなら案を分けて並列に呼ぶ
+  //     (TypeSafe 直で 600 問まで通った (2026-11-07)。OpenRouter は本文 32,000 バイトを超えると long-context モード)
+  select: { enabled: false, k: { local: 4, luna: 10, default: 4 }, tokensPerProposal: 110, maxQuestions: 60, maxBodyBytes: 30000, needs: 3, minRatio: 0.6, power: 1, tieEps: 0.02, lowP: 0.3, onAllLow: 'best', maxTokens: 480, temperature: 0.7, later: true, laterNeeds: 2, laterMinRatio: 0.5,
     effort: { alpha: 0.04, perMeter: 1 / 16, unseenPerson: 6 } },
+  // 自由記述のゴール (2026-11-07 ユーザー決定): 文脈の広い提供元 (luna) では、ゴールの物・状態・人・場所を候補の enum から選ばせず、自由に書かせる。
+  //   enabled: 'auto' (local 以外で使う) | true | false。書かれた名前は resolve.js で正式名に直す。直せない・たどれない・もう満たされている案は、
+  //   理由を添えて maxRewrites 回まで書き直させる。候補の一覧は「知っていることの例」として maxExamples 個まで見せる (選択肢ではない)。
+  //   textStates: 今の状態の型に当てはまらない状態の文を、済んだかを Jev の noul で聞く状態 (type: text) として受ける。
+  //     選ぶ前に「見て確かめられるか」(checkableP 未満なら外す) と「もうそうなっているか」(textDoneP 以上なら外す) を Jev に聞く。
+  //     ゴールにしたら textCheckEvery 判断ごとに「そうなったか」を聞き、textDoneP 以上で済んだとする
+  freeform: { enabled: 'auto', maxRewrites: 2, maxExamples: 120, textStates: true, textCheckEvery: 4, textDoneP: 0.7, checkableP: 0.5 },
 };
+// 案の数 (提供元ごと)
+function kOf(k, provider) {
+  if (Number.isFinite(k)) return k;
+  if (k && typeof k === 'object') return Number.isFinite(k[provider]) ? k[provider] : Number.isFinite(k.default) ? k.default : 4;
+  return 4;
+}
 const KINDS = ['item', 'person', 'place', 'state'];
 const WAIT_WHY = 'もう植えてあって、あとは育つのを待つだけ';
 const KIND_JA = { item: '物', person: '人', place: '場所', state: '状態' };
@@ -96,6 +114,31 @@ function goalSchema(cands, { giveItems = [] } = {}) {
 // 案を k 個 (R1)。1つの案の形は goalSchema と同じ
 function proposalsSchema(cands, k, opts = {}) {
   return { type: 'object', properties: { goals: { type: 'array', items: goalSchema(cands, opts), minItems: k, maxItems: k } }, required: ['goals'], additionalProperties: false };
+}
+
+// 自由記述 (freeform): target・give は文字列 (enum なし)。kind・need は今のまま
+function goalSchemaFree() {
+  return { type: 'object', properties: {
+    kind: { type: 'string', enum: KINDS }, target: { type: 'string', maxLength: 80 }, count: { type: 'integer', minimum: 1, maximum: 64 },
+    give: { type: 'string', maxLength: 40 }, why: { type: 'string', maxLength: 40 }, need: { type: 'string', enum: NEED_LABELS },
+  }, required: ['kind', 'target', 'count', 'give', 'why', 'need'], additionalProperties: false };
+}
+function proposalsSchemaFree(k) {
+  return { type: 'object', properties: { goals: { type: 'array', items: goalSchemaFree(), minItems: k, maxItems: k } }, required: ['goals'], additionalProperties: false };
+}
+
+// Jev の質問を、1回の呼び出しの上限 (質問の数・本文の大きさ) に収まるように案ごとに分ける。
+//   groups: [{ id, q: { 名前: 質問 }, s: { 案の文 } }] → [[group, ...], ...]
+function chunkQuestions(groups, base, { maxQuestions = 60, maxBodyBytes = 30000 } = {}) {
+  const out = []; let cur = []; let nq = 0; let bytes = Buffer.byteLength(JSON.stringify(base));
+  for (const g of groups) {
+    const gq = Object.keys(g.q).length;
+    const gb = Buffer.byteLength(JSON.stringify(g.q)) + Buffer.byteLength(JSON.stringify(g.s));
+    if (cur.length && (nq + gq > maxQuestions || bytes + gb > maxBodyBytes)) { out.push(cur); cur = []; nq = 0; bytes = Buffer.byteLength(JSON.stringify(base)); }
+    cur.push(g); nq += gq; bytes += gb;
+  }
+  if (cur.length) out.push(cur);
+  return out;
 }
 
 // 案ごとの点 = Σ_欲求 つらさ^power × P(満たされる) ÷ (1 + alpha × 手間)。P[i] = { need: p }。needs = [{ need, distress }]。costs[i] = 手間 (無ければ割らない)
@@ -228,6 +271,12 @@ class GoalPath {
     const userCtx = opts.cfg && opts.cfg.prompt && opts.cfg.prompt.ctxTokens;
     const prov = this.llm.provider || 'local';
     if (this.llm.ctxTokens && (prov !== 'local' || !userCtx)) this.cfg.prompt.ctxTokens = this.llm.ctxTokens;
+    // 提供元ごとの既定: 案の数 (select.k) と自由記述 (freeform)
+    this.provider = prov;
+    this.cfg.freeform = { ...DEFAULTS.freeform, ...((opts.cfg && opts.cfg.freeform) || {}) };
+    const ffOn = this.cfg.freeform.enabled;
+    this.freeform = ffOn === 'auto' || ffOn == null ? prov !== 'local' : !!ffOn;
+    this.k = kOf(this.cfg.select.k, prov);
     this.meter = opts.meter || null;
     this.log = opts.log || (() => {});
     this.goal = null;
@@ -245,12 +294,14 @@ class GoalPath {
     const raw = ctx.raw;
     const c = this.rawCandidates(ctx);
     this.lastItemNames = c.items.map((x) => x.name); // 提案 (propose) の物の候補にも使う
+    this.lastArrived = c.arrived || [];
     this.lastItemEffort = Object.fromEntries(c.items.filter((x) => x.effort).map((x) => [x.name, x.effort])); // 提案の物の名前に添える手間
     // R2: もう満たされている候補。場所: もう着いている所は外す。人: もう近くにいる人は「もう近くにいる」を付ける (渡すゴールはありうる)
     //   物・状態: 「もう持っている n」「もう n ある」を事実として付ける (vocab / states)。2B が選んだ数で満たされていれば goalpath が外す
     if (raw) {
       const here = raw.self.pos;
-      c.places = c.places.filter((pl) => !(pl.pos && pl.type !== 'dir' && dist3(here, pl.pos) <= this.cfg.arriveDist));
+      c.arrived = c.places.filter((pl) => pl.pos && pl.type !== 'dir' && dist3(here, pl.pos) <= this.cfg.arriveDist); // 自由記述でその名前が書かれたら「もう着いている」
+      c.places = c.places.filter((pl) => !c.arrived.includes(pl));
       for (const pc of c.people) {
         const e = peopleOf(raw).find((x) => x.name === pc.name);
         if (e && e.d <= this.cfg.nearDist) { pc.near = true; pc.desc = `${pc.desc}・もう近くにいる`; pc.descEn = `${pc.descEn || ''}; already near`; }
@@ -263,7 +314,8 @@ class GoalPath {
     const raw = ctx.raw;
     const bd = ctx.board || null; // 共有のチェスト・取り決め・共同の目標 (board.js。agent が渡す)
     return {
-      items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.cfg.maxItems, world: raw ? this.world(ctx) : null, annotate: this.cfg.annotate !== false }),
+      items: itemCandidates({ raw, facts: ctx.allFacts || [], placeKinds: ctx.placeKinds || [], history: this.history, version: this.cfg.version, maxItems: this.freeform ? this.cfg.freeform.maxExamples : this.cfg.maxItems,
+        recipeHops: this.freeform ? 2 : undefined, world: raw ? this.world(ctx) : null, annotate: this.cfg.annotate !== false }),
       people: personCandidates(rankPeople(ctx.people || []).slice(0, this.cfg.prompt.maxPeople)),
       // あとでやることのうち見込みの時刻を過ぎたもの (prospect.js の goalCandidates。type: later) を場所の候補の先に足す。取りに行くかは 2B が選ぶ
       places: [...(ctx.laterPlaces || []), ...placeCandidates({ here: raw && raw.self.pos, base: ctx.base || null, baseLabel: ctx.baseLabel || null, places: ctx.places || [], cellAt: ctx.cellAt || null, far: this.cfg.farDist, maxPlaces: this.cfg.prompt.maxMemPlaces, origin: ctx.origin || null })],
@@ -334,7 +386,20 @@ class GoalPath {
     const mem = L.memChars === Infinity ? ctx.memText : promptfit.capLineChars(ctx.memText, L.memChars);
     const peopleText = ctx.peopleText && L.peopleText > 0 ? (L.peopleText === Infinity ? ctx.peopleText : ctx.peopleText.split('\n').slice(0, L.peopleText).join('\n')) : '';
     const inv = ((ctx.raw && ctx.raw.inventory) || []).map((i) => i.name);
-    const sys = [
+    const ff = this.freeform;
+    const hasStates = !!(cands.states && cands.states.length) || (ff && this.cfg.states);
+    const sys = ff ? [
+      `あなたは Minecraft の世界にいる「${p.name}」。${p.personality || ''}`,
+      ctx.goalText ? `全体の目標: ${ctx.goalText}` : '',
+      'あなたが知っているのは、自分で見たこと・やったこと・聞いたことと、「知っていること」だけ。',
+      `自分がこれからめざすゴールを1つ決める。ゴールは、手に入れたい物 (kind: item)・近くに行きたい人 (kind: person)・行きたい場所 (kind: place)${hasStates ? '・こうなっていてほしい状態 (kind: state)' : ''} のどれか1つ。`,
+      `target には、めざす物・人・場所${hasStates ? '・状態' : ''}を自由に書く。物は Minecraft の物の名前 (英語の名前か日本語の名前) で書く。${hasStates ? '状態は、こうなっていてほしい様子を短い文で書いてよい。' : ''}`
+        + '下の「例」は今知っていることの一部で、選択肢ではない。ほかの物・場所・状態でもよい。物・状態なら count に数を書く。'
+        + (inv.length ? '人に持ち物を渡したいときは give にその物の名前を書く (渡さないなら空の文字列)。' : 'give は空の文字列にする。'),
+      `why にはそのゴールが何のためか、need にはそのゴールで満たしたいもの (${NEED_LABELS.join('・')}) を1つ書く。`,
+      k > 1 ? `ゴールの案を${k}個出す (同じ案は書かない)。JSON {"goals":[{"kind":"...","target":"...","count":1,"give":"","why":"...","need":"..."}, ...]} だけを出力する。`
+        : 'JSON {"kind":"...","target":"...","count":1,"give":"","why":"...","need":"..."} だけを出力する。',
+    ] : [
       `あなたは Minecraft の世界にいる「${p.name}」。${p.personality || ''}`,
       ctx.goalText ? `全体の目標: ${ctx.goalText}` : '',
       'あなたが知っているのは、自分で見たこと・やったこと・聞いたことと、「知っていること」だけ。',
@@ -361,10 +426,10 @@ class GoalPath {
       '## 覚えていること', mem || 'なし',
       L.history > 0 ? `## これまでのゴール\n${this.historyText(L.history)}` : '',
       expText ? `## やってみたこと (自分の経験と、聞いたこと)\n${expText}` : '',
-      `## めざせる物\n${cands.items.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
-      cands.states && cands.states.length ? `## めざせる状態\n${cands.states.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
-      cands.people.length ? `## 人\n${cands.people.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
-      `## 場所\n${cands.places.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
+      `## ${ff ? '知っている物の例 (このほかの物でもよい)' : 'めざせる物'}\n${cands.items.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
+      cands.states && cands.states.length ? `## ${ff ? '状態の例 (このほかの状態でもよい)' : 'めざせる状態'}\n${cands.states.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
+      cands.people.length ? `## ${ff ? '知っている人' : '人'}\n${cands.people.map((c) => `${c.name}: ${c.desc}`).join('\n')}` : '',
+      `## ${ff ? '知っている場所 (このほか、覚えている場所の種類でもよい)' : '場所'}\n${cands.places.map((c) => `${c.name}: ${c.desc}`).join('\n')}`,
       feedback.length ? `## さっき選んだゴール\n${feedback.join('\n')}` : '',
       k > 1 ? `ゴールの案を${k}個、JSON で。` : 'ゴールを JSON で。',
     ];
@@ -394,7 +459,7 @@ class GoalPath {
       const rec = await this.ask2B(bp.messages, schema, opts);
       rec.fit = { ...bp.fit, try: i };
       rec.promptEst = bp.fit.est;
-      out = { rec, cands: bp.cands };
+      out = { rec, cands: bp.cands, messages: bp.messages, schema };
       if (!rec.overflow) break;
       this.addMeter(rec, false);
       this.log({ kind: 'prompt_overflow', ok: false, promptTokens: rec.promptTokens, promptChars: rec.promptChars, fit: rec.fit, error: rec.error });
@@ -471,6 +536,8 @@ class GoalPath {
   // 状態の道筋 (今の様子から作り直す)
   planStateGoal(ctx, g) {
     const st = g.state || states.parseStateId(g.target);
+    // 文の状態 (freeform の type: text): 道筋は作らない。済んだかは Jev の noul (textCheck)
+    if (st && st.type === 'text') return { ok: true, text: true, steps: [], next: null, done: false, effort: null, status: { have: g.textDone ? 1 : 0, known: true, p: g.textP ?? null } };
     const status = states.senseState(st, this.senseOf(ctx), { ...states.DEFAULTS, ...this.cfg.stateOpts });
     if (status.known) g.lastStatus = status; else if (g.lastStatus) Object.assign(status, { have: g.lastStatus.have, penCells: g.lastStatus.penCells, chests: g.lastStatus.chests });
     const p = states.planState(st, g.count, this.world(ctx), status, { version: this.cfg.version, cfg: this.cfg.stateOpts });
@@ -490,7 +557,8 @@ class GoalPath {
       const p = this.path;
       const st = p ? p.status : { have: 0, known: false };
       const met = !!(st && st.known && st.have >= (g.count || 1));
-      const d = p && p.ok ? p.steps.length * 100 + (p.left || 0) : 1e6;
+      // 文の状態: Jev の「そうなったか」の P が上がったら縮んだとみなす
+      const d = p && p.text ? Math.round((1 - (g.textP ?? 0)) * 100) : p && p.ok ? p.steps.length * 100 + (p.left || 0) : 1e6;
       return { met, d, have: st ? st.have : 0, known: !!(st && st.known) };
     }
     if (g.kind === 'person') {
@@ -525,6 +593,7 @@ class GoalPath {
     }
     if (pg.kind === 'state') {
       const st = pg.state || states.parseStateId(pg.target);
+      if (st && st.type === 'text') return { met: false }; // 文の状態は選ぶ前に Jev に聞く (checkTextStates)
       const status = states.senseState(st, this.senseOf(ctx), { ...states.DEFAULTS, ...this.cfg.stateOpts });
       return status.known && status.have >= (pg.count || 1) ? { met: true, why: `もうそうなっている (今${status.have})`, have: status.have } : { met: false };
     }
@@ -538,6 +607,117 @@ class GoalPath {
     return { met: false };
   }
 
+  // ---- 自由記述 (freeform) ----
+  // 名前を直すときの好み (持っている > 見えている > 例に出した > 手間が小さい)。1回の選び直しで1回作る
+  preferOf(ctx, cands) {
+    const raw = ctx.raw || { inventory: [], blocks: [], entities: [] };
+    return { have: (raw.inventory || []).map((i) => i.name), seen: [...(raw.blocks || []).map((b) => b.name), ...(raw.entities || []).filter((e) => e.kind === 'item').map((e) => e.name)],
+      shown: (cands.items || []).map((c) => c.name), planner: ctx.raw ? new Planner(this.world(ctx), { version: this.cfg.version }) : null };
+  }
+
+  // 案の説明 (desc・descEn) を付ける: 例の一覧にあればそれ、無ければ作る
+  describe(pg, ctx, cands) {
+    const c = cands ? [...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].find((x) => x.name === pg.target) : null;
+    if (c) { pg.desc = c.desc; pg.descEn = c.descEn || null; return pg; }
+    if (pg.kind === 'item') {
+      const d = describeItem(pg.target, { raw: ctx && ctx.raw, world: ctx && ctx.raw ? this.world(ctx) : null, version: this.cfg.version, annotate: this.cfg.annotate !== false });
+      pg.desc = d.desc; pg.descEn = d.descEn;
+    } else if (pg.kind === 'state') {
+      const st = pg.state || {};
+      pg.desc = st.type === 'text' ? `状態 (文): ${st.text}` : `状態: ${states.stateGoalText(st, pg.count)}`;
+      pg.descEn = st.type === 'text' ? `state written by ${(ctx && ctx.persona && ctx.persona.name) || 'you'}: ${st.text}` : `state: ${states.stateGoalTextEn(st, pg.count)}`;
+    } else if (pg.place) { pg.desc = pg.place.desc || null; pg.descEn = pg.place.descEn || null; }
+    return pg;
+  }
+
+  // 自由に書かれた案 o → { pg } | { error, why }。書かれた kind を先に試し、合わなければほかの kind (kindFixed)。
+  //   状態の文が今の型に当てはまらなければ type: text (textStates のとき、書かれた kind が state のときだけ)
+  resolveFree(o, cands, ctx, prefer) {
+    if (!o || typeof o !== 'object') return { error: 'parse', why: '読めなかった' };
+    const text = typeof o.target === 'string' ? o.target.trim() : '';
+    if (!text) return { error: 'unresolved', why: 'target が空' };
+    const kindIn = KINDS.includes(o.kind) ? o.kind : null;
+    const ff = this.cfg.freeform;
+    const peopleNames = [...new Set([...(cands.people || []).map((c) => c.name), ...(ctx.people || []).map((x) => x.name)])];
+    const tryKind = (k) => {
+      if (k === 'person') { const r = resolve.resolvePerson(text, peopleNames); return r.ok ? { kind: k, target: r.name, via: r.via } : { why: r.why }; }
+      if (k === 'place') { const r = resolve.resolvePlace(text, cands.places || [], ctx.places || [], { arrived: this.lastArrived || [] }); return r.ok ? { kind: k, target: r.name, via: r.via, place: r.place } : { why: r.why }; }
+      if (k === 'item') { const r = resolve.resolveItem(text, { version: this.cfg.version, prefer }); return r.ok ? { kind: k, target: r.name, via: r.via } : { why: r.why, suggestions: r.suggestions }; }
+      if (k === 'state') {
+        if (!this.cfg.states) return { why: '状態のゴールは使えない' };
+        const r = resolve.resolveState(text, { cands: cands.states || [], allowText: false, version: this.cfg.version });
+        if (r.ok && r.asItem) return { kind: 'item', target: r.asItem, via: r.via };
+        return r.ok ? { kind: k, target: r.id, via: r.via, state: r.state } : { why: r.why };
+      }
+      return { why: '?' };
+    };
+    let hit = null; const whyBy = {};
+    const order = [...new Set([kindIn, 'person', 'place', 'state', 'item'].filter(Boolean))];
+    for (const k of order) { const r = tryKind(k); if (r.kind) { hit = r; break; } whyBy[k] = r.why; }
+    const firstWhy = whyBy[kindIn] || whyBy.item;
+    if (!hit && kindIn === 'state' && this.cfg.states && ff.textStates) {
+      const r = resolve.resolveState(text, { cands: cands.states || [], allowText: true, version: this.cfg.version });
+      if (r.ok && !r.asItem) hit = { kind: 'state', target: r.state.type === 'text' ? r.state.text : r.id, via: r.via, state: r.state };
+    }
+    if (!hit) return { error: 'unresolved', why: firstWhy || `「${text}」が分からなかった`, written: text, kind: kindIn };
+    const lab = typeof o.need === 'string' ? o.need.trim() : '';
+    const need = LABEL_TO_NEED[lab] || (NEED_LABEL[lab] ? lab : null);
+    const st = hit.state || null;
+    const inState = hit.kind === 'state' ? (cands.states || []).find((c) => c.name === hit.target) : null;
+    // 状態の文に数が書いてあって count が 1 なら、文の数 (「明かりが4個ある」)
+    const numInText = hit.kind === 'state' && hit.via !== 'exact' ? Number((text.match(/(\d+)\s*(?:個|頭|匹|マス|本|つ|blocks?|torches|lights?|\b)/) || [])[1]) : NaN;
+    if (Number.isFinite(numInText) && numInText > 0 && !(Number(o.count) > 1)) o = { ...o, count: numInText };
+    const count = hit.kind === 'item' ? Math.max(1, Math.min(64, Math.floor(Number(o.count)) || 1))
+      : hit.kind === 'state' ? (st.type === 'walled' || st.type === 'text' ? 1 : Math.max(1, Math.min(64, Math.floor(Number(o.count)) || (inState && inState.count) || states.DEFAULTS.counts[st.type] || 1))) : null;
+    let give = null;
+    if (hit.kind === 'person' && typeof o.give === 'string' && o.give.trim()) {
+      const gr = resolve.resolveItem(o.give, { version: this.cfg.version, prefer: { have: prefer.have } });
+      if (!gr.ok || !(prefer.have || []).includes(gr.name)) return { error: 'unresolved', why: `${o.give} を持っていない`, written: text, kind: kindIn };
+      give = gr.name;
+    }
+    const why = typeof o.why === 'string' ? o.why.trim().slice(0, this.cfg.whyMax) : '';
+    const pg = { kind: hit.kind, target: hit.target, count, give, why: why || null, need, kindFixed: !!kindIn && kindIn !== hit.kind, place: hit.place || null, state: st,
+      resolved: { written: text, via: hit.via, kindWritten: kindIn } };
+    this.describe(pg, ctx, cands);
+    return { pg };
+  }
+
+  // 文の状態の案 (type: text) を、選ぶ前に Jev に聞く: 見て確かめられるか・もうそうなっているか。返り値 { [i]: { checkable, done } }
+  async checkTextStates(ctx, valid) {
+    const idx = valid.map((v, i) => (v.pg.kind === 'state' && v.pg.state && v.pg.state.type === 'text' ? i : -1)).filter((i) => i >= 0);
+    if (!idx.length || !this.jev) return { res: {}, record: null };
+    const p = ctx.persona || {};
+    const state = { you: p.name, now: String(ctx.obsText || '').slice(0, 1500), states: Object.fromEntries(idx.map((i) => [`s${i + 1}`, valid[i].pg.state.text])) };
+    const questions = {};
+    for (const i of idx) {
+      questions[`s${i + 1}_checkable`] = { type: 'noul', instructions: `Could \`you\` tell, just by looking around, whether \`states.s${i + 1}\` is true?` };
+      questions[`s${i + 1}_done`] = { type: 'noul', instructions: `Given \`now\`, is \`states.s${i + 1}\` already true?` };
+    }
+    let r = null;
+    try { r = await this.jev.call(state, questions, 'goal_text'); } catch (e) { r = { r: { ok: false, error: e.message } }; }
+    const ans = (r.r && r.r.answers) || {};
+    const pv = (k) => (ans[k] && Number.isFinite(ans[k].noul) ? ans[k].noul : null);
+    const res = {};
+    for (const i of idx) res[i] = { checkable: pv(`s${i + 1}_checkable`), done: pv(`s${i + 1}_done`) };
+    return { res, record: { ok: !!(r.r && r.r.ok), inputTokens: r.inputTokens ?? null, ms: r.r ? r.r.ms : null, questions: Object.keys(questions).length } };
+  }
+
+  // 文の状態のゴールが済んだか (textCheckEvery 判断ごと)
+  async textCheck(ctx, tick) {
+    const g = this.goal;
+    if (!this.jev || !g || g.kind !== 'state' || !g.state || g.state.type !== 'text' || g.metAt != null) return;
+    if (g.textAt != null && tick - g.textAt < this.cfg.freeform.textCheckEvery) return;
+    g.textAt = tick;
+    const p = ctx.persona || {};
+    const state = { you: p.name, goal: g.state.text, now: String(ctx.obsText || '').slice(0, 1500) };
+    const questions = { done: { type: 'noul', instructions: 'Given `now`, is `goal` true now?' } };
+    let r = null;
+    try { r = await this.jev.call(state, questions, 'goal_text'); } catch (e) { r = { r: { ok: false, error: e.message } }; }
+    const a = r.r && r.r.ok && r.r.answers && r.r.answers.done;
+    if (a && Number.isFinite(a.noul)) { g.textP = a.noul; if (a.noul >= this.cfg.freeform.textDoneP) g.textDone = true; }
+    this.log({ kind: 'text_check', tick, goal: g.state.text, p: g.textP ?? null, done: !!g.textDone, ok: !!a, inputTokens: r.inputTokens ?? null });
+  }
+
   // Jev の state.plan (英語のオブジェクト): { goal, for_need, why (2B の原文), path, next, status }
   planEn() {
     const g = this.goal;
@@ -546,6 +726,7 @@ class GoalPath {
     if (g.need) o.for_need = NEED_EN[g.need] || g.need;
     if (g.why) o.why = g.why;
     if (g.metAt != null) { o.status = g.kind === 'item' ? 'obtained' : g.kind === 'state' ? 'done' : g.kind === 'person' ? (g.give ? 'given' : 'near them now') : 'arrived'; return o; }
+    if (g.kind === 'state' && this.path && this.path.text) { o.check = 'not yet (judged by looking around)'; return o; }
     if (g.kind === 'item' || g.kind === 'state') {
       const pe = this.path && this.path.ok ? (g.kind === 'item' ? pathEn(this.path, { maxShown: this.cfg.maxShown }) : statePathEn(this.path, { maxShown: this.cfg.maxShown })) : null;
       if (pe) Object.assign(o, pe);
@@ -569,24 +750,39 @@ class GoalPath {
     const head = `ゴール: ${goalText(g)}${g.why ? ` (${g.why})` : ''}`;
     if (g.metAt != null) return `${head} / ${g.kind === 'item' ? '手に入れた' : g.kind === 'state' ? 'そうなった' : g.kind === 'person' ? (g.give ? '渡した' : '近くにいる') : '着いた'}`;
     if (g.kind === 'item') return this.path && this.path.ok ? `${head} / ${pathText(this.path, { maxShown: this.cfg.maxShown })}` : head;
+    if (g.kind === 'state' && this.path && this.path.text) return `${head} / まだ (見て確かめる)`;
     if (g.kind === 'state') return this.path && this.path.ok ? `${head} / ${statePathText(this.path, { maxShown: this.cfg.maxShown })}` : head;
     return g.statusText ? `${head} / 次: ${g.statusText}` : head;
   }
 
   // ---- ゴールを決める ----
   async newGoal(ctx, tick, reason = 'start') {
-    if (this.cfg.select.enabled && this.jev && (this.cfg.select.k || 1) > 1) return this.newGoalSelect(ctx, tick, reason);
+    if (this.cfg.select.enabled && this.jev && (this.k || 1) > 1) return this.newGoalSelect(ctx, tick, reason);
     const allCands = this.candidates(ctx);
     const feedback = [];
     const giveItems = [...new Set(((ctx.raw && ctx.raw.inventory) || []).map((i) => i.name))];
     for (let tryN = 0; tryN < this.cfg.maxTries; tryN++) {
-      const { rec, cands } = await this.askFit(ctx, allCands, feedback, { schemaOf: goalSchema, giveItems });
-      const pg = rec.rawOutput ? parseGoal(rec.rawOutput, cands, { whyMax: this.cfg.whyMax }) : null;
+      const ff = this.freeform;
+      const { rec, cands } = await this.askFit(ctx, allCands, feedback, { schemaOf: ff ? () => goalSchemaFree() : goalSchema, giveItems });
+      let pg = null;
+      if (ff && rec.rawOutput) {
+        const o = parseJson(rec.rawOutput);
+        const rf = this.resolveFree(o, cands, ctx, this.preferOf(ctx, cands));
+        if (!rf.pg && rf.error === 'unresolved') {
+          this.addMeter(rec, false);
+          this.counts.unresolved = (this.counts.unresolved || 0) + 1;
+          this.log({ kind: 'unresolved', ok: false, tick, reason, try: tryN, written: rf.written, kindWritten: rf.kind, why: rf.why, ...rec });
+          feedback.push(`${rf.written}: ${rf.why}`);
+          continue;
+        }
+        pg = rf.pg || null;
+      } else pg = rec.rawOutput ? parseGoal(rec.rawOutput, cands, { whyMax: this.cfg.whyMax }) : null;
       this.addMeter(rec, !!pg);
       const needAt = pg && pg.need && ctx.needNow ? Math.round(ctx.needNow(pg.need) * 1000) / 1000 : null;
       const base = { tick, reason, try: tryN, goalKind: pg ? pg.kind : null, target: pg ? pg.target : null, count: pg ? pg.count : null, give: pg ? pg.give : null,
         why: pg ? pg.why : null, need: pg ? pg.need : null, needAt, kindFixed: pg ? pg.kindFixed : null, worst: ctx.worst ? ctx.worst.need : null, worstText: ctx.worst ? ctx.worst.text : null,
-        needMatchesWorst: pg && pg.need && ctx.worst ? pg.need === ctx.worst.need : null, policy: ctx.policy || null, desc: pg ? candDesc(cands, pg.target) : null,
+        needMatchesWorst: pg && pg.need && ctx.worst ? pg.need === ctx.worst.need : null, policy: ctx.policy || null, desc: pg ? pg.desc || candDesc(cands, pg.target) : null,
+        ...(pg && pg.resolved ? { written: pg.resolved.written, via: pg.resolved.via } : {}),
         candidates: { items: cands.items.length, people: cands.people.length, places: cands.places.length, states: (cands.states || []).length }, ...rec };
       if (!pg) { this.counts.failed += 1; this.log({ kind: 'goal', ok: false, ...base }); this.retryAt = tick + this.cfg.retryAfter; return false; }
       if (this.lastOrder) base.order = this.lastOrder;
@@ -638,12 +834,21 @@ class GoalPath {
     if (sat.met) return { ok: false, result: 'satisfied', why: sat.why };
     if (pg.kind === 'state') {
       const path = this.planStateGoal(ctx, { ...pg });
+      if (path.text) return { ok: true, path, cost: null };
       if (!path.ok) return { ok: false, result: 'unplannable', why: `${path.missing || ''} の手に入れ方が分からなかった`, missing: path.missing || null };
       return { ok: true, path, cost: path.effort };
     }
     if (pg.kind === 'item') {
       const planner = new Planner(this.world(ctx), { version: this.cfg.version });
-      const path = planner.plan(pg.target, pg.count);
+      let path = planner.plan(pg.target, pg.count);
+      // freeform: 書かれた種類 (木・色) がたどれなければ、たどれる種類違いに直す (oak_planks → jungle_planks)
+      if (!path.ok && this.freeform) {
+        const alt = resolve.plannableVariant(pg.target, planner, this.cfg.version);
+        if (alt) {
+          const p2 = planner.plan(alt, pg.count);
+          if (p2.ok) { pg.resolved = { ...(pg.resolved || {}), variantOf: pg.target, via: `${(pg.resolved && pg.resolved.via) || 'exact'}+variant` }; pg.target = alt; this.describe(pg, ctx, null); path = p2; }
+        }
+      }
       if (!path.ok) return { ok: false, result: 'unplannable', why: `${path.missing && path.missing !== pg.target ? `${path.missing} の` : ''}作り方も手に入れ方も分からなかった`, missing: path.missing || null };
       if (waitOnly(path)) return { ok: false, result: 'waiting', why: WAIT_WHY };
       return { ok: true, path, cost: planner.effort([{ item: path.target, count: pg.count }]) };
@@ -682,30 +887,87 @@ class GoalPath {
   }
 
   // R1 (D2A の形): 2B が案を k 個 → 満たされている・たどれない案を外す → Jev が 案 × 欲求 の noul → コードで点の最大を選ぶ
+  //   freeform (luna): 案は自由記述。名前を正式名に直し (resolve.js)、直せない・たどれない・満たされている・重複の案は理由を添えて
+  //   freeform.maxRewrites 回まで書き直させる (同じ会話に続けて、その数だけ)
   async newGoalSelect(ctx, tick, reason) {
     const sc = this.cfg.select;
-    const k = sc.k;
+    const k = this.k;
+    const ff = this.freeform;
+    const maxTokens = Math.max(sc.maxTokens || 0, k * (sc.tokensPerProposal || 0));
     const allCands = this.candidates(ctx);
     const feedback = [];
     const giveItems = [...new Set(((ctx.raw && ctx.raw.inventory) || []).map((i) => i.name))];
     for (let tryN = 0; tryN < this.cfg.maxTries; tryN++) {
-      const { rec, cands } = await this.askFit(ctx, allCands, feedback, { k, maxTokens: sc.maxTokens, temperature: sc.temperature, schemaOf: (c, o) => proposalsSchema(c, k, o), giveItems });
-      const o = rec.rawOutput ? parseJson(rec.rawOutput) : null;
-      const list = o && Array.isArray(o.goals) ? o.goals : [];
+      const fit = await this.askFit(ctx, allCands, feedback, { k, maxTokens, temperature: sc.temperature, schemaOf: ff ? () => proposalsSchemaFree(k) : (c, o) => proposalsSchema(c, k, o), giveItems });
+      const { rec, cands } = fit;
+      const prefer = ff ? this.preferOf(ctx, cands) : null;
       const seen = new Set();
       const props = [];
-      for (const g of list) {
-        const pg = parseGoal(JSON.stringify(g), cands, { whyMax: this.cfg.whyMax });
-        if (!pg) { props.push({ ok: false, result: 'parse', raw: g }); continue; }
-        const key = `${pg.kind}|${pg.target}|${pg.count}|${pg.give || ''}`;
-        if (seen.has(key)) { props.push({ ok: false, result: 'duplicate', pg }); continue; }
+      // 1つの案を読む → 確かめる
+      const take = (g, round) => {
+        let pg = null;
+        if (ff) {
+          const r = this.resolveFree(g, cands, ctx, prefer);
+          if (!r.pg) return { ok: false, result: r.error || 'unresolved', why: r.why, written: r.written || (g && g.target) || null, kindWritten: r.kind || null, raw: g, round };
+          pg = r.pg;
+        } else {
+          pg = parseGoal(JSON.stringify(g), cands, { whyMax: this.cfg.whyMax });
+          if (!pg) return { ok: false, result: 'parse', raw: g, round };
+        }
+        // 重複 (同じ正式名): 数は見ない
+        const key = `${pg.kind}|${pg.target}|${pg.give || ''}`;
+        if (seen.has(key)) return { ok: false, result: 'duplicate', why: '同じ案がもうある', pg, round };
         seen.add(key);
-        props.push({ pg, ...this.checkProposal(ctx, pg) });
+        const chk = this.checkProposal(ctx, pg);
+        if (pg.resolved && pg.resolved.variantOf) seen.add(`${pg.kind}|${pg.target}|${pg.give || ''}`); // 種類違いに直した名前も
+        return { pg, ...chk, round };
+      };
+      const o = rec.rawOutput ? parseJson(rec.rawOutput) : null;
+      const list = o && Array.isArray(o.goals) ? o.goals : [];
+      for (const g of list) props.push(take(g, 0));
+      // 書き直し (freeform)
+      const rewrites = [];
+      let msgs = fit.messages; let lastOut = rec.rawOutput;
+      for (let rw = 1; ff && list.length && rw <= (this.cfg.freeform.maxRewrites || 0); rw++) {
+        const bad = props.filter((x) => !x.ok && !x.replaced && ['unresolved', 'parse', 'unplannable', 'satisfied', 'waiting', 'duplicate'].includes(x.result));
+        if (!bad.length) break;
+        const lines = bad.map((x) => `- ${x.pg ? `「${x.pg.resolved ? x.pg.resolved.written : x.pg.target}」(${goalText(x.pg)})` : `「${x.written || JSON.stringify(x.raw)}」`}: ${x.why || x.result}`);
+        const used = props.filter((x) => x.ok && x.pg).map((x) => `- ${goalText(x.pg)}`);
+        msgs = [...msgs, { role: 'assistant', content: String(lastOut || '') }, { role: 'user', content: `## 使えなかった案\n${lines.join('\n')}${used.length ? `\n## 使えた案 (もう出ている)\n${used.join('\n')}` : ''}\n使えなかった案の代わりに、ここに無い別の案を${bad.length}個、同じ形の JSON で。` }];
+        const r2 = await this.ask2B(msgs, proposalsSchemaFree(bad.length), { maxTokens: Math.max(sc.maxTokens || 0, bad.length * (sc.tokensPerProposal || 0)), temperature: sc.temperature });
+        this.addMeter(r2, !!r2.rawOutput);
+        lastOut = r2.rawOutput;
+        const o2 = r2.rawOutput ? parseJson(r2.rawOutput) : null;
+        const l2 = o2 && Array.isArray(o2.goals) ? o2.goals : [];
+        for (const x of bad) x.replaced = rw;
+        const added = l2.map((g) => take(g, rw));
+        props.push(...added);
+        rewrites.push({ round: rw, asked: bad.length, got: l2.length, ok: added.filter((x) => x.ok).length, promptTokens: r2.promptTokens, completionTokens: r2.completionTokens, ms: r2.ms, error: r2.error || null,
+          reasons: bad.map((x) => ({ written: x.pg ? (x.pg.resolved ? x.pg.resolved.written : x.pg.target) : x.written, result: x.result, why: x.why || null })) });
       }
       this.addMeter(rec, props.some((x) => x.ok));
-      const valid = props.filter((x) => x.ok);
-      const brief = (x) => (x.pg ? { kind: x.pg.kind, target: x.pg.target, count: x.pg.count, give: x.pg.give, need: x.pg.need, why: x.pg.why, ok: !!x.ok, result: x.result || null, reason: x.why || null } : { ok: false, result: x.result });
-      const base0 = { tick, reason, try: tryN, k, proposals: props.map(brief), order: this.lastOrder || null, worst: ctx.worst ? ctx.worst.need : null, worstText: ctx.worst ? ctx.worst.text : null,
+      let valid = props.filter((x) => x.ok);
+      // 文の状態: 見て確かめられるか・もうそうなっているか (Jev)
+      let textRec = null;
+      if (ff && valid.some((v) => v.pg.state && v.pg.state.type === 'text')) {
+        const tc = await this.checkTextStates(ctx, valid);
+        textRec = tc.record;
+        const fc = this.cfg.freeform;
+        valid.forEach((v, i) => {
+          const r = tc.res[i];
+          if (!r) return;
+          v.textCheck = r;
+          if (r.checkable != null && r.checkable < fc.checkableP) { v.ok = false; v.result = 'uncheckable'; v.why = '見て確かめられない'; }
+          else if (r.done != null && r.done >= fc.textDoneP) { v.ok = false; v.result = 'satisfied'; v.why = 'もうそうなっている'; }
+        });
+        valid = valid.filter((v) => v.ok);
+      }
+      const brief = (x) => (x.pg ? { kind: x.pg.kind, target: x.pg.target, count: x.pg.count, give: x.pg.give, need: x.pg.need, why: x.pg.why, ok: !!x.ok, result: x.result || null, reason: x.ok ? null : x.why || null,
+        ...(x.pg.resolved ? { written: x.pg.resolved.written, via: x.pg.resolved.via, ...(x.pg.resolved.variantOf ? { variantOf: x.pg.resolved.variantOf } : {}) } : {}), ...(x.pg.kindFixed ? { kindFixed: true } : {}),
+        ...(x.round ? { round: x.round } : {}), ...(x.replaced ? { replaced: x.replaced } : {}), ...(x.textCheck ? { textCheck: x.textCheck } : {}) }
+        : { ok: false, result: x.result, reason: x.why || null, written: x.written || null, kindWritten: x.kindWritten || null, ...(x.round ? { round: x.round } : {}), ...(x.replaced ? { replaced: x.replaced } : {}) });
+      const base0 = { tick, reason, try: tryN, k, freeform: ff, provider: this.provider, proposals: props.map(brief), diversity: this.diversity(props, valid, cands), ...(rewrites.length ? { rewrites } : {}), ...(textRec ? { textJev: textRec } : {}),
+        order: this.lastOrder || null, worst: ctx.worst ? ctx.worst.need : null, worstText: ctx.worst ? ctx.worst.text : null,
         candidates: { items: cands.items.length, people: cands.people.length, places: cands.places.length, states: (cands.states || []).length }, ...rec };
       for (const x of props) {
         if (x.ok || !x.pg) continue;
@@ -715,8 +977,9 @@ class GoalPath {
           this.history.push({ ...x.pg, result: 'unplannable', resultText: x.why, from: tick, to: tick });
         }
         if (x.result === 'waiting') this.counts.waiting = (this.counts.waiting || 0) + 1;
-        if (x.result === 'satisfied' || x.result === 'unplannable' || x.result === 'waiting') feedback.push(`${goalText(x.pg)}: ${x.why}`);
+        if (!x.replaced && (x.result === 'satisfied' || x.result === 'unplannable' || x.result === 'waiting' || x.result === 'uncheckable')) feedback.push(`${goalText(x.pg)}: ${x.why}`);
       }
+      for (const x of props) if (!x.pg && !x.replaced && x.result === 'unresolved') { this.counts.unresolved = (this.counts.unresolved || 0) + 1; feedback.push(`${x.written}: ${x.why}`); }
       if (!valid.length) {
         this.counts.failed += list.length ? 0 : 1;
         this.log({ kind: 'proposals', ok: false, ...base0 });
@@ -729,11 +992,29 @@ class GoalPath {
       const needAt = pg.need && ctx.needNow ? Math.round(ctx.needNow(pg.need) * 1000) / 1000 : null;
       this.counts.selected = (this.counts.selected || 0) + 1;
       const base = { ...base0, goalKind: pg.kind, target: pg.target, count: pg.count, give: pg.give, why: pg.why, need: pg.need, needAt, kindFixed: pg.kindFixed,
-        needMatchesWorst: pg.need && ctx.worst ? pg.need === ctx.worst.need : null, policy: ctx.policy || null, desc: candDesc(cands, pg.target), select: sel.record };
+        needMatchesWorst: pg.need && ctx.worst ? pg.need === ctx.worst.need : null, policy: ctx.policy || null, desc: pg.desc || candDesc(cands, pg.target), select: sel.record,
+        ...(pg.resolved ? { written: pg.resolved.written, via: pg.resolved.via } : {}) };
       return this.accept(ctx, tick, pg, chosen.path, base);
     }
     this.retryAt = tick + this.cfg.retryAfter;
     return false;
+  }
+
+  // 案の広がり (記録・summarize_run): 書いた数・読めた数・使えた数・種類 (正式名) の数・kind ごと・例の一覧に無い物の数・直し方ごと
+  diversity(props, valid, cands) {
+    const withPg = props.filter((x) => x.pg);
+    const shown = new Set([...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].map((c) => c.name));
+    const tally = (arr, f) => { const m = {}; for (const x of arr) { const kk = f(x); if (kk != null) m[kk] = (m[kk] || 0) + 1; } return m; };
+    return {
+      written: props.filter((x) => !x.round).length, rewritten: props.filter((x) => x.round).length,
+      resolved: withPg.length, valid: valid.length,
+      distinct: new Set(withPg.map((x) => `${x.pg.kind}|${x.pg.target}`)).size,
+      distinctValid: new Set(valid.map((x) => `${x.pg.kind}|${x.pg.target}`)).size,
+      kinds: tally(valid, (x) => x.pg.kind),
+      outsideExamples: valid.filter((x) => !shown.has(x.pg.target)).length,
+      via: tally(withPg, (x) => (x.pg.resolved ? x.pg.resolved.via : null)),
+      dropped: tally(props.filter((x) => !x.ok), (x) => x.result),
+    };
   }
 
   // Jev に 案 × 欲求 (いま) と 案 × 先の欲求 を noul で1回に聞き、点 = Σ いまのつらさ^power × P + Σ 先のつらさ^power × P(先に役立つ) の最大の案を選ぶ。
@@ -775,31 +1056,38 @@ class GoalPath {
     // 案の並べ方も変える (state のキーの順)
     let ids = valid.map((_, i) => i);
     if (this.order) { const r = this.order.shuffle(ids, 'goal_jev'); ids = r.arr; record.order = { seed: r.rec.seed, n: r.rec.n }; }
-    const proposals = {};
-    for (const i of ids) {
+    // 案ごとの質問のまとまり。1回の呼び出しの上限 (maxQuestions・maxBodyBytes) を超えるなら案を分けて並列に呼ぶ
+    const groups = ids.map((i) => {
       const pg = valid[i].pg;
-      const c = [...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].find((x) => x.name === pg.target);
-      proposals[`p${i + 1}`] = `${goalTextEn(pg)}${c && c.descEn ? ` (${c.descEn})` : ''}`;
-    }
-    const state = { you: p.name };
-    if (needs.length) state.needs = Object.fromEntries(needs.map((x) => [NEED_EN[x.need] || x.need, x.textEn]));
-    if (later.length) state.later = Object.fromEntries(later.map((x) => [LATER_EN[x.need], x.textEn]));
-    state.proposals = proposals;
-    if (p.personality_en || p.personality) state.personality = p.personality_en || p.personality;
-    const questions = {};
-    for (const i of ids) {
+      const c = pg.descEn !== undefined ? null : [...cands.items, ...cands.people, ...cands.places, ...(cands.states || [])].find((x) => x.name === pg.target);
+      const descEn = pg.descEn !== undefined ? pg.descEn : c ? c.descEn : null;
+      const q = {};
       for (const x of needs) {
         const nk = NEED_EN[x.need] || x.need;
-        questions[`p${i + 1}_${nk}`] = { type: 'noul', instructions: `If \`you\` achieved \`proposals.p${i + 1}\`, would that ease what \`needs.${nk}\` describes?` };
+        q[`p${i + 1}_${nk}`] = { type: 'noul', instructions: `If \`you\` achieved \`proposals.p${i + 1}\`, would that ease what \`needs.${nk}\` describes?` };
       }
-      for (const x of later) questions[`p${i + 1}_later_${LATER_EN[x.need]}`] = { type: 'noul', instructions: LATER_Q[x.need](`p${i + 1}`) };
-    }
-    let r = null;
-    try { r = await this.jev.call(state, questions, 'goal'); } catch (e) { r = { r: { ok: false, error: e.message } }; }
-    record.jev = { inputTokens: r.inputTokens ?? null, ms: r.r ? r.r.ms : null, questions: Object.keys(questions).length, ok: !!(r.r && r.r.ok) };
+      for (const x of later) q[`p${i + 1}_later_${LATER_EN[x.need]}`] = { type: 'noul', instructions: LATER_Q[x.need](`p${i + 1}`) };
+      return { id: i, s: { [`p${i + 1}`]: `${goalTextEn(pg)}${descEn ? ` (${descEn})` : ''}` }, q };
+    });
+    const base = { you: p.name };
+    if (needs.length) base.needs = Object.fromEntries(needs.map((x) => [NEED_EN[x.need] || x.need, x.textEn]));
+    if (later.length) base.later = Object.fromEntries(later.map((x) => [LATER_EN[x.need], x.textEn]));
+    const personality = p.personality_en || p.personality || null;
+    const chunks = chunkQuestions(groups, { ...base, personality }, { maxQuestions: sc.maxQuestions, maxBodyBytes: sc.maxBodyBytes });
+    const calls = await Promise.all(chunks.map(async (ch) => {
+      const state = { ...base, proposals: Object.assign({}, ...ch.map((g) => g.s)) };
+      if (personality) state.personality = personality;
+      const questions = Object.assign({}, ...ch.map((g) => g.q));
+      try { return { ...(await this.jev.call(state, questions, 'goal')), nq: Object.keys(questions).length }; } catch (e) { return { r: { ok: false, error: e.message }, nq: Object.keys(questions).length }; }
+    }));
+    const sumN = (f) => { const v = calls.map(f).filter(Number.isFinite); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
+    const r = { inputTokens: sumN((c) => c.inputTokens), r: { ok: calls.every((c) => c.r && c.r.ok), ms: Math.max(0, ...calls.map((c) => (c.r && c.r.ms) || 0)),
+      answers: Object.assign({}, ...calls.map((c) => (c.r && c.r.answers) || {})), error: (calls.find((c) => !(c.r && c.r.ok)) || { r: {} }).r.error || null,
+      via: calls[0] && calls[0].r ? calls[0].r.via : undefined, costUsd: sumN((c) => (c.r ? c.r.costUsd : null)), refusals: calls.flatMap((c) => (c.r && c.r.refusals) || []), longContext: calls.some((c) => c.r && c.r.longContext) } };
+    record.jev = { inputTokens: r.inputTokens ?? null, ms: r.r.ms, questions: sumN((c) => c.nq), calls: calls.length, ok: !!r.r.ok };
     // 提供元・費用・refusal (答えの無い質問は P = 0 として数える)
-    if (r.r) { if (r.r.via) record.jev.via = r.r.via; if (r.r.costUsd != null) record.jev.costUsd = r.r.costUsd; if (r.r.refusals && r.r.refusals.length) record.jev.refusals = r.r.refusals; if (r.r.longContext) record.jev.longContext = true; }
-    if (!r.r || !r.r.ok) { record.rule = 'jev_error'; record.error = r.r ? r.r.error : null; return { index: 0, record }; }
+    if (r.r.via) record.jev.via = r.r.via; if (r.r.costUsd != null) record.jev.costUsd = r.r.costUsd; if (r.r.refusals.length) record.jev.refusals = r.r.refusals; if (r.r.longContext) record.jev.longContext = true;
+    if (!r.r.ok) { record.rule = 'jev_error'; record.error = r.r.error; return { index: 0, record }; }
     const ans = r.r.answers || {};
     const pv = (key) => { const a = ans[key]; return a && Number.isFinite(a.noul) ? a.noul : 0; };
     // いまの欲求は need のまま、先の欲求は later_<need> のキーで同じ表に入れる
@@ -873,6 +1161,7 @@ class GoalPath {
       if (this.goal) this.refresh(ctx, tick);
       return 'goal';
     }
+    await this.textCheck(ctx, tick);
     const st = this.refresh(ctx, tick);
     const g = this.goal;
     if (g.metAt != null) {
@@ -931,4 +1220,4 @@ class GoalPath {
   }
 }
 
-module.exports = { waitOnly, WAIT_WHY, effortFactor, rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
+module.exports = { kOf, chunkQuestions, goalSchemaFree, proposalsSchemaFree, waitOnly, WAIT_WHY, effortFactor, rankPeople, goalTextEn, statePathEn, proposalsSchema, selectScores, GoalPath, DEFAULTS, goalSchema, parseGoal, goalText, statePathText, KINDS, KIND_JA };
