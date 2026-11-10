@@ -418,6 +418,24 @@ bash /root/mc-server-fabric/stop.sh && bash mineflayer-agents/server-fabric/firs
 | Goro | 気が短い | ストレスがたまりやすい・よく食べる |
 | Sayaka | お人よし、頼まれると断れない | 人の役に立ちたい 0.85 |
 
+# 100人で動かす (`configs/survival_100.json`)
+
+100人の年齢・性別・Big Five・名前は、人口推計と既存研究から、種 `20261110` を固定して生成する。生成し直すコマンドは
+`node tools/gen_personas.js --check`、設定と実測の詳しい根拠は [100_AGENT_SCALE.md](100_AGENT_SCALE.md) を参照。
+
+100人の実測では、20プロセスは Node 側だけで約12〜15コアを使い、Fabric が最大25秒遅れて timeout が出た。
+16論理CPUの実験機では、まず `--procs 10` (1プロセス10人) を使う。サーバー設定は `view-distance=5`・
+`simulation-distance=4`・ローカル通信の圧縮なしで、会話範囲48mに必要なプレイヤー追跡距離64mは残す。
+
+```bash
+bash mineflayer-agents/server-fabric/first_setting_world.sh morning
+node mineflayer-agents/run.js --config mineflayer-agents/configs/survival_100.json \
+  --agents 100 --procs 10 --minutes 10 --stagger-ms 1500
+node mineflayer-agents/tools/check_scale_run.js mineflayer-agents/runs/<時刻> \
+  --agents 100 --max-disconnects 0 --max-loop-lag-ms 10000
+node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻> --text
+```
+
 ## 同時に動かす仕組み (run.js)
 
 - **プロセスを分ける** (`--procs P`、既定は `ceil(N/5)` = 20人で4プロセス)。mineflayer の物理と pathfinder・ゴールの候補作り (約0.5秒) は
@@ -426,7 +444,8 @@ bash /root/mc-server-fabric/stop.sh && bash mineflayer-agents/server-fabric/firs
   **親が全プロセスの合計で `--max-jev-tokens` に達したら全員を止める**。最後に親が子の `run-part<k>.json` を `run.json` にまとめる (使用量は足し直す)。
 - **接続**: `--stagger-ms` (1500) ずつずらす。プロセスが複数でも全体で1人ずつ (子 k は k×stagger 待ってから、P×stagger おきに入る)。
   60 秒で spawn しなければ 3 回まで再試行し、だめならその人を外して続ける。走っている途中の切断 (end / kicked) は数えて `run.json` の `disconnects` に残す
-  (自動でつなぎ直しはしない)。Fabric は max-players 60、rate-limit 0。
+  (自動でつなぎ直しはしない)。Fabric は max-players 120、rate-limit 0。100人では同一地点の圧死だけを
+  `maxEntityCramming 0` で止める。
 - **負荷の見張り** (`--monitor-sec`、既定 30): `runs/<時刻>/monitor[-k].jsonl` に CPU・RSS・イベントループの遅れ・生きているボット・判断の数と間隔・
   2B の呼び出しと待ち・Jev の呼び出しと 429。
 - **2B の待ち時間**: llama-server の応答の `timings` (prompt_ms + predicted_ms) を処理時間とし、全体の時間から引いた残りを待ち (スロットの空き待ち。
