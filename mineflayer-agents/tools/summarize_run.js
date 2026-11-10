@@ -12,6 +12,7 @@ const { parsePlaces } = require('../src/places');
 const divisionTool = require('./division_stats');
 const toolVoiceTool = require('./toolvoice_stats');
 const searchTool = require('./search_stats');
+const ageTool = require('./age_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -1018,6 +1019,8 @@ function main() {
   out.clusters = scale.clusterStats(all);
   out.relations = scale.relationMatrix(rowsByName);
   out.brief = scale.briefPerAgent(agents, { clusters: out.clusters, deathsPerAgent: out.survival.perAgent, intervals: out.decisions.intervalSec });
+  // 年齢層ごと (persona.age・ageGroup。configs/survival_100.json)。年齢の無い記録では「年齢なし」の1層だけ
+  out.ageGroups = ageTool.ageGroupStats(rowsByName, { survival: out.survival, clusters: out.clusters, needs: out.needs, spawnDistance: out.spawnDistance, relations: out.relations });
   out.load = { monitor: isDir ? scale.monitorStats(target) : null, twoBLatency: runJson ? runJson.twoBLatency || null : null,
     disconnects: runJson ? (typeof runJson.disconnects === 'number' ? runJson.disconnects : runJson.disconnects ? runJson.disconnects.n : null) : null, procs: runJson ? runJson.procs || 1 : null };
   // 文を作る LLM の提供元・役ごとの使用量と費用 (run.json の usage.llm。古い記録には無い)
@@ -1126,9 +1129,18 @@ function main() {
     const rm = out.relations;
     console.log(`関係 (好感の変化、初期値 50 から): 変わった ${rm.changed} 組 (上がった ${rm.positive}・下がった ${rm.negative})、上位 ${rm.top.map((p) => `${p.from}→${p.to} ${p.delta > 0 ? '+' : ''}${p.delta}`).join('・') || 'なし'}${rm.bottom.length ? `、下位 ${rm.bottom.map((p) => `${p.from}→${p.to} ${p.delta}`).join('・')}` : ''}`);
     if (rm.mutual.length) console.log(`  お互いに変わった組: ${rm.mutual.map((x) => `${x.pair} (${x.a > 0 ? '+' : ''}${x.a}/${x.b > 0 ? '+' : ''}${x.b})`).join('・')}`);
-    if (rm.changed) for (const l of scale.matrixText(rm)) console.log(`  ${l}`);
-    console.log('人ごと:');
-    for (const l of out.brief) console.log(`  ${l}`);
+    // 行列は 30 人まで (100人では 100×100 になって読めないので、年齢層×年齢層の表 (下の「年齢層ごと」) にする。人ごとの値は JSON の relations.matrix)
+    if (rm.changed && rm.names.length <= 30) for (const l of scale.matrixText(rm)) console.log(`  ${l}`);
+    else if (rm.changed) console.log(`  (${rm.names.length}人なので人×人の行列は出さない。JSON の relations.matrix と、年齢層×年齢層の表を見る)`);
+    const hasAge = Object.keys(out.ageGroups.groups).some((g) => g !== 'none');
+    if (hasAge) {
+      for (const l of ageTool.lines(out.ageGroups)) console.log(l);
+      console.log('人ごと (年齢層ごと、層の中は年齢順):');
+      for (const l of ageTool.briefByGroup(out.brief, out.ageGroups)) console.log(`  ${l}`);
+    } else {
+      console.log('人ごと:');
+      for (const l of out.brief) console.log(`  ${l}`);
+    }
     if (out.load.monitor || out.load.twoBLatency) {
       for (const [k, v] of Object.entries(out.load.monitor || {})) console.log(`負荷 ${k}: CPU p50 ${v.cpuPct.p50}%・最大 ${v.cpuPct.max}%、RSS 最大 ${v.rssMb.max}MB、イベントループの遅れ p99 の中央値 ${v.loopLagP99.p50}ms・最大 ${v.loopLagP99.max}ms、ボット ${v.bots.minAlive}/${v.bots.total} (切断 ${v.bots.disconnects})、2B の待ち p95 の中央値 ${v.twoBWaitP95.p50}ms・最大 ${v.twoBWaitP95.max}ms、Jev の 429 ${v.jevRateLimited} 回`);
       const tl = out.load.twoBLatency;
