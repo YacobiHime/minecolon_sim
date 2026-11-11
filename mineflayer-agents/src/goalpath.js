@@ -262,6 +262,9 @@ function waitOnly(p) {
 }
 
 function invCount(raw, name) { return (raw.inventory || []).filter((i) => i.name === name).reduce((t, i) => t + i.count, 0); }
+// 自分で置いて今も機能している物の数 (ctx.ownPlanner.ownedPlaced。cfg.provenance.countPlaced のときだけ)。
+//   置いた松明・ベッドを「持っていない」とみなして、掘っては置き直す往復が起きていた (2026-11-10 の100人の記録)
+function placedCount(ctx, name) { const o = ctx && ctx.ownPlanner; return o && o.countPlaced ? (o.ownedPlaced[name] || 0) : 0; }
 
 class GoalPath {
   constructor(opts = {}) {
@@ -518,6 +521,10 @@ class GoalPath {
   world(ctx) {
     const raw = ctx.raw;
     const kinds = new Set(ctx.placeKinds || []);
+    // 所有を考える設定 (ctx.ownPlanner。ownership_agent.plannerView): 見えている物は天然と見ている物だけを collect の入手元にし、
+    //   置かれた物と認識している物は placedBlocks (手間を足した「取る」の入手元)。覚えている場所のうち見た目で人の置いた物の種類は入手元にしない
+    const op = ctx.ownPlanner || null;
+    const knownSrc = op ? [...kinds].filter((k) => !op.artifact(k)) : [...kinds];
     return {
       farm: this.farmOf(ctx),
       // 耕す前の水の段 (見えている・覚えている M 番号と距離・知らない)。済んだ = 水から4マス以内で高さの合う耕せるマスが近くにある
@@ -528,9 +535,10 @@ class GoalPath {
       saplings: Object.fromEntries((raw.blocks || []).filter((b) => SAPLING_LOG[b.name]).map((b) => [b.name, b.seen || 1])),
       treePlaces: Object.fromEntries((ctx.places || []).filter((p) => SAPLING_LOG[p.kind]).sort((a, b) => (a.d ?? 0) - (b.d ?? 0)).reverse().map((p) => [p.kind, { id: p.id, d: p.d }])),
       inventory: raw.inventory,
-      visibleBlocks: raw.blocks.map((b) => b.name),
+      visibleBlocks: op ? op.naturalVisible : raw.blocks.map((b) => b.name),
+      ...(op ? { placedBlocks: op.placed } : {}),
       visibleMobs: raw.entities.filter((e) => e.kind !== 'item' && e.kind !== 'player').map((e) => e.name),
-      knownBlocks: [...kinds],
+      knownBlocks: knownSrc,
       stations: { crafting_table: !!raw.tableNearby || kinds.has('crafting_table'), furnace: raw.blocks.some((b) => b.name === 'furnace') || kinds.has('furnace') },
       excludeBlocks: GROUND,
       sharedChests: ctx.board ? ctx.board.chests || [] : [],
@@ -552,7 +560,7 @@ class GoalPath {
   }
 
   planItem(ctx, target, count) {
-    return new Planner(this.world(ctx), { version: this.cfg.version }).plan(target, count);
+    return new Planner(this.world(ctx), { version: this.cfg.version }).plan(target, Math.max(0, count - placedCount(ctx, target)));
   }
 
   // 状態の道筋 (今の様子から作り直す)
@@ -572,7 +580,7 @@ class GoalPath {
     const raw = ctx.raw;
     const here = raw.self.pos;
     if (g.kind === 'item') {
-      const have = invCount(raw, g.target);
+      const have = invCount(raw, g.target) + placedCount(ctx, g.target);
       return { met: have >= g.count, d: remaining(this.path) };
     }
     if (g.kind === 'state') {
@@ -610,8 +618,10 @@ class GoalPath {
     const raw = ctx.raw;
     if (!raw) return { met: false };
     if (pg.kind === 'item') {
-      const have = invCount(raw, pg.target);
-      return have >= pg.count ? { met: true, why: `もう持っている (${have})`, have } : { met: false, have };
+      const inv = invCount(raw, pg.target);
+      const placed = placedCount(ctx, pg.target);
+      const have = inv + placed;
+      return have >= pg.count ? { met: true, why: placed ? `もう持っている (${inv}、自分で置いた物 ${placed})` : `もう持っている (${have})`, have } : { met: false, have };
     }
     if (pg.kind === 'state') {
       const st = pg.state || states.parseStateId(pg.target);

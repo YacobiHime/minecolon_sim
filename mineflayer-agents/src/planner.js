@@ -12,7 +12,9 @@ const farmwater = require('./farmwater');
 
 const DEFAULT_VERSION = '1.20.1';
 // rebreak / rekill: 落ちる確率が低い物を、同じ所でもう1回壊す・もう1匹倒す手間 (1回目は探して歩く手間を含むので、2回目からは小さい)
-const COST = { visible: 1, known: 2, unseen: 6, unseenRare: 12, mobVisible: 2, mobUnseen: 6, mobRare: Infinity, craft: 0.3, smelt: 0.6, toolShare: 0.5, stationShare: 0.5,
+// placed: 人が置いた物と認識している物を掘って取る (take_placed) ときの手間に足す分。天然の入手元 (見える 1・前に見た 2) より大きく、
+//   まだ見ていない物を探す手間 (6) より小さい = 天然の物が見えていればそちら、何も無ければ取る道も残る (取れなくはしない。2026-11-11)
+const COST = { visible: 1, known: 2, unseen: 6, placed: 4, unseenRare: 12, mobVisible: 2, mobUnseen: 6, mobRare: Infinity, craft: 0.3, smelt: 0.6, toolShare: 0.5, stationShare: 0.5,
   rebreak: 0.25, rekill: 1, farmPlant: 0.3, farmWait: 3, farmGrowing: 1.5,
   treePlant: 0.3, treeWait: 6, treeGrowing: 2, treeCut: 1, treeGround: { visible: 0, known: 0.5, unknown: 1 } };
 // 木を育てる (仕様、1.20.1): 苗木を土・草の生えた土など (TREE_GROUND) に植える (use_on) → 明るい所 (明るさ 9 以上) で上に空きがあれば
@@ -197,6 +199,9 @@ class Planner {
     this.vis = new Set(world.visibleBlocks || []);
     this.mobsVis = new Set(world.visibleMobs || []);
     this.known = new Set(world.knownBlocks || []);
+    // 人が置いた物と認識している見えている物 { 名前: 'own'|'other'|'group'|'public'|'unknown' } (cfg.provenance.actions。ownership_agent.plannerView)。
+    //   visibleBlocks には天然と見ている物だけが入る。置かれた物は collect の入手元にせず、手間の大きい「取る (take)」の入手元にする
+    this.placed = new Map(Object.entries(world.placedBlocks || {}));
     this.stations0 = { crafting_table: false, furnace: false, ...(world.stations || {}) };
     this.exclude = world.excludeBlocks || GROUND;
     this.chests0 = (world.sharedChests || []).map((c) => ({ id: c.id, items: Object.fromEntries((c.items || []).filter((i) => i.count > 0).map((i) => [i.name, i.count])) }));
@@ -236,7 +241,7 @@ class Planner {
   // 自然にある (レシピの無い) ブロックなら、まだ見ていなくても探せばあるとみなす
   natural(block) { return !this.ix.recipes.has(block) || CROP_BLOCKS.test(block); }
 
-  stationAvail(st, stations = this.curStations()) { return stations[st] || (this.curInv()[st] || 0) > 0 || this.vis.has(st) || this.known.has(st); }
+  stationAvail(st, stations = this.curStations()) { return stations[st] || (this.curInv()[st] || 0) > 0 || this.vis.has(st) || this.known.has(st) || this.placed.has(st); }
 
   // target から材料・道具・作業台・かまど・燃料をたどって届く物の集まり (持ち物には関係しない)
   reachFrom(target) {
@@ -268,6 +273,18 @@ class Planner {
       if (SAPLING_DROP.test(s.block) && (this.saplings[s.block] || 0) > 0) continue;
       // 植えた苗木 (ブロック) は、自然には生えていないので、見えている・覚えている所だけ
       const where = this.vis.has(s.block) ? 'visible' : this.known.has(s.block) ? 'known' : (this.natural(s.block) && !SAPLING_DROP.test(s.block) ? 'unseen' : null);
+      // 置かれた物 (認識しているもの): 自分の物は外す (dismantle_own)、ほかは take_placed。天然の入手元とは別に、手間を足して比べる
+      if (this.placed.has(s.block)) {
+        const cat = this.placed.get(s.block);
+        let pc = chanceCost(COST.visible + COST.placed, s.expect, COST.rebreak);
+        let ptool = null;
+        if (s.tools && !s.tools.some((t) => this.hasTool(t))) {
+          let tb = { c: Infinity };
+          for (const t of s.tools) { const tc = cOf(t); if (tc < tb.c) tb = { c: tc, t }; }
+          pc = Number.isFinite(tb.c) ? pc + tb.c * COST.toolShare : Infinity; ptool = tb.t || null;
+        }
+        if (Number.isFinite(pc)) consider({ c: pc, how: 'collect', from: s.block, where: 'placed', owner: cat, take: cat === 'own' ? 'dismantle_own' : 'take_placed', tool: ptool, expect: s.expect || 1 });
+      }
       if (!where) continue;
       // 落ちる確率が低い物は、期待値で 1/確率 回壊す手間を足す (りんご 0.5% → 200 回壊す)
       const base = (where === 'unseen' && !COMMON_BLOCKS.test(s.block) ? COST.unseenRare : COST[where]) * (where === 'unseen' ? this.cs.unseen * this.cs.travel : where === 'known' ? this.cs.travel : 1);
@@ -437,7 +454,7 @@ class Planner {
         return take >= n || this.expandFarm(item, n - take, sim, st);
       }
       // tries: 期待値で何回壊すか (落ちる数の期待値から)。文 (pathText) には出さない
-      sim.out.push({ item, count: n, how: 'collect', from: best.from, where: best.where, tool: best.tool || null, tries: Math.ceil(n / (best.expect || 1)) });
+      sim.out.push({ item, count: n, how: 'collect', from: best.from, where: best.where, tool: best.tool || null, tries: Math.ceil(n / (best.expect || 1)), ...(best.take ? { take: best.take, owner: best.owner } : {}) });
       return true;
     }
     if (best.how === 'farm') return this.expandFarm(item, n, sim, st);
@@ -668,7 +685,7 @@ function mergeSteps(out) {
   return res;
 }
 
-const WHERE_JA = { visible: '見える', known: '前に見た', unseen: 'まだ見ていない' };
+const WHERE_JA = { visible: '見える', known: '前に見た', unseen: 'まだ見ていない', placed: '人が置いた物' };
 
 // 1つの手順の短い文: "oak_log 2 ← 掘る(見える)"、"oak_planks 4 ← oak_log 1"、"white_bed 1 ← white_wool 3 + oak_planks 3 (crafting_table)"
 function stepText(s) {
@@ -761,7 +778,7 @@ function nextText(s) {
 
 // 英語 (Jev 用。同じ手順から)
 function chestEn(id) { const m = String(id).match(/^(.+)-(\d+)$/); return m ? `${m[1]}'s chest ${m[2]} (shared)` : `${id} (shared chest)`; }
-const WHERE_EN = { visible: 'visible', known: 'seen before', unseen: 'not seen yet' };
+const WHERE_EN = { visible: 'visible', known: 'seen before', unseen: 'not seen yet', placed: 'placed by someone' };
 function stepTextEn(s) {
   const n = `${s.item} x${s.count}`;
   const w = [WHERE_EN[s.where], s.tool ? `with ${s.tool}` : ''].filter(Boolean).join(', ');

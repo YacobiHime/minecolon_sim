@@ -399,6 +399,8 @@ function pathMatch(s, action, arg) {
   if (!s.act) {
     if (s.how === 'collect' && ((action === 'collect' && fam(a, src)) || (action === 'pick_up' && fam(a, s.item)))) return 'step';
     if (s.how === 'collect' && action === 'use_on' && fam(a.split('>')[1], src)) return 'step';
+    // 人が置いた物から取る道筋 (planner の where: 'placed')。id は "torch@Miho" の形、dismantle_own は名前だけ
+    if (s.how === 'collect' && (action === 'take_placed' || action === 'dismantle_own') && fam(a.split('@')[0], src)) return 'step';
     if (s.how === 'kill' && (action === 'attack' || action === 'hunt') && fam(a, src)) return 'step';
     if (s.how === 'craft' && action === 'craft' && fam(a, s.item)) return 'step';
     if (s.how === 'chest' && action === 'chest_take' && fam(a, s.item)) return 'step'; // 共有のチェストから出す (board.js)

@@ -9,7 +9,7 @@
 //   手の物 (tool): その人が手に持っていた物 (エンティティの equipment。見えている分だけ)。分業 (division.js) の「どんな道具でしていたか」に使う
 // 誘導の文は足さない (研究方針)。
 
-const DEFAULTS = { radius: 16, nearDist: 5, progressMs: 4000, keepMs: 300000, maxItems: 4, actions: ['collect', 'pick_up', 'attack', 'hunt'] };
+const DEFAULTS = { radius: 16, nearDist: 5, progressMs: 4000, swingMs: 1500, nearestRatio: 0.6, keepMs: 300000, maxItems: 4, actions: ['collect', 'pick_up', 'attack', 'hunt'] };
 const AIR = /^(air|cave_air|void_air)$/;
 const SELF_DECAY = /_leaves$/; // 葉は自然に消える (人が壊したとは限らない)
 
@@ -23,7 +23,11 @@ class OthersLog {
     this.seq = 0;
     this.breaking = new Map(); // マス → { who, t }
     this.myDigs = new Map(); // 自分が掘ったマス → t
+    this.swings = new Map(); // 人 → 最後に腕を振った t (すぐ壊れる物は掘っている途中の様子が来ないので、腕を振ったかで見分ける)
+    this.lastHow = null; // 最後の noteBlockGone で壊した人を何で決めたか (progress | swing | only | nearest)
   }
+
+  noteSwing(who, t = Date.now()) { if (who) this.swings.set(who, t); }
 
   push(e) {
     this.seq += 1;
@@ -57,14 +61,21 @@ class OthersLog {
     const k = key(pos);
     const mine = this.myDigs.get(k);
     if (mine != null && t - mine <= this.cfg.progressMs) { this.myDigs.delete(k); return null; }
-    let who = null; let tool;
+    let who = null; let tool; let how = null;
     const br = this.breaking.get(k);
-    if (br && t - br.t <= this.cfg.progressMs) { who = br.who; tool = br.tool; }
+    if (br && t - br.t <= this.cfg.progressMs) { who = br.who; tool = br.tool; how = 'progress'; }
     else if (!SELF_DECAY.test(oldName)) {
+      // 掘っている途中の様子が無い (松明・作物などすぐ壊れる物): 手の届く所 (nearDist) にいる人のうち、
+      //   1人だけならその人、何人もいれば直前に腕を振った人が1人ならその人、それも決まらなければ一番近い人がはっきり近いとき (nearestRatio) だけ
+      //   (2026-11-10: 掘っている途中しか記録せず、持ち主が 2m 先にいても目撃が漏れていた)
       const c = { x: Math.floor(pos.x) + 0.5, y: Math.floor(pos.y) + 0.5, z: Math.floor(pos.z) + 0.5 };
-      const close = players.filter((p) => p && p.pos && d3(p.pos, c) <= this.cfg.nearDist);
-      if (close.length === 1) { who = close[0].name; tool = close[0].held; }
+      const close = players.filter((p) => p && p.pos && d3(p.pos, c) <= this.cfg.nearDist).sort((a, b) => d3(a.pos, c) - d3(b.pos, c));
+      const swung = close.filter((p) => t - (this.swings.get(p.name) ?? -Infinity) <= this.cfg.swingMs);
+      let pick = null;
+      if (close.length === 1) { pick = close[0]; how = 'only'; } else if (swung.length === 1) { pick = swung[0]; how = 'swing'; } else if (close.length > 1 && d3(close[0].pos, c) < d3(close[1].pos, c) * this.cfg.nearestRatio) { pick = close[0]; how = 'nearest'; }
+      if (pick) { who = pick.name; tool = pick.held; }
     }
+    this.lastHow = how;
     if (tool === undefined && who) { const p = players.find((x) => x && x.name === who); if (p) tool = p.held; }
     this.breaking.delete(k);
     if (!who) return null;
