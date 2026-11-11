@@ -213,7 +213,19 @@ test('provenance_stats: 意図・取得・許可・償い・関係の変化・�
   assert.ok(lines(p).length >= 6);
 });
 
-test('replay_provenance: 前の記録 (台帳なし) から、place の位置で台帳を作り、collect を近い置かれた物の取得と推定する', () => {
+test('provenance_stats: 記録の時点で台帳が届いていなかった (world) 意図も、台帳の全部の出来事から本当の持ち主を作り直す', () => {
+  const { Ledger } = require('../src/provenance');
+  const l = new Ledger({ now: () => 1000 });
+  l.record('Hina', { type: 'place', pos: [5, 64, 5], block: 'crafting_table', by: 'Hina', purpose: 'crafting', ownership: { kind: 'personal', owner: 'Hina' } });
+  const all = [{ _name: 'Koji', event: 'intent', id: 'Koji-i1', ts: new Date(1500).toISOString(), action: 'take_placed', perspective: 'agent', reasonCode: 'unknown_ownership', permission: 'not_requested',
+    target: { block: 'crafting_table', pos: { x: 5, y: 64, z: 5 }, owner: null, ownerKind: 'unknown' }, truth: { placedBy: null, ownership: { kind: 'public', owner: null, world: true } }, functionalHarm: {} },
+  { _name: 'Koji', event: 'take', intentId: 'Koji-i1', ok: true }];
+  const p = provenanceStats(all, { ledger: l });
+  assert.strictEqual(p.truthFixedFromLedger, 1);
+  assert.deepStrictEqual(p.byTruthOwnerKind, { personal: 1 });
+});
+
+test('replay_provenance:前の記録 (台帳なし) から、place の位置で台帳を作り、collect を近い置かれた物の取得と推定する', () => {
   const { replay } = require('../tools/replay_provenance');
   const st = (name, ms, o) => ({ _name: name, ts: new Date(1e12 + ms).toISOString(), loop: ms, ...o });
   const all = [

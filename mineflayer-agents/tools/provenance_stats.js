@@ -8,7 +8,7 @@
 //     accidental と実行の失敗の割合、所有者の知識の正しさ (台帳と合っていたか)
 const fs = require('fs');
 const path = require('path');
-const { Ledger } = require('../src/provenance');
+const { Ledger, fold, sameFamily } = require('../src/provenance');
 
 const isStep = (r) => !!(r && r.loop && r.action && !r.event && r.result);
 const r3 = (v) => (Number.isFinite(v) ? Math.round(v * 1000) / 1000 : null);
@@ -32,10 +32,27 @@ function readRun(target) {
 function provenanceStats(all, opts = {}) {
   const steps = all.filter(isStep);
   const decisions = steps.length;
-  const intents = all.filter((r) => r.event === 'intent');
+  const ledger0 = opts.ledger || (opts.ledgerDir && fs.existsSync(opts.ledgerDir) ? Ledger.load(opts.ledgerDir) : null);
+  // 台帳があれば、意図の時点の本当の持ち主を台帳の全部の出来事から作り直す (実行中はほかのプロセスの記録が最大2秒遅れて届くので、
+  //   記録の truth が「台帳に無い (world)」になっていることがある。2026-11-11 の実行1)
+  let truthFixed = 0;
+  const fixTruth = (r) => {
+    if (!ledger0 || r.event !== 'intent' || !r.target || !r.target.pos || !r.ts) return r;
+    const t = Date.parse(r.ts) + 1000;
+    // gone (見た人のワールドの表示で無かった) は外す: 意図はその物が見えて (掘る直前に) あったときに書くので、その時点では有った。
+    //   ほかのクライアントへの反映の遅れで、置いた直後に gone と書かれることがある (2026-11-11 の実行1)
+    const evs = ledger0.events(r.dim || 'minecraft:overworld', r.target.pos).filter((e) => e.ms <= t && e.type !== 'gone' && !(e.intentId && e.intentId === r.id));
+    const e = evs.length ? fold(evs) : null;
+    if (!e || !(e.status === 'active' || e.status === 'abandoned') || !sameFamily(e.block, r.target.block)) return r;
+    const owner = r.target.owner;
+    const truth = { placedBy: e.placedBy, ownership: e.ownership, purpose: e.purpose, status: e.status, placedAt: e.placedAt, ownerMatches: owner ? e.placedBy === owner || (e.ownership && e.ownership.owner === owner) : null };
+    if (!r.truth || r.truth.placedBy !== truth.placedBy) truthFixed += 1;
+    return { ...r, truth };
+  };
+  const intents = all.filter((r) => r.event === 'intent').map(fixTruth);
   const byId = new Map(intents.map((r) => [r.id, r]));
   const takes = all.filter((r) => r.event === 'take');
-  const ledger = opts.ledger || (opts.ledgerDir && fs.existsSync(opts.ledgerDir) ? Ledger.load(opts.ledgerDir) : null);
+  const ledger = ledger0;
   const removedIntents = new Set();
   if (ledger) for (const e of ledger.entries()) for (const h of e.history || []) if (h.type === 'remove' && h.intentId) removedIntents.add(h.intentId);
 
@@ -130,7 +147,7 @@ function provenanceStats(all, opts = {}) {
   }
 
   return {
-    decisions, intents: intents.length,
+    decisions, intents: intents.length, truthFixedFromLedger: truthFixed,
     placedTakes: placedTakes.length, per1000Decisions: decisions ? Math.round((placedTakes.length / decisions) * 10000) / 10 : null, ownTakes: own.length,
     byReason, byOwnerKind, byTruthOwnerKind: byTruthKind, byBlock,
     permission: { asked: asks.length, answers, knownOwnerTakes: knownOwnerTakes.length, takenWithoutPermission: withoutPermission.length,

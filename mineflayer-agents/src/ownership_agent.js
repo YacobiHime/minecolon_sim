@@ -230,6 +230,8 @@ class OwnershipCtl {
       this.ledger.sync();
       for (const e of this.ledger.near(dim, here, vr)) {
         if (e.status !== 'active' && e.status !== 'abandoned') continue;
+        // 置いたばかりの物は、ほかのクライアントの表示に届くまで空気に見えることがある (2026-11-11 の実行1: 0.7秒後に gone と書かれた)
+        if (Date.now() - Date.parse(e.placedAt) < (this.cfg.goneGraceMs ?? 15000)) continue;
         const n = nameAt(P(e.position));
         if (n && !sameFamily(n, e.block) && n !== e.block) this.ledger.record(this.me, { type: 'gone', dim, pos: e.position, block: e.block, by: this.me, now: n });
       }
@@ -434,6 +436,8 @@ class OwnershipCtl {
   intentRecord({ action, block, pos, category, owner, perspective = 'agent', reason, truth = undefined, harm, alternatives, permission, socialCostV, choice = null, weight = null, source = null, purpose = null }) {
     this.store.seq = (this.store.seq || 0) + 1;
     const t = this.agent.social.temperament || {};
+    // ほかのプロセスの置いた記録が届いていないことがある (2秒ごとの sync)。記録の前に読み足す (2026-11-11 の実行1で、置いたばかりの物が「台帳に無い」になった)
+    if (truth === undefined && this.ledger && Date.now() - this.ledger.lastSync > 200) this.ledger.sync({ force: true });
     let tr = truth === undefined ? (this.ledger ? this.ledger.lookup(this.dim(), pos) : null) : truth;
     if (!tr && O.ARTIFACT.test(block)) tr = WORLD_TRUTH;
     const rec = {
