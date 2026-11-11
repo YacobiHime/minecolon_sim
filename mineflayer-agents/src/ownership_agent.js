@@ -73,6 +73,7 @@ class OwnershipCtl {
     instrumentBot(bot, {
       beforeDig: (i) => this.beforeDig(i),
       afterDig: (i, ok) => this.afterDig(i, ok),
+      beforePlace: (i) => this.recentPlace.set(`${i.pos.x},${i.pos.y},${i.pos.z}`, Date.now()),
       afterPlace: (i) => this.afterPlace(i),
       afterActivate: (i) => { if (O.FARM.test(i.name) || O.ARTIFACT.test(i.name)) this.afterPlace({ ...i, via: 'activate' }); },
     });

@@ -27,6 +27,7 @@ function mkBot(name, blocks, { pos = new Vec3(0.5, 64, 0.5), held = null } = {})
     entities: {}, players: {},
     registry: { blocksByName: { torch: { id: 1 }, oak_log: { id: 2 } } },
     blockAt: (p) => {
+      if (typeof p.floored !== 'function') throw new Error('mineflayer の blockAt は Vec3 が要る');
       const n = blocks.get(`${p.x},${p.y},${p.z}`) || 'air';
       const v = new Vec3(p.x, p.y, p.z);
       return { name: n, position: v, boundingBox: /air|torch/.test(n) ? 'empty' : 'block', getProperties: () => (n.endsWith('_bed') ? { part: blocks.get(`part:${p.x},${p.y},${p.z}`) || 'foot', occupied: 'false' } : {}) };
@@ -222,10 +223,18 @@ test('第三者: 持ち主の分かる物を取るのを見た → 取った人�
   }, 30));
 });
 
-test('置くところを見た: すぐ近くにほかの人が1人だけで、手の物が合う → その人の物と知る (seen)。合わない・2人いる → 知らない', () => {
+test('置くところを見た: すぐ近くにほかの人が1人だけで、手の物が合う → その人の物と知る (seen)。合わない・2人いる → 知らない', async () => {
   const w = world();
   const y = mkAgent('Yua', w);
   const me = { x: 0, y: 64, z: 0 };
+  // 自分が置いている所の知らせ (placeBlock の途中で来る) は、近くの人の物にしない
+  w.set('6,63,0', 'dirt');
+  y.bot.heldItem = { name: 'torch' };
+  y.ctl.cur = { action: 'place', choice: {} };
+  await y.bot.placeBlock({ position: new Vec3(6, 63, 0) }, new Vec3(0, 1, 0));
+  assert.strictEqual(y.ctl.knowledge.get(DIM, [6, 64, 0]).source, 'self');
+  y.ctl.onBlockChange({ pos: { x: 6, y: 64, z: 0 }, oldName: 'air', newName: 'torch', players: [{ name: 'Miho', pos: { x: 6, y: 64, z: 1 }, held: null }], me });
+  assert.strictEqual(y.ctl.knowledge.get(DIM, [6, 64, 0]).owner, 'Yua');
   y.ctl.onBlockChange({ pos: { x: 2, y: 64, z: 0 }, oldName: 'air', newName: 'wall_torch', players: [{ name: 'Miho', pos: { x: 3, y: 64, z: 0 }, held: 'torch' }], me });
   assert.deepStrictEqual([y.ctl.knowledge.get(DIM, [2, 64, 0]).owner, y.ctl.knowledge.get(DIM, [2, 64, 0]).source], ['Miho', 'seen']);
   y.ctl.onBlockChange({ pos: { x: 4, y: 64, z: 0 }, oldName: 'air', newName: 'crafting_table', players: [{ name: 'Miho', pos: { x: 3, y: 64, z: 0 }, held: 'stick' }], me });

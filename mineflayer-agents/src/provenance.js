@@ -13,6 +13,7 @@
 //   台帳を作り直せる (オフラインの再生・集計にもそのまま使える)。遅れは最大 syncMs (既定 2 秒)。
 const fs = require('fs');
 const path = require('path');
+const { Vec3 } = require('vec3');
 
 const DIM_DEFAULT = 'minecraft:overworld';
 // 状態: active (置かれて機能している) / abandoned (置いた人が要らない物として残した: 足場など) /
@@ -214,7 +215,8 @@ function instrumentBot(bot, hooks = {}) {
   if (!bot || bot.__provenance) return false;
   bot.__provenance = true;
   const p3 = (v) => ({ x: Math.floor(v.x), y: Math.floor(v.y), z: Math.floor(v.z) });
-  const nameAt = (p) => { try { const b = bot.blockAt(p); return b ? b.name : null; } catch (_) { return null; } };
+  // mineflayer の blockAt は Vec3 が要る (ただの {x,y,z} では例外になり、置いた記録が抜けていた。2026-11-11 の生の試験)
+  const nameAt = (p) => { try { const b = bot.blockAt(new Vec3(p.x, p.y, p.z)); return b ? b.name : null; } catch (_) { return null; } };
   if (typeof bot.dig === 'function') {
     const origDig = bot.dig;
     bot.dig = async function dig(block, ...rest) {
@@ -232,11 +234,13 @@ function instrumentBot(bot, hooks = {}) {
       const target = ref && ref.position && face ? p3(ref.position.plus ? ref.position.plus(face) : { x: ref.position.x + face.x, y: ref.position.y + face.y, z: ref.position.z + face.z }) : null;
       const before = target ? nameAt(target) : null;
       const held = bot.heldItem ? bot.heldItem.name : null;
+      // 置く前に知らせる (置いた知らせ blockUpdate は placeBlock が終わるより先に来るので、自分の置いた物をほかの人の物と見ないように)
+      if (target && hooks.beforePlace) { try { hooks.beforePlace({ pos: target, held }); } catch (_) { /* ignore */ } }
       const done = () => {
         if (!target || !hooks.afterPlace) return;
         const now = nameAt(target);
         if (!now || now === before || SOFT.test(now)) return;
-        try { hooks.afterPlace({ pos: target, name: now, held }); } catch (_) { /* ignore */ }
+        try { hooks.afterPlace({ pos: target, name: now, held }); } catch (e) { if (process.env.PROV_DEBUG) console.error("afterPlace", e); }
       };
       try { const r = await origPlace.call(bot, ref, face, ...rest); done(); return r; } catch (e) {
         // 時間切れでも置けていることがある (act.js の place と同じ)。少し待って見る

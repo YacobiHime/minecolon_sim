@@ -96,6 +96,9 @@ class OthersLog {
     return p.name;
   }
 
+  // who が ms 以内にブロックを壊したか (壊して落ちた物を拾ったのを「もらった」と数えないため)
+  brokeRecently(who, ms = 4000, t = Date.now()) { return this.events.some((e) => e.kind === 'break' && e.who === who && t - e.t <= ms); }
+
   mark() { return this.seq; }
 
   // mark の後に起きたもの (人・種類・名前ごとにまとめる。多い順に maxItems まで)

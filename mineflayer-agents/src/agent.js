@@ -748,7 +748,8 @@ class Agent {
         if (who === bot.username && !(bot.lastDigTime && performance.now() - bot.lastDigTime < 3000)) {
           const giver = Object.values(bot.players).filter((p) => p.username !== bot.username && p.entity && p.entity.position.distanceTo(it.position) <= 3)
             .sort((a, b) => a.entity.position.distanceTo(it.position) - b.entity.position.distanceTo(it.position))[0];
-          if (giver && Date.now() - (this.lastReceived || 0) > 5000) { this.lastReceived = Date.now(); this.social.onReceived(giver.username); this.recorder.write({ event: 'received', from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1, loop: this.memory.tick }); if (this.reflect) this.reflect.noteEvent({ kind: 'received', tick: this.memory.tick, from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1 }); }
+          // その人が直前にブロックを壊していたら、落ちた物を拾っただけ (もらったのではない。2026-11-11 の生の試験で、取られた松明を拾って「くれた」になった)
+          if (giver && !o.brokeRecently(giver.username) && Date.now() - (this.lastReceived || 0) > 5000) { this.lastReceived = Date.now(); this.social.onReceived(giver.username); this.recorder.write({ event: 'received', from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1, loop: this.memory.tick }); if (this.reflect) this.reflect.noteEvent({ kind: 'received', tick: this.memory.tick, from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1 }); }
         }
         o.notePickup({ who, self: bot.username, me: me(), item: d.name, count: packet.pickupItemCount || d.count || 1, pos: it.position });
       } catch (_) { /* ignore */ }

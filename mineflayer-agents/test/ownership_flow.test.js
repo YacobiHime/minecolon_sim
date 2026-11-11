@@ -166,6 +166,10 @@ test('others: すぐ壊れる物 (途中の様子が無い) を誰が壊した�
   assert.strictEqual(o2.lastHow, 'nearest');
   assert.strictEqual(o2.noteBlockGone({ pos: p, oldName: 'torch', players: [two[0]], me: p }), 'Yua');
   assert.strictEqual(o2.lastHow, 'only');
+  // 壊した直後の人の近くで拾った物は「もらった」にしない (agent.js の collect の見張り)
+  assert.strictEqual(o2.brokeRecently('Yua'), true);
+  assert.strictEqual(o2.brokeRecently('Ken'), false);
+  assert.strictEqual(o2.brokeRecently('Yua', 4000, Date.now() + 10000), false);
 });
 
 test('provenance_stats: 意図・取得・許可・償い・関係の変化・台帳から、引き継ぎの指標を出す', () => {

@@ -136,7 +136,7 @@ test('instrumentBot: bot.dig / placeBlock / activateBlock を包んで、掘っ�
   const blocks = new Map([['0,64,0', 'torch'], ['1,63,0', 'dirt']]);
   const bot = {
     heldItem: { name: 'torch' },
-    blockAt: (p) => { const n = blocks.get(`${p.x},${p.y},${p.z}`); return n ? { name: n, position: new Vec3(p.x, p.y, p.z) } : { name: 'air', position: new Vec3(p.x, p.y, p.z) }; },
+    blockAt: (p) => { if (typeof p.floored !== 'function') throw new Error('mineflayer の blockAt は Vec3 が要る'); const n = blocks.get(`${p.x},${p.y},${p.z}`); return n ? { name: n, position: new Vec3(p.x, p.y, p.z) } : { name: 'air', position: new Vec3(p.x, p.y, p.z) }; },
     dig: async (b) => { blocks.delete(`${b.position.x},${b.position.y},${b.position.z}`); return 'dug'; },
     placeBlock: async (ref, face) => { const t = ref.position.plus(face); blocks.set(`${t.x},${t.y},${t.z}`, 'wall_torch'); return 'placed'; },
     activateBlock: async (b) => { blocks.set(`${b.position.x},${b.position.y},${b.position.z}`, 'farmland'); },
