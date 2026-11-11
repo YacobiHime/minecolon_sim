@@ -320,6 +320,8 @@ class OwnershipCtl {
     if (!e || e.status !== 'present' || !sameFamily(e.block, oldName)) return;
     if (!who) return; // 誰か分からないものは、あとで見たときに missing (observe)
     this.knowledge.mark(dim, p, 'taken', { takenBy: who, takenAt: this.tick() });
+    // 許した (許したのを聞いた) 取得は、無断の取得として扱わない
+    if (this.permittedTake(who, p)) { this.write({ event: 'ownership_loss', kind: 'permitted_take_seen', pos: [p.x, p.y, p.z], block: e.block, culprit: who, owner: e.owner }); return; }
     if (e.owner === this.me) { this.noticeLoss(e, who, 'witnessed', { seenBy: how }); return; }
     if (e.owner && who !== e.owner) {
       // ほかの人の物を取るのを見た: 取った人への見方が少し下がる。持ち主に伝えるかは maybeGossip
@@ -590,6 +592,27 @@ class OwnershipCtl {
     if (this.ledger && by === this.me && this.ledger.lookup(this.dim(), pos)) this.ledger.record(this.me, { type: 'reclassify', dim: this.dim(), pos, by: this.me, ownership: { kind: 'public', owner: by }, projectId: 'shared_chest' });
   }
 
+  // 許可のあった取得か (自分が許した・許したのを聞いた)。key は "取った人|位置"
+  //   2026-11-11 の実行で、持ち主が許した取得を見た人たちが噂として伝え、持ち主自身も伝聞として好感を下げていた
+  permittedTake(taker, pos, block = null) {
+    const g = this.store.granted || {};
+    const ks = pos ? [`${taker}|${keyOf(this.dim(), pos)}`] : Object.keys(g).filter((k) => k.startsWith(`${taker}|`) && (!block || (g[k].block && sameFamily(g[k].block, block))));
+    return ks.some((k) => g[k] && this.tick() - g[k].tick <= this.cfg.permitTicks * 2);
+  }
+  notePermitted(taker, pos, block) {
+    const g = this.store.granted || (this.store.granted = {});
+    g[`${taker}|${keyOf(this.dim(), pos)}`] = { tick: this.tick(), block };
+    for (const k of Object.keys(g)) if (this.tick() - g[k].tick > this.cfg.permitTicks * 4) delete g[k];
+  }
+  // 同じ取得の噂・伝聞を何度も当てない (何人もが同じことを伝える)。返り値: 初めてなら true
+  firstNews(kind, taker, owner, block) {
+    const n = this.store.news || (this.store.news = {});
+    const k = `${kind}|${taker}|${owner}|${String(block).replace(/^wall_/, '')}`;
+    if (this.tick() - (n[k] ?? -1e9) < (this.cfg.gossip.cooldownTicks ?? 20)) return false;
+    n[k] = this.tick();
+    return true;
+  }
+
   // ---- 近くの声の行 ----
   //   返り値: 近くの声として残す文 (行の頭の印を除いた発話) | null
   onLine(from, m) {
@@ -599,9 +622,15 @@ class OwnershipCtl {
     const k = this.knowledge;
     if (m.type === 'ask') {
       if (k) k.learn(dim, m.pos, { block: m.block, owner: m.owner, kind: 'personal', source: 'heard', from, tick: this.tick() });
+      const asks = this.heardAsks || (this.heardAsks = new Map());
+      asks.set(m.id, { from, owner: m.owner, pos: m.pos, block: m.block });
+      if (asks.size > 50) asks.delete(asks.keys().next().value);
       if (m.owner === this.me) this.answerAsk(from, m).catch(() => {});
     } else if (m.type === 'answer') {
       if (this.pendingAsk && this.pendingAsk.id === m.id && from === this.pendingAsk.owner) this.pendingAsk.reply = { yes: m.yes, text: m.text };
+      // 許したのを聞いた: その人がそこの物を取っても、無断の取得とは見ない
+      const a = this.heardAsks && this.heardAsks.get(m.id);
+      if (a && m.yes && a.owner === from) this.notePermitted(a.from, a.pos, a.block);
     } else if (m.type === 'explain') {
       if (m.owner === this.me && k) {
         const e = k.get(dim, m.pos) || { pos: m.pos, block: m.block };
@@ -626,11 +655,13 @@ class OwnershipCtl {
         if (k && m.pos) k.mark(dim, m.pos, 'present');
       }
     } else if (m.type === 'rumor') {
-      if (m.owner === this.me) {
+      if (m.owner === this.me && (this.permittedTake(m.taker, null, m.block) || !this.firstNews('rumor_owner', m.taker, m.owner, m.block))) {
+        // 自分が許した取得・もう聞いた取得の噂は、関係を動かさない
+      } else if (m.owner === this.me) {
         const loss = this.store.losses.slice().reverse().find((l) => !l.culprit && sameFamily(l.block, m.block));
         if (loss) this.noticeLoss({ pos: loss.pos, block: loss.block }, m.taker, 'heard', { from });
         else if (this.cfg.social) { const times = (this.store.takesBy[m.taker] = (this.store.takesBy[m.taker] || 0) + 1); this.applyImpact(m.taker, O.socialImpact('heard', { temperament: T, times }, this.cfg), { block: m.block, from }); }
-      } else if (m.taker !== this.me && this.cfg.social) {
+      } else if (m.taker !== this.me && this.cfg.social && !this.permittedTake(m.taker, null, m.block) && this.firstNews('rumor', m.taker, m.owner, m.block)) {
         this.applyImpact(m.taker, O.socialImpact('rumor', { temperament: T, n: m.n }, this.cfg), { owner: m.owner, block: m.block, from });
       }
     }
@@ -643,6 +674,7 @@ class OwnershipCtl {
     const aff = this.agent.social.relations[from] ? this.agent.social.relations[from].affinity : 50;
     const a = O.permissionAnswer({ temperament: this.agent.social.temperament, affinity: aff, harm, emergency: m.emergency }, this.cfg);
     const rec = { id: m.id, yes: a.yes, to: from, block: m.block };
+    if (a.yes) this.notePermitted(from, m.pos, m.block);
     const s = await this.sendLine('answer', rec, (text) => O.line.answer(rec, text));
     this.write({ event: 'ownership_permission', to: from, block: m.block, pos: m.pos, yes: a.yes, score: a.score, why: a.why, harm, said: s.text || null, via: s.via });
   }

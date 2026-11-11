@@ -409,3 +409,33 @@ test('村の物 (2026-11-11 ユーザー決定): 村人を見かけた所の近�
   // 村の物を取る理由: 持ち主のいない public。緊急でなければ selfish_acquisition (罰の相手はいない)
   assert.strictEqual(acts.ownInfos['take_placed:white_bed@village'].reason.reasonCode, 'selfish_acquisition');
 });
+
+test('許した取得は無断の取得にしない (持ち主・許したのを聞いた人)。同じ取得の噂は一度だけ効く (2026-11-11 の実行で見つかった)', async () => {
+  const w = world();
+  const m = mkAgent('Aoi', w, { temperament: { empathy: 0.9, obedience: 0.7, greed: 0.1 } });
+  const k = mkAgent('Arata', w, { temperament: { sociability: 0.9 } });
+  m.agent.social.rel('Megumi').affinity = 70;
+  m.ctl.knowledge.learn(DIM, [2, 64, 0], { block: 'jungle_planks', owner: 'Aoi', source: 'self', tick: 0 });
+  k.ctl.knowledge.learn(DIM, [2, 64, 0], { block: 'jungle_planks', owner: 'Aoi', source: 'seen', tick: 0 });
+  const ask = O.parseLine(O.line.ask({ id: 'Megumi-5', block: 'jungle_planks', pos: [2, 64, 0], owner: 'Aoi' }, 'いい?'));
+  k.ctl.onLine('Megumi', ask);
+  m.ctl.onLine('Megumi', ask);
+  await new Promise((r) => setTimeout(r, 30));
+  const ans = O.parseLine(m.bot._chat[0]);
+  assert.strictEqual(ans.yes, true);
+  k.ctl.onLine('Aoi', ans);
+  const gone = { pos: { x: 2, y: 64, z: 0 }, oldName: 'jungle_planks', newName: 'air', who: 'Megumi', players: [], me: { x: 0, y: 64, z: 0 } };
+  m.ctl.onBlockChange(gone);
+  k.ctl.onBlockChange(gone);
+  assert.strictEqual(ev(m.writes, 'ownership_social').length, 0);
+  assert.strictEqual(ev(k.writes, 'ownership_social').length, 0);
+  assert.strictEqual(ev(m.writes, 'ownership_loss')[0].kind, 'permitted_take_seen');
+  assert.strictEqual(k.ctl.maybeGossip(rawAt({ entities: [{ kind: 'player', name: 'Aoi', pos: { x: 3, y: 64, z: 0 }, d: 3 }] })), null);
+  // 許したことを知らない人の噂が届いても、持ち主は下げない
+  m.ctl.onLine('Hideki', O.parseLine(O.line.rumor({ taker: 'Megumi', block: 'jungle_planks', owner: 'Aoi', n: 1 })));
+  assert.strictEqual(ev(m.writes, 'ownership_social').length, 0);
+  // 同じ取得の噂を何人から聞いても、聞いた人の見方は一度だけ下がる
+  const b = mkAgent('Hana', w);
+  for (const from of ['Hideki', 'Himari', 'Haruto']) b.ctl.onLine(from, O.parseLine(O.line.rumor({ taker: 'Yua', block: 'torch', owner: 'Miho', n: 1 })));
+  assert.strictEqual(ev(b.writes, 'ownership_social').length, 1);
+});
