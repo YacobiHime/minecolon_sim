@@ -61,7 +61,8 @@ function provenanceStats(all, opts = {}) {
   for (const t of takes) if (t.ok) { const it = byId.get(t.intentId); if (it) done.push({ ...it, _name: t._name, got: t.got }); }
   for (const it of intents.filter((r) => r.perspective === 'ground_truth')) {
     // 台帳の remove に意図の id が付いていれば掘れた。台帳が無ければ記録を数える (掘る直前の記録なので、ほぼ掘れている)
-    if (ledger && !removedIntents.has(it.id)) continue;
+    //   台帳に無い外界の物 (村など、truth.ownership.world) は台帳で確かめられないので、記録を数える
+    if (ledger && !removedIntents.has(it.id) && !(it.truth && it.truth.ownership && it.truth.ownership.world)) continue;
     done.push(it);
   }
   const ownTruth = (it) => it.truth && it.truth.placedBy === it._name;

@@ -223,6 +223,10 @@ test('provenance_stats: 記録の時点で台帳が届いていなかった (wor
   const p = provenanceStats(all, { ledger: l });
   assert.strictEqual(p.truthFixedFromLedger, 1);
   assert.deepStrictEqual(p.byTruthOwnerKind, { personal: 1 });
+  // 台帳に無い村の物の ground truth の記録 (掘る直前) は、台帳で確かめられなくても数える
+  const village = { _name: 'Koji', event: 'intent', id: 'Koji-i2', ts: new Date(1600).toISOString(), action: 'collect', perspective: 'ground_truth', reasonCode: 'mistaken_as_natural', permission: 'not_applicable',
+    target: { block: 'acacia_log', pos: { x: 50, y: 64, z: 5 }, owner: null, ownerKind: 'natural' }, truth: { placedBy: null, ownership: { kind: 'public', owner: null, world: true } }, functionalHarm: {} };
+  assert.deepStrictEqual(provenanceStats([...all, village], { ledger: l }).byTruthOwnerKind, { personal: 1, public_world: 1 });
 });
 
 test('replay_provenance:前の記録 (台帳なし) から、place の位置で台帳を作り、collect を近い置かれた物の取得と推定する', () => {
