@@ -243,6 +243,11 @@ test('置くところを見た: すぐ近くにほかの人が1人だけで、�
   assert.strictEqual(y.ctl.knowledge.get(DIM, [5, 64, 0]), null);
   // 遠すぎて見えない
   y.ctl.onBlockChange({ pos: { x: 40, y: 64, z: 0 }, oldName: 'air', newName: 'torch', players: [{ name: 'Miho', pos: { x: 41, y: 64, z: 0 }, held: 'torch' }], me });
+  // 自然に伸びる物 (ツタ) や、手の物が分からないときは、そばにいた人の物にしない (実行1でツタが「置いた物」になった)
+  y.ctl.onBlockChange({ pos: { x: 1, y: 66, z: 1 }, oldName: 'air', newName: 'vine', players: [{ name: 'Ryo', pos: { x: 1, y: 65, z: 2 }, held: 'vine' }], me });
+  y.ctl.onBlockChange({ pos: { x: 1, y: 64, z: 2 }, oldName: 'air', newName: 'oak_planks', players: [{ name: 'Ryo', pos: { x: 1, y: 64, z: 3 }, held: null }], me });
+  assert.strictEqual(y.ctl.knowledge.get(DIM, [1, 66, 1]), null);
+  assert.strictEqual(y.ctl.knowledge.get(DIM, [1, 64, 2]), null);
   assert.strictEqual(y.ctl.knowledge.get(DIM, [40, 64, 0]), null);
   // 聞いた: 許可を求める行から、持ち主を知る
   y.ctl.onLine('Ken', O.parseLine(O.line.ask({ id: 'Ken-3', block: 'chest', pos: [7, 64, 0], owner: 'Aoi' }, '')));

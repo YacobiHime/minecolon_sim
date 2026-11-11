@@ -1387,15 +1387,18 @@ class Agent {
       ctx.pathNext = this.goalPath.pathNext();
       if (planUpdate) this.log(`[${cfg.persona.name}] ${planUpdate}: ${ctx.progress}`);
     }
+    // 所有の重みと判断材料は、行動の一覧を作り直す前 (addSearchAction は ctx.actions を新しい配列にする) に取っておく
+    //   (2026-11-11 の実行1: 一覧の配列に付けていたので消え、重みが掛かっていなかった)
+    const ownAct = { weights: ctx.actions.ownWeights || null, infos: ctx.actions.ownInfos || null };
     // 探しながら歩く (search) の候補と、選択肢の重み (人の所へ行く・ついて行く・道筋に関係しない覚えた場所)
     const searchInfo = this.addSearchAction(ctx, raw, tick);
     if (this.cwCfg.enabled) ctx.choiceWeights = choiceWeight.choiceWeights(ctx.actions, this.weightContext(tick), this.cwCfg);
     // 所有の重み (cfg.provenance.reweight): take_placed の候補に、損害・社会的な損・代わりの手段・所有者不明・断られた の係数を掛ける (0 にはしない)
     const ownWeightInfo = {};
-    if (ctx.actions.ownInfos) for (const [k, i] of Object.entries(ctx.actions.ownInfos)) ownWeightInfo[k] = i.weight;
-    if (this.own.cfg.reweight && ctx.actions.ownWeights) {
+    if (ownAct.infos) for (const [k, i] of Object.entries(ownAct.infos)) ownWeightInfo[k] = i.weight;
+    if (this.own.cfg.reweight && ownAct.weights) {
       ctx.choiceWeights = { ...(ctx.choiceWeights || {}) };
-      for (const [k, w] of Object.entries(ctx.actions.ownWeights)) if (w !== 1) ctx.choiceWeights[k] = Math.round((ctx.choiceWeights[k] ?? 1) * w * 1000) / 1000;
+      for (const [k, w] of Object.entries(ownAct.weights)) if (w !== 1) ctx.choiceWeights[k] = Math.round((ctx.choiceWeights[k] ?? 1) * w * 1000) / 1000;
     }
     ctx.ownWeightInfo = ownWeightInfo;
     const obsMs = Date.now() - tObs;

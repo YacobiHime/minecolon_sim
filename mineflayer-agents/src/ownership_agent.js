@@ -15,6 +15,8 @@ const { blockVisible } = require('./observe');
 const { dist3 } = require('./util');
 
 const AIRISH = /^(air|cave_air|void_air)$/;
+// 自然に伸びる・生える・広がる物 (置くのを見たとはしない)
+const GROWS = /vine|_leaves$|^(short_grass|grass|tall_grass|fern|large_fern|snow|kelp|kelp_plant|bamboo|sugar_cane|cactus|seagrass|tall_seagrass|cave_vines|cave_vines_plant|sweet_berry_bush|grass_block|dirt|mycelium|moss_block|cobweb)$|_log$|_mushroom$/;
 const TAKE_LIKE = new Set(['collect', 'take_placed', 'dismantle_own', 'repair_or_relocate_public']);
 // 台帳に無い人工物の ground truth (村の家・ベッド・扉・柵・松明など)。2026-11-11 ユーザー決定: 外界の物なので、みんなの物 (public)
 const WORLD_TRUTH = Object.freeze({ placedBy: null, ownership: { kind: 'public', owner: null, world: true }, purpose: 'world_structure', status: 'unlogged', placedAt: null });
@@ -304,7 +306,9 @@ class OwnershipCtl {
       const close = players.filter((q) => q && q.pos && dist3(q.pos, c) <= this.cfg.nearDist);
       if (close.length !== 1) return;
       const q = close[0];
-      if (q.held && !sameFamily(O.itemOf(newName), q.held) && O.itemOf(newName) !== q.held && !(newName.startsWith(q.held.replace(/_seeds$/, '')))) return;
+      // 手の物が分かって、置かれた物と合うときだけ (自然に伸びる・生える物 (ツタ・草・苗木の成長) を、そばにいた人の物にしない。2026-11-11 の実行1でツタが「置いた物」になった)
+      if (!q.held || GROWS.test(newName)) return;
+      if (!sameFamily(O.itemOf(newName), q.held) && O.itemOf(newName) !== q.held && !(newName.startsWith(q.held.replace(/_seeds$/, '')))) return;
       if (this.bot && !blockVisible(this.bot, new Vec3(p.x, p.y, p.z))) return;
       this.knowledge.learn(dim, p, { block: newName, owner: q.name, kind: 'personal', source: 'seen', tick: this.tick() });
       this.counts.learned += 1;
