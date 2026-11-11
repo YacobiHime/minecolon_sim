@@ -51,6 +51,7 @@ const DEFAULTS = {
     repeatStep: 0.25, // 同じ相手に取られた回数ごと (4回まで)
   },
   relocate: { minFromBase: 24, nearBase: 8 },
+  village: { radius: 32, keep: 60 }, // 村人を見かけた所から radius 以内の、所有者を知らない人工物を村の物 (public) とみなす。覚える所の数 keep
   gossip: { minSociability: 0.4, cooldownTicks: 20 },
 };
 
@@ -297,6 +298,7 @@ class OwnKnowledge {
     this.store = store;
     this.me = me;
     this.cfg = cfgOf(cfg);
+    this.publicNear = null; // (dim, pos) → 村の中か (村人を見かけた所の近く)。無ければ村の見分けはしない
   }
 
   learn(dim, pos, info = {}) {
@@ -333,7 +335,12 @@ class OwnKnowledge {
       if (!e.owner) return { category: 'unknown', owner: null, entry: e };
       return { category: e.owner === this.me ? 'own' : 'other', owner: e.owner, entry: e };
     }
-    if (ARTIFACT.test(String(name))) return { category: 'unknown', owner: null, entry: null };
+    // 村の物 (2026-11-11 ユーザー決定: 台帳に無い外界の人工物はみんなの物 = public)。見分けは見た事実だけ:
+    //   村人を見かけた所 (publicNear。ownership_agent.js が覚える) の近くの、所有者を知らない人工物は村の物とみなす
+    if (ARTIFACT.test(String(name))) {
+      if (this.publicNear && this.publicNear(dim, pos)) return { category: 'public', owner: null, entry: null, village: true };
+      return { category: 'unknown', owner: null, entry: null };
+    }
     return { category: 'natural', owner: null, entry: null };
   }
 

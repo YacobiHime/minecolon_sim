@@ -16,8 +16,11 @@ const { dist3 } = require('./util');
 
 const AIRISH = /^(air|cave_air|void_air)$/;
 const TAKE_LIKE = new Set(['collect', 'take_placed', 'dismantle_own', 'repair_or_relocate_public']);
-// 台帳に無い人工物の ground truth (村の家・ベッド・松明など)。持ち主はいない (unknown owner と同じに扱う。判断はユーザーに確認する点)
-const WORLD_TRUTH = Object.freeze({ placedBy: null, ownership: { kind: 'world', owner: null }, purpose: 'world_structure', status: 'unlogged', placedAt: null });
+// 台帳に無い人工物の ground truth (村の家・ベッド・扉・柵・松明など)。2026-11-11 ユーザー決定: 外界の物なので、みんなの物 (public)
+const WORLD_TRUTH = Object.freeze({ placedBy: null, ownership: { kind: 'public', owner: null, world: true }, purpose: 'world_structure', status: 'unlogged', placedAt: null });
+// 天然と同じ見た目の、村の家の一部 (原木・丸石など): 台帳に無く、すぐ隣 (26マス) に台帳に無い人工物 (板材・ガラス・扉など) がある
+const STRUCTURE_TRUTH = Object.freeze({ placedBy: null, ownership: { kind: 'public', owner: null, world: true }, purpose: 'world_structure_natural_looking', status: 'unlogged', placedAt: null });
+const STRUCTURAL = /_log$|_wood$|^(cobblestone|mossy_cobblestone|stone_bricks|stone|dirt_path|sandstone|smooth_sandstone|terracotta|white_terracotta|bricks|clay)$/;
 const P = (p) => (Array.isArray(p) ? { x: p[0], y: p[1], z: p[2] } : { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) });
 const samePos = (a, b) => !!a && !!b && Math.floor(a.x) === Math.floor(b.x) && Math.floor(a.y) === Math.floor(b.y) && Math.floor(a.z) === Math.floor(b.z);
 // 本当の代わりの手段 (評価用): 天然の入手元の種類 (台帳の置かれた物は除く)
@@ -39,6 +42,7 @@ class OwnershipCtl {
     if (this.ledger) this.ledger.addWriter(this.me);
     const ex = agent.memory.extra || (agent.memory.extra = {});
     this.knowledge = this.cfg.actions ? new O.OwnKnowledge(ex.owned || (ex.owned = {}), { me: this.me, cfg: this.cfg }) : null;
+    if (this.knowledge) this.knowledge.publicNear = (dim, pos) => this.isVillage(dim, pos);
     this.store = ex.ownership || (ex.ownership = { owe: [], losses: [], permits: {}, asked: {}, takesBy: {}, witnessed: [], seq: 0, rumorAt: {} });
     this.cur = null; // 今の行動 { action, arg, choice, intent, tick }
     this.pendingAsk = null;
@@ -127,6 +131,7 @@ class OwnershipCtl {
     if (truth && !sameFamily(truth.block, i.name)) truth = null;
     // 台帳に無い、見た目で人の置いた物 (村・遺跡など、ワールドが作った物か、記録の前に置かれた物): 持ち主の無い置かれた物として記録する
     if (!truth && O.ARTIFACT.test(i.name)) truth = WORLD_TRUTH;
+    if (!truth && STRUCTURAL.test(i.name) && this.nextToWorldArtifact(i.pos)) truth = STRUCTURE_TRUTH;
     if (!truth) return;
     const c = this.cur;
     if (c && c.intent && samePos(c.intent.target.pos, i.pos)) return; // take_placed などの意図の通り
@@ -173,11 +178,46 @@ class OwnershipCtl {
     } catch (_) { /* ignore */ }
   }
 
+  // すぐ隣 (26マス) に、台帳に無い人工物があるか (村の家の一部の見分け。評価用)
+  nextToWorldArtifact(pos) {
+    const bot = this.bot;
+    if (!bot || typeof bot.blockAt !== 'function') return false;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      if (!dx && !dy && !dz) continue;
+      const q = { x: pos.x + dx, y: pos.y + dy, z: pos.z + dz };
+      let b = null;
+      try { b = bot.blockAt(new Vec3(q.x, q.y, q.z)); } catch (_) { b = null; }
+      if (b && O.ARTIFACT.test(b.name) && !/^(farmland|wheat|carrots|potatoes|beetroots)$/.test(b.name) && !(this.ledger && this.ledger.lookup(this.dim(), q))) return true;
+    }
+    return false;
+  }
+
+  // 村人を見かけた所を覚える (村の物の見分け。見た事実だけ)
+  noteVillagers(raw) {
+    const vs = (raw.entities || []).filter((e) => e.name === 'villager' && e.pos);
+    if (!vs.length) return;
+    const list = this.store.villagers || (this.store.villagers = []);
+    for (const v of vs) {
+      const p = { x: Math.round(v.pos.x), y: Math.round(v.pos.y), z: Math.round(v.pos.z) };
+      const near = list.find((q) => Math.hypot(q.x - p.x, q.z - p.z) <= 8);
+      if (near) { near.tick = this.tick(); continue; }
+      list.push({ ...p, tick: this.tick() });
+      if (list.length > this.cfg.village.keep) list.shift();
+    }
+  }
+
+  isVillage(dim, pos) {
+    if (normDim(dim) !== 'minecraft:overworld') return false;
+    const p = Array.isArray(pos) ? { x: pos[0], z: pos[2] } : pos;
+    return (this.store.villagers || []).some((q) => Math.hypot(q.x - p.x, q.z - p.z) <= this.cfg.village.radius);
+  }
+
   needsNow() { try { return this.agent.social.needsModel.effective(); } catch (_) { return {}; } }
 
   // ---- 観察 (毎判断) ----
   observe(raw) {
     this.lastRaw = raw;
+    this.noteVillagers(raw);
     const bot = this.bot;
     if (!bot || typeof bot.blockAt !== 'function') return;
     const dim = this.dim();

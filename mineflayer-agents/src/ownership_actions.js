@@ -48,7 +48,7 @@ function infoFor(own, raw, block, pos, cls, extra = {}) {
   const cost = O.socialCost({ kind, affinity: owner && own.affinity ? own.affinity(owner) : null, witnesses, temperament: own.temperament, permission });
   const goalRelated = !!(own.goalNames && (own.goalNames.has(block) || own.goalNames.has(O.itemOf(block))));
   const reason = O.decideReason({ action: extra.action || 'take_placed', category: cls.category, permission, block, needs: own.needs, alternatives: alts, emergencyNeed: own.cfg.emergencyNeed, goalRelated });
-  const info = { block, pos: { x: pos.x, y: pos.y, z: pos.z }, category: cls.category, owner, ownerNear, source: cls.entry ? cls.entry.source : 'looks_placed', purpose: cls.entry ? cls.entry.purpose || null : null,
+  const info = { block, pos: { x: pos.x, y: pos.y, z: pos.z }, category: cls.category, owner, ownerNear, source: cls.entry ? cls.entry.source : cls.village ? 'village' : 'looks_placed', purpose: cls.entry ? cls.entry.purpose || null : cls.village ? 'village' : null, ...(cls.village ? { village: true } : {}),
     permission, alternatives: alts, harm, socialCost: cost, witnesses, emergency: reason.emergency, reason, goalRelated,
     greedTrait: cls.category === 'own' || !own.temperament ? null : own.temperament.greed };
   info.weight = O.choiceWeight(info, own.cfg);
@@ -58,13 +58,13 @@ function infoFor(own, raw, block, pos, cls, extra = {}) {
 function ownerTextEn(i) {
   if (i.category === 'unknown') return 'placed by someone; you do not know who';
   if (i.category === 'group') return `shared by your group${i.owner ? ` (${i.owner} placed it)` : ''}`;
-  if (i.category === 'public') return `shared with everyone${i.owner ? ` (${i.owner} shared it)` : ''}`;
+  if (i.category === 'public') return i.village ? 'part of the village; not anyone\'s own' : `shared with everyone${i.owner ? ` (${i.owner} shared it)` : ''}`;
   return `placed by ${i.owner}${i.ownerNear ? `; ${i.owner} is within earshot` : ''}`;
 }
 function ownerTextJa(i) {
   if (i.category === 'unknown') return '誰かが置いた物 (誰かは知らない)';
   if (i.category === 'group') return `みんなの物${i.owner ? ` (${i.owner}が置いた)` : ''}`;
-  if (i.category === 'public') return `共有の物${i.owner ? ` (${i.owner}が共有にした)` : ''}`;
+  if (i.category === 'public') return i.village ? '村の物 (誰か個人の物ではない)' : `共有の物${i.owner ? ` (${i.owner}が共有にした)` : ''}`;
   return `${i.owner}が置いた物${i.ownerNear ? ` (${i.owner}は声の届く所にいる)` : ''}`;
 }
 function permTextEn(i) { return i.permission === 'granted' ? `; ${i.owner} said you may take it` : i.permission === 'denied' ? `; ${i.owner} said no` : ''; }
@@ -88,7 +88,7 @@ function ownershipActions(raw, ctx = {}) {
     for (const p of ps) {
       const cls = own.knowledge.classify(own.dim, p, b.name);
       if (cls.category === 'natural') continue;
-      const who = cls.category === 'own' ? 'mine' : cls.category === 'other' ? cls.owner : cls.category;
+      const who = cls.category === 'own' ? 'mine' : cls.category === 'other' ? cls.owner : cls.village ? 'village' : cls.category;
       const k = `${b.name}@${who}`;
       if (!groups.has(k)) groups.set(k, { block: b.name, cls, ps: [] });
       groups.get(k).ps.push(p);

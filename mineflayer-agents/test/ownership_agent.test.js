@@ -105,7 +105,7 @@ test('ほかの人の置いた物を、置かれた物と知らずに collect �
   w.set('8,64,0', 'torch');
   y.ctl.cur = { action: 'go_to', choice: {} };
   await y.bot.dig(y.bot.blockAt(new Vec3(8, 64, 0)));
-  assert.strictEqual(ev(y.writes, 'intent')[2].truth.ownership.kind, 'world');
+  assert.deepStrictEqual(ev(y.writes, 'intent')[2].truth.ownership, { kind: 'public', owner: null, world: true });
   // provenance off (知識なし) の collect は unmodeled
   const z = mkAgent('Ken', w, { dir, prov: { actions: false } });
   await placeTorch(m, [9, 64, 0]);
@@ -359,4 +359,39 @@ test('collect の途中で、対象でない置かれた物 (道をふさぐ壁)
   assert.strictEqual(it.reasonCode, 'accidental');
   assert.strictEqual(it.action, 'collect_path');
   assert.strictEqual(it.truth.ownership.kind, 'group');
+});
+
+test('村の物 (2026-11-11 ユーザー決定): 村人を見かけた所の近くの、所有者を知らない人工物は public (みんなの物)。天然と同じ見た目の家の原木は collect のまま、評価上は public の誤認', async () => {
+  const { listActions } = require('../src/actions');
+  const w = world();
+  const y = mkAgent('Yua', w);
+  const raw = { self: { name: 'Yua', pos: { x: 0, y: 64, z: 0 }, timeOfDay: 6000 }, inventory: [], heard: [], craft: { now: [], withTable: [] }, tableNearby: null,
+    entities: [], blocks: [{ name: 'white_bed', diggable: true, nearest: { x: 3, y: 64, z: 0, d: 3 }, positions: [{ x: 3, y: 64, z: 0, d: 3 }] },
+      { name: 'oak_log', diggable: true, nearest: { x: 5, y: 64, z: 0, d: 5 }, positions: [{ x: 5, y: 64, z: 0, d: 5 }] }] };
+  // 村人を見る前: 所有者不明
+  assert.strictEqual(y.ctl.knowledge.classify(DIM, [3, 64, 0], 'white_bed').category, 'unknown');
+  y.ctl.observe({ ...raw, entities: [{ kind: 'mob', name: 'villager', pos: { x: 10, y: 64, z: 4 }, d: 10 }] });
+  const c = y.ctl.knowledge.classify(DIM, [3, 64, 0], 'white_bed');
+  assert.deepStrictEqual([c.category, c.owner, c.village], ['public', null, true]);
+  assert.strictEqual(y.ctl.knowledge.classify(DIM, [300, 64, 0], 'white_bed').category, 'unknown'); // 村から遠い
+  assert.strictEqual(y.ctl.knowledge.classify('minecraft:the_nether', [3, 64, 0], 'white_bed').category, 'unknown');
+  const acts = listActions(raw, { own: y.ctl.view(raw) });
+  const t = acts.find((a) => a.name === 'take_placed').choices[0];
+  assert.strictEqual(t.id, 'white_bed@village');
+  assert.match(t.labelEn, /part of the village; not anyone's own/);
+  assert.strictEqual(t.own.source, 'village');
+  assert.ok(acts.find((a) => a.name === 'collect').choices.some((x) => x.id === 'oak_log'));
+  // 村の家の原木 (隣に台帳に無い人工物) を collect → 評価上は public の物を天然と誤認
+  w.set('5,64,0', 'oak_log'); w.set('5,65,0', 'oak_planks'); w.set('9,64,0', 'oak_log');
+  y.ctl.cur = { action: 'collect', choice: { block: 'oak_log' } };
+  await y.bot.dig(y.bot.blockAt(new Vec3(5, 64, 0)));
+  const it = ev(y.writes, 'intent')[0];
+  assert.strictEqual(it.reasonCode, 'mistaken_as_natural');
+  assert.deepStrictEqual(it.truth.ownership, { kind: 'public', owner: null, world: true });
+  assert.strictEqual(it.truth.purpose, 'world_structure_natural_looking');
+  // 森の原木 (隣に人工物なし) は記録しない
+  await y.bot.dig(y.bot.blockAt(new Vec3(9, 64, 0)));
+  assert.strictEqual(ev(y.writes, 'intent').length, 1);
+  // 村の物を取る理由: 持ち主のいない public。緊急でなければ selfish_acquisition (罰の相手はいない)
+  assert.strictEqual(acts.ownInfos['take_placed:white_bed@village'].reason.reasonCode, 'selfish_acquisition');
 });

@@ -55,7 +55,8 @@ function provenanceStats(all, opts = {}) {
   for (const it of placedTakes) {
     inc(byReason, it.reasonCode);
     inc(byOwnerKind, it.target ? it.target.ownerKind || 'unknown' : 'unknown');
-    inc(byTruthKind, it.truth ? (it.truth.ownership && it.truth.ownership.kind) || 'personal' : 'not_in_ledger');
+    // 台帳に無い外界の物 (村など) は public (2026-11-11 ユーザー決定)。プレイヤーの共有物と分けて public_world と数える
+    inc(byTruthKind, it.truth ? (it.truth.ownership && it.truth.ownership.world ? 'public_world' : (it.truth.ownership && it.truth.ownership.kind) || 'personal') : 'not_in_ledger');
     inc(byBlock, it.target ? it.target.block : '?');
   }
 

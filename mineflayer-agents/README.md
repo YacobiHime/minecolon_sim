@@ -567,7 +567,9 @@ LUNA_API_KEY=dummy node mineflayer-agents/run.js ... --llm-provider luna --llm-b
   `reweight`・`social` で片方だけ切れる)、`countPlaced` (物のゴールで自分の置いた機能している物を「持っている」に数える。既定 on、actions が on のとき)。
   比較実験: `run.js --provenance on|off --ownership-penalty on|off [--ledger on|off]`。
 - **見た目で人工物と分かる物** (`ARTIFACT`: 松明・作業台・ベッド・板材・柵など) は、所有者を知らなくても置かれた物と認識し、`take_placed` (所有者不明) になる。
-  丸石・土・原木のように天然と同じ見た目の物は、知らなければ collect に残り、台帳と突き合わせて `mistaken_as_natural` と記録される。台帳に無い人工物 (村の物など) の本当の持ち主は `world` (持ち主なし)。
+  丸石・土・原木のように天然と同じ見た目の物は、知らなければ collect に残り、台帳と突き合わせて `mistaken_as_natural` と記録される。台帳に無い人工物 (村の物など) は**みんなの物 (public)** (2026-11-11 ユーザー決定。外界の物なので)。
+  エージェントは、村人を見かけた所 (`village.radius` 32 以内) の所有者を知らない人工物を「村の物」(public、`take_placed:…@village`) と認識する。
+  評価の記録では `truth.ownership = { kind: 'public', world: true }`。天然と同じ見た目の村の家の原木・丸石 (隣に台帳に無い人工物がある) は collect のままで、掘ると public の物の `mistaken_as_natural` になる。
 - **理由** (行動の前に決める。LLM に説明させない): `repair_or_relocate_public` → public_repair / 行動の対象でない掘り (pathfinder・unstuck・別の物を掘る途中) → accidental /
   collect → mistaken_as_natural (provenance off なら unmodeled) / dismantle_own → own_relocation / 許可あり → permission_granted / 所有者不明 → unknown_ownership /
   その物が満たす欲求 (松明・壁 → 安心、ベッド → 眠気、作物・かまど → 空腹) が `emergencyNeed` (0.8) 以上で代わりの手段が無い → emergency_need / それ以外 → selfish_acquisition。
