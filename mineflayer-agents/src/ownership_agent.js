@@ -17,7 +17,7 @@ const { dist3 } = require('./util');
 const AIRISH = /^(air|cave_air|void_air)$/;
 // 自然に伸びる・生える・広がる物 (置くのを見たとはしない)
 const GROWS = /vine|_leaves$|^(short_grass|grass|tall_grass|fern|large_fern|snow|kelp|kelp_plant|bamboo|sugar_cane|cactus|seagrass|tall_seagrass|cave_vines|cave_vines_plant|sweet_berry_bush|grass_block|dirt|mycelium|moss_block|cobweb)$|_log$|_mushroom$/;
-const TAKE_LIKE = new Set(['collect', 'take_placed', 'dismantle_own', 'repair_or_relocate_public']);
+const TAKE_LIKE = new Set(['collect', 'take_placed', 'dismantle_own', 'repair_or_relocate_public', 'take_back']);
 // 台帳に無い人工物の ground truth (村の家・ベッド・扉・柵・松明など)。2026-11-11 ユーザー決定: 外界の物なので、みんなの物 (public)
 const WORLD_TRUTH = Object.freeze({ placedBy: null, ownership: { kind: 'public', owner: null, world: true }, purpose: 'world_structure', status: 'unlogged', placedAt: null });
 // 天然と同じ見た目の、村の家の一部 (原木・丸石など): 台帳に無く、すぐ隣 (26マス) に台帳に無い人工物 (板材・ガラス・扉など) がある
@@ -270,6 +270,8 @@ class OwnershipCtl {
     const firstCulprit = culprit && !loss.culprit;
     if (culprit) loss.culprit = culprit;
     this.write({ event: 'ownership_loss', kind: how, pos: loss.pos, block: e.block, culprit: loss.culprit, ...extra });
+    // わだかまり (conflict_agent.js): 取られた相手が分かったとき (見た・聞いた・本人から聞いた)
+    if (firstCulprit && this.agent.conflict) this.agent.conflict.grieve(culprit, how === 'witnessed' ? 'took_witnessed' : how === 'told' ? 'took_told' : 'took_heard', { item: O.itemOf(e.block), force: true });
     if (!this.cfg.social) return loss;
     if (how === 'discovered' && !loss.culprit) this.applyImpact(null, O.socialImpact('discovered', { temperament: this.agent.social.temperament }, this.cfg), { pos: loss.pos, block: e.block });
     else if (firstCulprit) {
@@ -470,6 +472,13 @@ class OwnershipCtl {
   beforeAct(resolved, ctx) {
     const ch = resolved.choice || {};
     this.cur = { action: resolved.action, arg: resolved.arg, choice: ch, intent: null, tick: this.tick() };
+    // 取り返す (conflict.js の take_back): 理由は retaliation
+    if (resolved.action === 'take_back' && ch.pos && ch.block) {
+      const reason = O.decideReason({ action: 'take_back', category: 'other', block: ch.block, needs: this.needsNow(), alternatives: [] });
+      this.cur.intent = this.intentRecord({ action: 'take_back', block: ch.block, pos: ch.pos, category: 'other', owner: ch.player, reason, harm: O.functionalHarm(ch.block, this.harmFacts(ch.pos, ch.block)), alternatives: [],
+        permission: 'not_requested', socialCostV: 0, source: 'grudge', choice: `take_back:${resolved.arg}` });
+      return this.cur.intent;
+    }
     const takeLike = resolved.action === 'take_placed' || resolved.action === 'dismantle_own' || (resolved.action === 'repair_or_relocate_public' && ch.kind === 'relocate');
     if (!takeLike || !ch.own || !ch.pos) return null;
     const i = ch.own;
@@ -511,7 +520,7 @@ class OwnershipCtl {
     const persona = this.agent.cfg.persona;
     const facts = {
       ask: `${rec.owner}が置いた${rec.block}を使わせてもらえるか聞く${rec.emergency ? '。今どうしても要る' : ''}`,
-      answer: rec.yes ? `${rec.to}に、${rec.block}を使ってよいと答える` : `${rec.to}に、${rec.block}は使わないでほしいと答える`,
+      answer: rec.yes ? `${rec.to}に、${rec.block}を使ってよいと答える` : `${rec.to}に、${rec.block}は使わないでほしいと答える${rec.grudgeWord ? `。理由: 前に${rec.to}に${rec.grudgeWord}` : ''}`,
       explain: `${rec.owner}に、${rec.owner}の${rec.block}を取ったことを話す。理由: ${{ emergency_need: 'どうしても必要で、ほかに手段が無かった', unknown_ownership: '誰の物か知らなかった', mistaken_as_natural: '人の物だと気づかなかった', selfish_acquisition: '自分が欲しかった', permission_granted: '許してもらった' }[rec.reasonCode] || rec.reasonCode}`,
       returned: `${rec.owner}に、取った${rec.block}を返す`,
       repaired: `${rec.owner}の${rec.block}を元の所に戻したと伝える`,
@@ -553,6 +562,7 @@ class OwnershipCtl {
     const answer = reply ? (reply.yes ? 'granted' : 'denied') : 'no_answer';
     if (reply) this.store.permits[keyOf(this.dim(), ch.pos)] = { owner: ch.player, granted: reply.yes, tick: this.tick() };
     this.write({ event: 'ownership_ask', id, owner: ch.player, block: ch.block, pos: ch.pos, emergency: rec.emergency, answer, waitedMs: Date.now() - t0, said: s.text || null, via: s.via, harm: i.harm || null });
+    if (reply && !reply.yes && this.agent.conflict) this.agent.conflict.grieve(ch.player, 'denied', { item: ch.block });
     if (!reply) { this.agent.social.onIgnored(ch.player); return { ok: false, msg: `${ch.player}に${ch.block}を使ってよいか聞いたが、返事がなかった`, msgEn: `asked ${ch.player} about the ${ch.block}; no answer`, permission: answer }; }
     return { ok: true, msg: `${ch.player}に${ch.block}を使ってよいか聞いた: ${reply.yes ? 'いいと言われた' : '断られた'}「${reply.text || ''}」`, msgEn: `asked ${ch.player} about the ${ch.block}; ${reply.yes ? 'they said yes' : 'they said no'}`, permission: answer };
   }
@@ -672,11 +682,13 @@ class OwnershipCtl {
   async answerAsk(from, m) {
     const harm = O.functionalHarm(m.block, this.harmFacts(P(m.pos), m.block));
     const aff = this.agent.social.relations[from] ? this.agent.social.relations[from].affinity : 50;
-    const a = O.permissionAnswer({ temperament: this.agent.social.temperament, affinity: aff, harm, emergency: m.emergency }, this.cfg);
-    const rec = { id: m.id, yes: a.yes, to: from, block: m.block };
+    // 頼んだ人へのわだかまりの分だけ貸しにくい。断るとき、何をされたかが発話に出る
+    const grudge = this.agent.social.grudgeOf ? this.agent.social.grudgeOf(from) : 0;
+    const a = O.permissionAnswer({ temperament: this.agent.social.temperament, affinity: aff, harm, emergency: m.emergency, grudge }, this.cfg);
+    const rec = { id: m.id, yes: a.yes, to: from, block: m.block, grudgeWord: !a.yes && grudge ? this.agent.social.grudgeWord(from) : '' };
     if (a.yes) this.notePermitted(from, m.pos, m.block);
     const s = await this.sendLine('answer', rec, (text) => O.line.answer(rec, text));
-    this.write({ event: 'ownership_permission', to: from, block: m.block, pos: m.pos, yes: a.yes, score: a.score, why: a.why, harm, said: s.text || null, via: s.via });
+    this.write({ event: 'ownership_permission', to: from, block: m.block, pos: m.pos, yes: a.yes, score: a.score, why: a.why, grudge: grudge || undefined, harm, said: s.text || null, via: s.via });
   }
 
   // 見た無断の取得を、持ち主が近くにいれば伝える (社交的で、取った人より持ち主と親しいとき)

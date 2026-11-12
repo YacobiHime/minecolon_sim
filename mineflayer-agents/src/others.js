@@ -96,6 +96,17 @@ class OthersLog {
     return p.name;
   }
 
+  // pos のすぐ近く (dist) を、自分が ms 以内に掘ったか (落ちた物を先に拾われたかの判定)
+  myDigNear(pos, { ms = 4000, dist = 3, t = Date.now() } = {}) {
+    if (!pos) return false;
+    for (const [k, at] of this.myDigs) {
+      if (t - at > ms) continue;
+      const [x, y, z] = k.split(',').map(Number);
+      if (d3({ x: x + 0.5, y: y + 0.5, z: z + 0.5 }, pos) <= dist) return true;
+    }
+    return false;
+  }
+
   // who が ms 以内にブロックを壊したか (壊して落ちた物を拾ったのを「もらった」と数えないため)
   brokeRecently(who, ms = 4000, t = Date.now()) { return this.events.some((e) => e.kind === 'break' && e.who === who && t - e.t <= ms); }
 

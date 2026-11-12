@@ -18,6 +18,7 @@
 // 文を作る LLM の提供元 (src/llm_provider.js): --llm-provider local|luna (既定の提供元)、--llm-roles goal=luna,reflect=luna (役ごと)、
 //   --llm-model M・--llm-base-url URL (--llm-provider の提供元に)、--max-llm-usd X (費用の上限。全プロセスの合計)。
 // 設置物の来歴と所有 (src/provenance.js・src/ownership.js): --provenance on|off (所有の知識と行動の分離)、--ownership-penalty on|off、--ledger on|off。
+// わだかまりと悪い関係の行動 (src/conflict.js): --grudge on|off、--conflict on|off (行動の候補)、--aggression on|off (殴る)。
 //   luna の API キーは環境変数 LUNA_API_KEY (無ければ OPENAI_API_KEY) か /root/.config/luna.env (表示・記録しない)。
 const fs = require('fs');
 const path = require('path');
@@ -151,6 +152,9 @@ async function main() {
   // 比較実験の切り替え (cfg.provenance): --provenance on|off (所有の知識と行動の分離)、--ownership-penalty on|off (判断の重み + 関係の変化)、--ledger on|off (台帳)
   const prov = provenanceOverrides(args);
   if (prov) ov.provenance = prov;
+  // わだかまりと悪い関係の行動 (cfg.conflict): --grudge on|off・--conflict on|off (行動の候補)・--aggression on|off (殴る)
+  const conf = conflictOverrides(args);
+  if (conf) ov.conflict = conf;
   const llmOv = llmOverrides(args);
   if (llmOv) ov.llm = llmOv;
   // 並べ方の種: --seed か config の order.seed。どちらも無ければここで決め、子プロセスにも --seed で渡す (記録の start と run.json に残る)
@@ -271,6 +275,15 @@ function provenanceOverrides(args) {
   return Object.keys(o).length ? o : null;
 }
 
+function conflictOverrides(args) {
+  const o = {};
+  const onoff = (k) => { const v = String(args[k]).toLowerCase(); if (!['on', 'off', 'true', 'false'].includes(v)) throw new Error(`--${k} は on か off`); return v === 'on' || v === 'true'; };
+  if (args.grudge != null) o.grudge = onoff('grudge');
+  if (args.conflict != null) o.actions = onoff('conflict');
+  if (args.aggression != null) o.aggression = onoff('aggression');
+  return Object.keys(o).length ? o : null;
+}
+
 // --llm-provider / --llm-roles / --llm-model / --llm-base-url / --max-llm-usd → config の llm に重ねる分 (無ければ null)
 function llmOverrides(args) {
   const o = {};
@@ -294,4 +307,4 @@ function llmOverrides(args) {
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
 
-module.exports = { splitAgents, connectWithRetry, personaFor, parseArgs, llmOverrides, provenanceOverrides };
+module.exports = { splitAgents, connectWithRetry, personaFor, parseArgs, llmOverrides, provenanceOverrides, conflictOverrides };

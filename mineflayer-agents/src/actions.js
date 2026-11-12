@@ -10,6 +10,7 @@ const { BUILD_MATERIAL } = require('./hut');
 const { exploreChoices } = require('./explore');
 const { moreActions, visibleContainers } = require('./actions_more');
 const { ownershipActions, naturalPositions } = require('./ownership_actions');
+const { conflictActions } = require('./conflict');
 
 const HUNTABLE = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit']);
 const MAX_PILLAR = 4; // 足場は 4 段まで
@@ -258,6 +259,9 @@ function listActions(raw, ctx = {}) {
     out.ownWeights = oa.weights; // 判断の重み (cfg.provenance.reweight のとき agent が ctx.choiceWeights に掛ける)
     out.ownInfos = oa.infos;
   }
+
+  // わだかまりのある相手への行動 (conflict.js): avoid_person・complain・demand_back・take_back・hit_person・call_help。候補に出すだけ (重みは掛けない)
+  if (ctx.conflict) out.push(...conflictActions(raw, ctx.conflict).filter((a) => { a.choices = a.choices.filter((c) => !blocked.has(`${a.name}:${c.id}`)); return a.choices.length; }));
 
   // 手元でできること (craft / build / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
   const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar', 'flee', 'attack', 'smelt', 'sleep', 'equip', 'set_base'];

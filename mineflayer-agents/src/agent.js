@@ -31,6 +31,8 @@ const { replaceMRefs } = require('./places');
 const scarcity = require('./scarcity');
 const { OwnershipCtl } = require('./ownership_agent');
 const ownership = require('./ownership');
+const { ConflictCtl } = require('./conflict_agent');
+const conflict = require('./conflict');
 
 // 文の中の M 番号 → { M2: {x,y,z} } (places: placesForPrompt の一覧)。無ければ null
 function mposOf(text, places) {
@@ -180,6 +182,7 @@ function buildContext(raw, memory, cfg, extra = {}) {
     board: extra.boardActs || null,
     farmTargets: farmTargets(raw, memPlaces, extra.farm || null, cfg),
     own: extra.own || null, // 所有を考えた行動 (cfg.provenance.actions。ownership_agent.js の view)
+    conflict: extra.conflict || null, // わだかまりのある相手への行動 (cfg.conflict.actions。conflict_agent.js の view)
   });
   const steps = help.steps ? cfg.goal.steps : null;
   let prog = '';
@@ -373,6 +376,8 @@ class Agent {
     this.lastProposeTick = -1e9;
     // 設置物の来歴 (台帳。ground truth) と所有の知識・取得の理由・社会的な結果 (cfg.provenance。ownership_agent.js)
     this.own = new OwnershipCtl(this, { recordDir });
+    // わだかまりと、悪い関係のときの行動 (cfg.conflict。conflict_agent.js)
+    this.conflict = new ConflictCtl(this);
   }
 
   // 踏破の共有 (explored.js)。書き出し (runs/<id>/explored/) は分析のためにいつもする (shared のとき)。
@@ -439,6 +444,7 @@ class Agent {
         if (from !== me && ev.delta) this.recorder.write({ event: 'board', kind: 'chest_seen', chest: ev.c.id, who: ev.who, delta: ev.delta, loop: tick });
       } else if (ev.type === 'breach') {
         this.recorder.write({ event: 'board', kind: 'breach_known', agreement: ev.p.id, who: ev.b.who, chest: ev.b.chest, item: ev.b.item, n: ev.b.n, loop: tick });
+        if (ev.b.who !== me) this.conflict.onBreach(ev.b.who, ev.p.id);
       } else if (ev.type === 'project_done') {
         this.recorder.write({ event: 'board', kind: 'project_done', id: ev.p.id, item: ev.p.spec.item, count: ev.p.spec.count, loop: tick });
       } else if (ev.type === 'vote' && from !== me && ev.p.by === me) {
@@ -751,6 +757,8 @@ class Agent {
           // その人が直前にブロックを壊していたら、落ちた物を拾っただけ (もらったのではない。2026-11-11 の生の試験で、取られた松明を拾って「くれた」になった)
           if (giver && !o.brokeRecently(giver.username) && Date.now() - (this.lastReceived || 0) > 5000) { this.lastReceived = Date.now(); this.social.onReceived(giver.username); this.recorder.write({ event: 'received', from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1, loop: this.memory.tick }); if (this.reflect) this.reflect.noteEvent({ kind: 'received', tick: this.memory.tick, from: giver.username, item: d.name, count: packet.pickupItemCount || d.count || 1 }); }
         }
+        // 自分が掘ったばかりの所の物を、ほかの人が先に拾った (わだかまりのきっかけ)
+        if (who !== bot.username && o.myDigNear(it.position)) this.conflict.onSnatched(who, d.name);
         o.notePickup({ who, self: bot.username, me: me(), item: d.name, count: packet.pickupItemCount || d.count || 1, pos: it.position });
       } catch (_) { /* ignore */ }
     });
@@ -790,6 +798,7 @@ class Agent {
       try {
         const key = jsonMsg && jsonMsg.translate;
         if (key && /^death\./.test(key) && String(jsonMsg.toString()).startsWith(bot.username)) this.lastDeathMsg = { key, text: jsonMsg.toString(), t: Date.now() };
+        else if (key && /^death\./.test(key)) this.conflict.onOtherDeath(key, jsonMsg.toString()); // 自分が人を殺したか
       } catch (_) { /* ignore */ }
     });
     bot.on('death', () => {
@@ -806,6 +815,7 @@ class Agent {
         // 先のつらさ: 夜に死んだら、何に殺されたかと一緒に覚える (anticipate.js)
         const counted = this.social.needsModel.ant.noteDeath({ timeOfDay: d.timeOfDay, day: d.day, cause: d.cause, message: d.message });
         this.recorder.write({ event: 'death', ...d, night: counted });
+        if (m) this.conflict.onDeathMessage(m.key, m.text); // 人に殺されたなら強いきっかけ
         if (this.reflect) this.reflect.noteEvent({ kind: 'death', tick: d.loop, day: d.day, timeOfDay: d.timeOfDay, cause: d.cause });
         this.lastDeathMsg = null;
       }, 1500);
@@ -832,6 +842,7 @@ class Agent {
         if (!again) this.setupBase();
         this.watchOthers();
         this.own.attach(bot);
+        this.conflict.watch(bot);
         resolve();
       });
       bot.once('error', reject);
@@ -878,6 +889,11 @@ class Agent {
     if (this.own.on) {
       const om = ownership.parseLine(message);
       if (om) { const said = this.own.onLine(username, om); if (!said) return; text = said.slice(0, 120); }
+    }
+    // わだかまりの行 (【文句】【返して】【助けて】)
+    if (this.conflict.on) {
+      const cm = conflict.parseLine(message);
+      if (cm) { const said = this.conflict.onLine(username, cm); if (!said) return; text = said.slice(0, 120); }
     }
     this.heardBuf.push({ from: username, text, d: Math.round(d) });
     if (this.heardBuf.length > 10) this.heardBuf.shift();
@@ -1018,7 +1034,8 @@ class Agent {
         let twoB = null;
         if (!mems.length) text = 'ごめん、それは分からない';
         else if (this.talker) {
-          const r = await this.talker.answer({ persona: this.cfg.persona, from: q.from, question: q.question, memories: mems });
+          const gw = this.social.grudgeWord ? this.social.grudgeWord(q.from) : '';
+          const r = await this.talker.answer({ persona: this.cfg.persona, from: q.from, question: q.question, memories: mems, ...(gw ? { relation: this.social.relationWord(q.from) } : {}) });
           twoB = { promptChars: r.promptChars, promptTokens: r.promptTokens, ms: r.ms, error: r.error, rawOutput: r.rawOutput };
           text = r.say || 'ごめん、うまく言えない';
         } else text = mems[0].text;
@@ -1292,10 +1309,13 @@ class Agent {
     const gossip = this.own.maybeGossip(raw);
     const ownPlan = this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '';
     const ownView = this.own.view(raw, { base: this.base, goalNames: knowledge.namesInText(ownPlan) });
+    // わだかまり: 呼んだ相手が来たか・social の中で起きた分の記録。候補に渡す見方
+    this.conflict.observe(raw);
+    const conflictView = this.conflict.view(raw, { takeBack: this.conflict.takeBackTargets(raw, this.own) });
     const othersCells = this.searchCfg.enabled ? searchMod.othersCells(this.memory, this.memory.limits.exploreCell) : null;
     const ctx = buildContext(raw, this.memory, cfg, { ...ex, farm, allCells, others, othersCells, base: this.base, troubles, socialText, net, knowledge: this.knowledge, lastResult: this.lastResult, baseText, ahead,
       socialEn, lastResultEn: this.lastResultEn, baseEn: this.goalPath ? this.baseEn : '', order: this.order,
-      boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null, own: ownView,
+      boardEn: bview ? bview.en : null, boardText: bview ? bview.text : '', boardActs: bview ? bview.acts : null, own: ownView, conflict: conflictView,
       planText: this.goalPath ? this.goalPath.planText() : this.goalPlan ? this.goalPlan.planText() : this.selfGoal ? this.selfGoal.planText() : '' });
     // 自分で目標を決める: 最初・済んだ・困りごとが新しく出た・一定ループごとに 2B で書き直す
     let goalUpdate = null;
@@ -1390,6 +1410,7 @@ class Agent {
     // 所有の重みと判断材料は、行動の一覧を作り直す前 (addSearchAction は ctx.actions を新しい配列にする) に取っておく
     //   (2026-11-11 の実行1: 一覧の配列に付けていたので消え、重みが掛かっていなかった)
     const ownAct = { weights: ctx.actions.ownWeights || null, infos: ctx.actions.ownInfos || null };
+    this.conflict.noteOffered(ctx.actions);
     // 探しながら歩く (search) の候補と、選択肢の重み (人の所へ行く・ついて行く・道筋に関係しない覚えた場所)
     const searchInfo = this.addSearchAction(ctx, raw, tick);
     if (this.cwCfg.enabled) ctx.choiceWeights = choiceWeight.choiceWeights(ctx.actions, this.weightContext(tick), this.cwCfg);
@@ -1443,8 +1464,10 @@ class Agent {
       ownRecognized: this.own.on ? (p, name) => this.own.knowledge.recognized(this.own.dim(), p, name) : null,
       askPermission: (ch) => this.own.askPermission(ch), explainTake: (ch) => this.own.explainTake(ch),
       afterAmends: (ch, r) => this.own.afterAmends(ch, r), afterPublicRepair: (ch, r) => this.own.afterPublicRepair(ch, r),
+      conflictSay: (kind, ch) => this.conflict.say(kind, ch), hits: this.conflict.cfg.hits, hitGapMs: this.conflict.cfg.hitGapMs, avoidDistance: this.conflict.cfg.avoidDistance,
     });
     this.own.afterAct(resolved, result);
+    this.conflict.afterAct(resolved, result);
     this.afterBoardAction(resolved, result);
     const searchAfter = this.afterSearch(resolved, result, tick);
     const actMs = Date.now() - tAct;
@@ -1594,6 +1617,8 @@ class Agent {
       searchOffer: searchInfo ? { what: searchInfo.primary, names: searchInfo.names, dist: searchInfo.dist, continue: searchInfo.hasContinue } : undefined,
       searchAfter: searchAfter || undefined,
       nearPeople: nearCounts(raw),
+      // わだかまりのある相手 { 名前: 大きさ }・近くの人 [{ n, d }]・候補に出た悪い関係の行動 (tools/conflict_stats.js)
+      conflict: this.conflict.on ? this.conflict.snapshot() : undefined,
       // 所有: 知っている物の数・返していない取得・気づいた損・意図/取得/関係の変化の数。take_placed の候補の重み (係数の内訳)。この判断の意図の id
       own: this.own.ledger || this.own.on ? { ...this.own.snapshot(), intent: intent ? intent.id : null, gossip: gossip || undefined,
         weights: Object.keys(ownWeightInfo).length ? ownWeightInfo : undefined, reweight: this.own.cfg.reweight } : undefined,
@@ -1830,6 +1855,7 @@ class Agent {
       help: this.help, perception: cfg.perception, memoryLimits: this.memory.limits, base: this.base, world: cfg.world || null,
       talk: cfg.talk || null, askCfg: cfg.ask || null, noChangeCfg: this.help.noChange ? noChangeCfg(cfg) : null,
       explore: { ...((cfg.act && cfg.act.explore) || { mode: 'basic' }), cell: this.memory.limits.exploreCell }, timeOfDay: t ? t.timeOfDay : null, day: t ? t.day : null,
+      conflict: { grudge: this.conflict.cfg.grudge, actions: this.conflict.cfg.actions, aggression: this.conflict.cfg.aggression, threshold: this.conflict.cfg.threshold, hits: this.conflict.cfg.hits },
       provenance: { ledger: !!this.own.ledger, actions: this.own.on, penalty: !!this.own.cfg.penalty, reweight: this.own.cfg.reweight, social: this.own.cfg.social, emergencyNeed: this.own.cfg.emergencyNeed, speech: this.own.cfg.speech }, ...extra,
     });
   }

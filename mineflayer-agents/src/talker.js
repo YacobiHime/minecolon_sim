@@ -58,7 +58,8 @@ class Talker {
         PLACE_FACT,
         '人に聞かれたことに答える。下の「覚えていること」に書いてあることだけを使い、短い日本語(40字以内)で答える。',
         '書いていないことは言わない。答えが分からなければ「分からない」と言う。JSON {"say":"..."} だけを出力する。'].join('\n') },
-      { role: 'user', content: `## ${ctx.from}さんの質問\n${ctx.question}\n## 覚えていること\n${ctx.memories.map((m) => `- ${m.text}`).join('\n')}\n答えを JSON で。` },
+      // 相手へのわだかまりがあるときだけ、関係の言葉を足す (答え方・断るかは LLM が決める。cfg.conflict.grudge)
+      { role: 'user', content: `## ${ctx.from}さんの質問\n${ctx.question}\n${ctx.relation ? `## ${ctx.from}さんとの関係\n${ctx.relation}\n` : ''}## 覚えていること\n${ctx.memories.map((m) => `- ${m.text}`).join('\n')}\n答えを JSON で。` },
     ];
   }
 
