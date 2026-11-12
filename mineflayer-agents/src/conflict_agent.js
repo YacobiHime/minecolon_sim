@@ -76,13 +76,16 @@ class ConflictCtl {
     if (!this.cfg.grudge || !bot || typeof bot.on !== 'function') return;
     const nameOf = (e) => (e && e.type === 'player' ? e.username : null);
     bot.on('entitySwingArm', (e) => { const n = nameOf(e); if (n && n !== bot.username) this.swings.set(n, Date.now()); });
-    bot.on('entityHurt', (e) => { try { this.onHurt(e); } catch (_) { /* ignore */ } });
+    // 1.20 の damage_event は、傷を負わせたエンティティ (source) を送ってくる (mineflayer の entityHurt の2つ目の引数)。無ければ腕を振ったかで見分ける
+    bot.on('entityHurt', (e, source) => { try { this.onHurt(e, Date.now(), source); } catch (_) { /* ignore */ } });
   }
 
   // 傷を受けたエンティティ e を、直前に腕を振った手の届く所の人が殴ったと見る。敵 (hostile) がすぐ近くにいるときは人のせいにしない
-  attackerOf(e, now = Date.now()) {
+  attackerOf(e, now = Date.now(), source = null) {
     const bot = this.agent.bot;
     if (!bot || !e || !e.position) return null;
+    // サーバーが知らせた、傷を負わせたエンティティ (プレイヤーならその人。プレイヤーでなければ人のせいにしない)
+    if (source) return source.type === 'player' && source.username && source.username !== (e.username || null) ? source.username : null;
     const hostileNear = Object.values(bot.entities || {}).some((x) => x && x !== e && x.position && x.type !== 'player' && (x.type === 'hostile' || x.kind === 'Hostile mobs') && dist3(x.position, e.position) <= 3.5);
     if (hostileNear) return null;
     const c = Object.values(bot.players || {}).filter((p) => p && p.entity && p.entity !== e && p.username !== (e.username || null) && p.username !== bot.username
@@ -91,11 +94,11 @@ class ConflictCtl {
     return c.length ? c[0].username : null;
   }
 
-  onHurt(e, now = Date.now()) {
+  onHurt(e, now = Date.now(), source = null) {
     const bot = this.agent.bot;
     if (!bot || !e) return;
     if (e === bot.entity) {
-      const who = this.attackerOf(e, now);
+      const who = this.attackerOf(e, now, source);
       if (!who) return;
       this.store.hitBy[who] = this.tick();
       const g = this.grieve(who, 'hit');
@@ -103,8 +106,9 @@ class ConflictCtl {
       return;
     }
     if (e.type !== 'player' || !e.username || !bot.entity || dist3(e.position, bot.entity.position) > 16) return;
-    // 自分が殴った分は数えない (自分は swings に入らない)
-    const who = this.attackerOf(e, now);
+    // 自分が殴った分は数えない (自分は swings に入らない。source が自分なら外す)
+    if (source && source === bot.entity) return;
+    const who = this.attackerOf(e, now, source);
     if (!who) return;
     const k = `${who}|${e.username}`;
     if (now - (this.seenHit.get(k) ?? -Infinity) < 10000) return;

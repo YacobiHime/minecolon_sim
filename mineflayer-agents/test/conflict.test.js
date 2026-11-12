@@ -146,6 +146,22 @@ test('殴られた: 直前に腕を振った、手の届く所の人を見分け
   c.ctl.swings.set('Masaru', t - 100);
   c.ctl.onHurt(c.bot.entity, t);
   assert.strictEqual(ev(c.writes, 'hit_received').length, 0);
+  // サーバーが傷を負わせたエンティティを知らせたら、腕を振ったかに関係なくその人 (2026-11-12 の生の確認で、腕を振った知らせが来ないことがあった)
+  const d = mkAgent('Aoi');
+  const m = player(d.bot, 'Masaru', { x: 3, y: 64, z: 0 });
+  d.ctl.onHurt(d.bot.entity, t, m);
+  assert.strictEqual(ev(d.writes, 'hit_received')[0].from, 'Masaru');
+  // 傷の元がプレイヤーでない (ゾンビ・矢) → 人のせいにしない
+  const e2 = mkAgent('Aoi');
+  player(e2.bot, 'Masaru', { x: 1.5, y: 64, z: 0 });
+  e2.ctl.swings.set('Masaru', t - 100);
+  e2.ctl.onHurt(e2.bot.entity, t, { type: 'hostile', name: 'zombie' });
+  assert.strictEqual(ev(e2.writes, 'hit_received').length, 0);
+  // 見ていた人: 自分が殴った分は数えない
+  const k = mkAgent('Ken');
+  const v = player(k.bot, 'Aoi', { x: 4, y: 64, z: 0 });
+  k.ctl.onHurt(v, t, k.bot.entity);
+  assert.strictEqual(ev(k.writes, 'hit_seen').length, 0);
 });
 
 test('人が人を殴るのを見た → 殴った人への見方が下がる (わだかまりにはしない)。助けての声を聞いた人も同じ', () => {
