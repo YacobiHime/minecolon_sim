@@ -62,6 +62,48 @@ node experiment_clock.js --summarize=experiment_logs/A-1_clock.jsonl --fixed=10
 一定倍率 M のときの換算時間は **経過 tick から** `経過tick / (20 × M)` 秒として計算する
 (`equivalentWallSecAtFixed`)。テストは `node test_experiment_clock.js`。
 
+## 市民の会話の同時人数の計測(chat_capacity_bench.js)
+
+研究室の LLM サーバーで、LLM で話す市民が**何人まで実時間で互いに会話できるか**を手早く調べる道具。
+node の標準モジュールだけの1ファイルなので、LLM のマシンにコピーしてそこで実行してもよい。
+
+- LLM の API(`--api`): 既定は `openai`(llama.cpp の `llama-server`、`POST /v1/chat/completions`、
+  既定の接続先 `127.0.0.1:8080`)。鍵は環境変数 `LLM_API_KEY` から読み `Authorization: Bearer` で送る
+  (ログにも結果ファイルにも書かない)。`--api=ollama` は `POST /api/chat`(`think:false`、既定 `192.168.15.150:11434`)。
+- `--llm-hosts=host:port,host:port` を複数書くと順番に振り分ける(GPU・マシンが複数のとき)。
+  `--model`(既定 `gemma4:e4b`)、`--max-tokens`(既定 60)。トークン数・処理時間は
+  llama.cpp の `timings`/`usage`、Ollama の `eval_count` などから記録する。
+- 発言のプロンプトは、市民の名前・職業・性格1行と直近8行のチャットで、40字以内の日本語1行を返させる。
+- 結果は `--out`(既定 `experiment_logs/chat_bench_<mode>_<時刻>.json`)に JSON で書く。
+
+**throughput モード**: 同時リクエスト数 c(`--concurrency=1,2,4,8,16`)ごとに `--requests`(既定24)件を
+c 件ずつ流し続け、実時間・発言/秒・遅延 p50/p95/最大・出力トークン数・トークン/秒・エラー数を出す。
+そのうえで発言間隔 `--intervals=10,20,30,60` 秒ごとの最大人数を見積もる:
+
+```
+最大人数 = floor(持続できる発言/秒 × 発言間隔[秒])
+持続できる発言/秒 = p95 遅延 ≤ --max-latency-ms(既定 5000)を満たす c のうち最大の発言/秒
+```
+
+**live モード**: 実際に N 人で会話させる。市民は bridge の `GET /status` の `citizens[]`(id・name・job)から取り、
+足りない分は合成の市民で補う(`--allow-synthetic`、既定 true。結果に `synthetic` と記録)。
+各市民が `--interval`(既定20秒、±20% のゆらぎ)ごとに1回話すように予定を組み、話す人には直近8行を渡すので
+互いに返事をし合う。`--duration`(既定120秒)のあいだ、達成した発言数/人/分、LLM の遅延 p50/p95、
+予定からの遅れ、待ち行列を測る。`--ramp=4,8,16,32` で N を順に増やし、**実時間の基準**
+「p95 遅延 ≤ `--max-latency-ms` かつ 達成した発言数が目標(60/間隔 回/分)の90%以上」を満たした最大の N を出す。
+同時に流すリクエスト数の上限は `--live-concurrency`(既定 ホスト数×4)。発言は結果の隣の `.transcript.jsonl` に1行ずつ残す。
+bridge へは `GET /status` しか送らない。ゲームのチャットへの書き込みは **`--say` を付けたときだけ**
+(`CMD_PIPE` の FIFO に `say <名前>: <発言>`。読み手がいなければ飛ばす)。既定は書き込まない。
+
+```bash
+export LLM_API_KEY=...   # llama-server の鍵
+node chat_capacity_bench.js --mode=throughput --llm-hosts=127.0.0.1:8080 --concurrency=1,2,4,8,16
+node chat_capacity_bench.js --mode=live --ramp=4,8,16,32 --interval=20 --duration=120
+node chat_capacity_bench.js --mode=live --citizens=6 --say   # 実際にゲームのチャットへ流す
+```
+
+テストは `node test_chat_capacity_bench.js`(偽の LLM・偽の bridge を立てて確かめる)。
+
 ## Known gotchas hit while building this
 
 - Gradle 8.1.1 (bundled in the Forge MDK) cannot run on JDK 21
