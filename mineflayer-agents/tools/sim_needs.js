@@ -8,7 +8,7 @@
 //   隠し満腹度 (saturation)、それが0なら満腹度 (food) が1減る。昼は --exhaust (既定 4/280 tick ≈ 走りながら歩き回る)、
 //   夜に起きている間はその nightRest 倍、ベッドで飛ばした夜は減らない。食べると foodPoints と saturation だけ増える
 const path = require('path');
-const { Social } = require('../src/social');
+const { Social, emotionsConfig } = require('../src/social');
 const { needsConfig, foodPoints, foodSaturation } = require('../src/needs');
 
 // マイクラの満腹度のまね
@@ -39,7 +39,7 @@ const SCENARIOS = {
 };
 
 function simulate(sc, { days = 1, step = 200, persona = {}, cfg = {}, exhaust = 4 / 280, rowEvery = 2000 } = {}) {
-  const s = new Social({ temperament: persona.temperament, needs: needsConfig(cfg, persona) });
+  const s = new Social({ temperament: persona.temperament, needs: needsConfig(cfg, persona), emotions: emotionsConfig(cfg, persona) });
   const fs = new FoodSim({ exhaust });
   const rows = [];
   let age = 0; let tod = 0; let lastEat = -1e9; let inv = 3;

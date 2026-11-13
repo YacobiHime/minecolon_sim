@@ -258,3 +258,22 @@ test('calibrate_emotions: 言葉・聞こえた名前の読み取りと、合成
   // 2160 tick (怒りの半減期) で怒りの上乗せが半分 → 成功で −0.4
   assert.ok(Math.abs(rows[1].emotions.anger - (0.7 + 0.5 - 0.4)) < 0.011, String(rows[1].emotions.anger));
 });
+
+// ---- 誰が殴ったか (conflict_stats.js の aggressionStats) ----
+test('conflict_stats: 挑発された人・協調性の低い人ほど殴ったかを数える (重みは掛けない。文献の向きと比べるだけ)', () => {
+  const { aggressionStats, conflictStats, lines } = require('../tools/conflict_stats');
+  const start = (n, A) => ({ _name: n, event: 'start', persona: { name: n, bigFive: { z: { A } } } });
+  const all = [start('P1', -1.5), start('P2', -0.5), start('Q1', 0.5), start('Q2', 1.2), start('Q3', 0),
+    { _name: 'P1', event: 'hit_received', from: 'Q1' }, { _name: 'P2', event: 'grudge', kind: 'hit', add: 0.5 }, { _name: 'Q3', event: 'grudge', kind: 'took_witnessed', add: 0.4 },
+    { _name: 'P1', event: 'hit', hits: 3 }, { _name: 'P1', event: 'hit', hits: 3 }, { _name: 'P2', event: 'hit', hits: 2 }, { _name: 'Q1', event: 'hit', hits: 1 }];
+  const a = aggressionStats(all);
+  assert.deepStrictEqual([a.people, a.hitters, a.hits], [5, 3, 4]);
+  assert.deepStrictEqual(a.provokedPhysical.n, [2, 3]);
+  assert.deepStrictEqual(a.provokedPhysical.share, [1, 0.333]);
+  assert.ok(a.provokedPhysical.d > 0.76);
+  assert.deepStrictEqual(a.provokedAny.n, [3, 2]);
+  assert.ok(a.agreeableness.r < -0.2 && a.agreeableness.n === 5);
+  assert.deepStrictEqual(a.literature, { provocationD: 0.76, agreeablenessR: -0.2 });
+  assert.match(lines(conflictStats([...all, { _name: 'P1', event: 'grudge', who: 'Q1', kind: 'hit', add: 0.5 }])).join('\n'), /誰が殴ったか \(5 人中 3 人・4 回\)/);
+  assert.strictEqual(aggressionStats([{ _name: 'X', event: 'hit' }]), null); // start が無ければ数えない
+});
