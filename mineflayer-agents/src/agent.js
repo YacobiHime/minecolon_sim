@@ -283,7 +283,9 @@ class Agent {
     this.meter = meter;
     this.talker = talker;
     this.help = helpOf(cfg);
-    this.memory = Memory.load(cfg.memory.file, { limits: cfg.memory.limits });
+    // 記憶の選び方・忘れ方 (cfg.memory の retrieval・store・failureNotes・relevance・assoc・dual。memory.js / assoc.js)
+    const mc = cfg.memory;
+    this.memory = Memory.load(mc.file, { limits: mc.limits, retrieval: mc.retrieval, store: mc.store, failureNotes: mc.failureNotes, relevance: mc.relevance, assoc: mc.assoc, dual: mc.dual, me: cfg.persona.name, version: cfg.server && cfg.server.version });
     this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona), affinity: (cfg.social && cfg.social.affinity) || {} });
     // 分業 (division.js): 慣れ・集団の必要 (刺激)・反応しきい値。cfg.division.enabled: true で使う
     this.division = cfg.division && cfg.division.enabled
@@ -1029,7 +1031,7 @@ class Agent {
       while (this.questionQueue.length && !this.stopped) {
         const q = this.questionQueue.shift();
         const hints = this.help.hints ? [...(this.cfg.goal.hints || []), ...(this.knowledge ? this.knowledge.facts.map((f) => f.text) : [])] : [];
-        const mems = ask.relevantMemories(this.memory, q.question, { hints });
+        const mems = ask.relevantMemories(this.memory, q.question, { hints, from: q.from });
         let text;
         let twoB = null;
         if (!mems.length) text = 'ごめん、それは分からない';
@@ -1220,6 +1222,7 @@ class Agent {
     // ゲーム内の時刻 (ワールドの age、tick)。あとでやること (prospect.js) の「何分前・あと何分」はこれで数える
     const gameNow = Number.isFinite(raw.self.age) ? raw.self.age : (Number.isFinite(raw.self.day) ? raw.self.day * 24000 + (raw.self.timeOfDay || 0) : null);
     this.memory.gameNow = gameNow;
+    this.memory.observeNow({ raw, emotions: this.social.emotions, me: cfg.persona.name }); // 記憶のグラフに書くときの様子 (どこ・近くの人・時刻・気持ち)
     // 珍しさ (scarcity.js): 見えた入手元 (ブロック・生き物) を数える。memory.extra.sightings に残す (保存される)
     const valueCfg = cfg.goalPath && cfg.goalPath.select && cfg.goalPath.select.value;
     if (valueCfg && valueCfg.enabled) {
@@ -1264,6 +1267,8 @@ class Agent {
     let socialText = this.social.words();
     const worst = this.social.worstNeed();
     const ahead = aheadOf(this.social.needsModel);
+    // 連想の手がかり: 今いる場所・見えている人と物・ゴールと道筋の次の物・いちばんつらい欲求・夜・聞こえた話 (memory.retrieval が legacy でも集計に使う)
+    this.memory.setCues({ raw, goal: this.goalPath ? this.goalPath.goal : null, next: this.goalPath ? this.goalPath.pathNext() : null, worst, social: this.social });
     const memPlacesNow = this.memory.placesForPrompt(raw.self.pos, new Set(raw.blocks.filter((b) => b.notable).map((b) => b.name)), { ensure: PLACE_ENSURE });
     const baseText = this.goalPath ? this.baseView(raw, memPlacesNow) : '';
     let socialEn = this.social.words({ lang: 'en' });
