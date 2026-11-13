@@ -938,8 +938,10 @@ function main() {
   const asks = all.filter((r) => r.event === 'ask');
   const answers = all.filter((r) => r.event === 'answer');
   const uses = all.filter((r) => r.event === 'answer_use');
-  const jev = runJson ? runJson.usage.jev : jevFromRows(all);
-  const twoB = runJson ? runJson.usage.twoB : twoBFromRows(all);
+  // run.json が欠けた子を含む (partial) なら、使用量は記録から数え直す (run.json の分は残った子だけ)
+  const fullRun = runJson && !runJson.partial;
+  const jev = fullRun ? runJson.usage.jev : jevFromRows(all);
+  const twoB = fullRun ? runJson.usage.twoB : twoBFromRows(all);
   const hutEnd = maxOf(agents.map((a) => (a.end && a.end.hut != null ? a.end.hut : -1)).filter((x) => x >= 0));
   const foodEnd = sum(agents.map((a) => (a.end ? a.end.foodCount : 0)));
   const helpUsed = (agents.find((a) => a.help) || {}).help || null;

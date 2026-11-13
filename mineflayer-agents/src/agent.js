@@ -791,6 +791,8 @@ class Agent {
     const s = this.cfg.server;
     this.bot = mineflayer.createBot({ host: s.host, port: s.port, username: this.cfg.persona.name, version: s.version, auth: 'offline' });
     const bot = this.bot;
+    // 接続の見張り (run.js が付ける src/netdiag.js。接続の再試行・入り直しの bot も)
+    if (this.onBot) { try { this.onBot(bot); } catch (_) { /* ignore */ } }
     bot.loadPlugin(pathfinder);
     bot.on('chat', (username, message) => this.onChat(username, message));
     // 死んだら: 死因はサーバーの死亡メッセージ (translate が death.〜) から拾う。リスポーンは mineflayer が自動で行う
