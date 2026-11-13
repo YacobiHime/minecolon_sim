@@ -35,7 +35,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 28125
+          "fullAfter": 28125,
+          "tauW": 13094
         },
         "hunger": {
           "sensitivity": 1.1
@@ -46,12 +47,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0155
+          "k": 0.0155,
+          "exp": {
+            "k": 0.01246
+          }
         },
         "drives": {
           "curiosity": 0.82
         },
         "_comment": "眠気: 推奨の睡眠 9h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスを感じやすい、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.86,
+        "baseShift": {
+          "joy": 0.23,
+          "sadness": 1.05,
+          "anger": 1.05,
+          "fear": 1.05,
+          "disgust": 1.05
+        }
       },
       "nameSource": "大和 (2012年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -90,18 +104,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 12717
         },
         "safety": {
           "threshold": 0.52
         },
         "stress": {
-          "k": 0.0113
+          "k": 0.0113,
+          "exp": {
+            "k": 0.00685
+          }
         },
         "drives": {
           "curiosity": 0.41
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型"
+      },
+      "emotions": {
+        "halfLifeMul": 2.64,
+        "baseShift": {
+          "joy": 0.86,
+          "sadness": 0.01,
+          "anger": 0.01,
+          "fear": 0.01,
+          "disgust": 0.01
+        }
       },
       "nameSource": "七海 (2004年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -139,18 +167,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 16888
         },
         "safety": {
           "threshold": 0.42
         },
         "stress": {
-          "k": 0.0151
+          "k": 0.0151,
+          "exp": {
+            "k": 0.01197
+          }
         },
         "drives": {
           "curiosity": 0.41
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.96,
+        "baseShift": {
+          "joy": 0.08,
+          "sadness": -0.9,
+          "anger": -0.9,
+          "fear": -0.9,
+          "disgust": -0.9
+        }
       },
       "nameSource": "聡 (1978年生まれの7位、生まれ年との差 1年。明治安田生命)"
     },
@@ -189,7 +231,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 15295
         },
         "hunger": {
           "sensitivity": 0.8
@@ -198,7 +241,10 @@
           "threshold": 0.55
         },
         "stress": {
-          "k": 0.0103
+          "k": 0.0103,
+          "exp": {
+            "k": 0.00555
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -208,6 +254,16 @@
           "curiosity": 0.38
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.55,
+        "baseShift": {
+          "joy": 0.2,
+          "sadness": -0.75,
+          "anger": -0.75,
+          "fear": -0.75,
+          "disgust": -0.75
+        }
       },
       "nameSource": "明 (1958年生まれの8位、生まれ年との差 0年。明治安田生命)"
     },
@@ -245,7 +301,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 11568
         },
         "hunger": {
           "sensitivity": 1.1
@@ -256,12 +313,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0174
+          "k": 0.0174,
+          "exp": {
+            "k": 0.01501
+          }
         },
         "drives": {
           "curiosity": 0.41
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 2.47,
+        "baseShift": {
+          "joy": 0.87,
+          "sadness": 1.26,
+          "anger": 1.26,
+          "fear": 1.26,
+          "disgust": 1.26
+        }
       },
       "nameSource": "結愛 (2013年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -299,18 +369,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 25702
         },
         "safety": {
           "threshold": 0.58
         },
         "stress": {
-          "k": 0.009
+          "k": 0.009,
+          "exp": {
+            "k": 0.00382
+          }
         },
         "drives": {
           "curiosity": 0.24
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 1.25,
+        "baseShift": {
+          "joy": -0.51,
+          "sadness": -0.99,
+          "anger": -0.99,
+          "fear": -0.99,
+          "disgust": -0.99
+        }
       },
       "nameSource": "大輝 (1999年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -348,18 +432,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 14818
         },
         "safety": {
           "threshold": 0.5
         },
         "stress": {
-          "k": 0.0118
+          "k": 0.0118,
+          "exp": {
+            "k": 0.00762
+          }
         },
         "drives": {
           "curiosity": 0.33
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 1.47,
+        "baseShift": {
+          "joy": -1.02,
+          "sadness": -0.86,
+          "anger": -0.86,
+          "fear": -0.86,
+          "disgust": -0.86
+        }
       },
       "nameSource": "麻衣 (1983年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -398,7 +496,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 17213
         },
         "hunger": {
           "sensitivity": 0.8
@@ -407,7 +506,10 @@
           "threshold": 0.58
         },
         "stress": {
-          "k": 0.0088
+          "k": 0.0088,
+          "exp": {
+            "k": 0.00362
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -417,6 +519,16 @@
           "curiosity": 0.41
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.88,
+        "baseShift": {
+          "joy": -0.51,
+          "sadness": 0.04,
+          "anger": 0.04,
+          "fear": 0.04,
+          "disgust": 0.04
+        }
       },
       "nameSource": "勇 (1939年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -454,7 +566,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 8971
         },
         "hunger": {
           "sensitivity": 1.1
@@ -465,12 +578,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0096
+          "k": 0.0096,
+          "exp": {
+            "k": 0.0047
+          }
         },
         "drives": {
           "curiosity": 0.3
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.47,
+        "baseShift": {
+          "joy": -0.8,
+          "sadness": -0.97,
+          "anger": -0.97,
+          "fear": -0.97,
+          "disgust": -0.97
+        }
       },
       "nameSource": "悠真 (2015年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -509,18 +635,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 20915
         },
         "safety": {
           "threshold": 0.56
         },
         "stress": {
-          "k": 0.0098
+          "k": 0.0098,
+          "exp": {
+            "k": 0.00494
+          }
         },
         "drives": {
           "curiosity": 0.64
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型"
+      },
+      "emotions": {
+        "halfLifeMul": 0.45,
+        "baseShift": {
+          "joy": -0.54,
+          "sadness": 0.62,
+          "anger": 0.62,
+          "fear": 0.62,
+          "disgust": 0.62
+        }
       },
       "nameSource": "太陽 (2003年生まれの6位、生まれ年との差 1年。明治安田生命)"
     },
@@ -558,18 +698,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 21647
         },
         "safety": {
           "threshold": 0.38
         },
         "stress": {
-          "k": 0.0164
+          "k": 0.0164,
+          "exp": {
+            "k": 0.01375
+          }
         },
         "drives": {
           "curiosity": 0.39
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.54,
+        "baseShift": {
+          "joy": 1.82,
+          "sadness": 0.7,
+          "anger": 0.7,
+          "fear": 0.7,
+          "disgust": 0.7
+        }
       },
       "nameSource": "千夏 (1994年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -608,7 +762,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 20862
         },
         "hunger": {
           "sensitivity": 0.8
@@ -617,7 +772,10 @@
           "threshold": 0.53
         },
         "stress": {
-          "k": 0.0109
+          "k": 0.0109,
+          "exp": {
+            "k": 0.00633
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -627,6 +785,16 @@
           "curiosity": 0.43
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.37,
+        "baseShift": {
+          "joy": -1.35,
+          "sadness": -0.63,
+          "anger": -0.63,
+          "fear": -0.63,
+          "disgust": -0.63
+        }
       },
       "nameSource": "修 (1959年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -664,7 +832,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 28125
+          "fullAfter": 28125,
+          "tauW": 20061
         },
         "hunger": {
           "sensitivity": 1.1
@@ -675,12 +844,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0132
+          "k": 0.0132,
+          "exp": {
+            "k": 0.00951
+          }
         },
         "drives": {
           "curiosity": 0.72
         },
         "_comment": "眠気: 推奨の睡眠 9h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.65,
+        "baseShift": {
+          "joy": -0.65,
+          "sadness": 0.93,
+          "anger": 0.93,
+          "fear": 0.93,
+          "disgust": 0.93
+        }
       },
       "nameSource": "颯太 (2012年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -718,18 +900,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 35736
         },
         "safety": {
           "threshold": 0.57
         },
         "stress": {
-          "k": 0.0093
+          "k": 0.0093,
+          "exp": {
+            "k": 0.00423
+          }
         },
         "drives": {
           "curiosity": 0.82
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.76,
+        "baseShift": {
+          "joy": 0.46,
+          "sadness": -1.48,
+          "anger": -1.48,
+          "fear": -1.48,
+          "disgust": -1.48
+        }
       },
       "nameSource": "竜 (2000年生まれの10位、生まれ年との差 0年。明治安田生命)"
     },
@@ -767,18 +963,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 13842
         },
         "safety": {
           "threshold": 0.49
         },
         "stress": {
-          "k": 0.0125
+          "k": 0.0125,
+          "exp": {
+            "k": 0.00853
+          }
         },
         "drives": {
           "curiosity": 0.88
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 3.92,
+        "baseShift": {
+          "joy": 0.51,
+          "sadness": 0.08,
+          "anger": 0.08,
+          "fear": 0.08,
+          "disgust": 0.08
+        }
       },
       "nameSource": "真由美 (1964年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -817,7 +1027,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 18100
         },
         "hunger": {
           "sensitivity": 0.8
@@ -826,7 +1037,10 @@
           "threshold": 0.59
         },
         "stress": {
-          "k": 0.0086
+          "k": 0.0086,
+          "exp": {
+            "k": 0.0033
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -836,6 +1050,16 @@
           "curiosity": 0.62
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.95,
+        "baseShift": {
+          "joy": -1.31,
+          "sadness": -1.5,
+          "anger": -1.5,
+          "fear": -1.5,
+          "disgust": -1.5
+        }
       },
       "nameSource": "豊 (1956年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -873,7 +1097,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 9640
         },
         "hunger": {
           "sensitivity": 1.1
@@ -884,12 +1109,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0117
+          "k": 0.0117,
+          "exp": {
+            "k": 0.00745
+          }
         },
         "drives": {
           "curiosity": 0.33
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.44,
+        "baseShift": {
+          "joy": -0.29,
+          "sadness": 1,
+          "anger": 1,
+          "fear": 1,
+          "disgust": 1
+        }
       },
       "nameSource": "朝陽 (2014年生まれの10位、生まれ年との差 0年。明治安田生命)"
     },
@@ -927,18 +1165,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 20731
         },
         "safety": {
           "threshold": 0.61
         },
         "stress": {
-          "k": 0.0077
+          "k": 0.0077,
+          "exp": {
+            "k": 0.00214
+          }
         },
         "drives": {
           "curiosity": 0.78
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.38,
+        "baseShift": {
+          "joy": 0.18,
+          "sadness": 0.11,
+          "anger": 0.11,
+          "fear": 0.11,
+          "disgust": 0.11
+        }
       },
       "nameSource": "海斗 (1998年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -976,18 +1228,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18583
         },
         "safety": {
           "threshold": 0.36
         },
         "stress": {
-          "k": 0.0173
+          "k": 0.0173,
+          "exp": {
+            "k": 0.0149
+          }
         },
         "drives": {
           "curiosity": 0.25
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 2.03,
+        "baseShift": {
+          "joy": -0.03,
+          "sadness": 1.74,
+          "anger": 1.74,
+          "fear": 1.74,
+          "disgust": 1.74
+        }
       },
       "nameSource": "純子 (1971年生まれの7位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1026,7 +1292,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 23064
         },
         "hunger": {
           "sensitivity": 0.8
@@ -1035,7 +1302,10 @@
           "threshold": 0.53
         },
         "stress": {
-          "k": 0.011
+          "k": 0.011,
+          "exp": {
+            "k": 0.00652
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -1045,6 +1315,16 @@
           "curiosity": 0.41
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.17,
+        "baseShift": {
+          "joy": -0.58,
+          "sadness": 0.49,
+          "anger": 0.49,
+          "fear": 0.49,
+          "disgust": 0.49
+        }
       },
       "nameSource": "恵美子 (1949年生まれの8位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1082,7 +1362,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 5633
         },
         "hunger": {
           "sensitivity": 1.1
@@ -1093,12 +1374,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0138
+          "k": 0.0138,
+          "exp": {
+            "k": 0.01028
+          }
         },
         "drives": {
           "curiosity": 0.78
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.98,
+        "baseShift": {
+          "joy": -0.43,
+          "sadness": 1.32,
+          "anger": 1.32,
+          "fear": 1.32,
+          "disgust": 1.32
+        }
       },
       "nameSource": "樹 (2016年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1137,18 +1431,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 15280
         },
         "safety": {
           "threshold": 0.6
         },
         "stress": {
-          "k": 0.0084
+          "k": 0.0084,
+          "exp": {
+            "k": 0.00301
+          }
         },
         "drives": {
           "curiosity": 0.54
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.54,
+        "baseShift": {
+          "joy": 0.05,
+          "sadness": 0.77,
+          "anger": 0.77,
+          "fear": 0.77,
+          "disgust": 0.77
+        }
       },
       "nameSource": "陸 (2006年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1186,18 +1494,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 23172
         },
         "safety": {
           "threshold": 0.53
         },
         "stress": {
-          "k": 0.0107
+          "k": 0.0107,
+          "exp": {
+            "k": 0.00611
+          }
         },
         "drives": {
           "curiosity": 0.72
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.89,
+        "baseShift": {
+          "joy": 2.16,
+          "sadness": -0.26,
+          "anger": -0.26,
+          "fear": -0.26,
+          "disgust": -0.26
+        }
       },
       "nameSource": "彩 (1988年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1236,7 +1558,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 14769
         },
         "hunger": {
           "sensitivity": 0.8
@@ -1245,7 +1568,10 @@
           "threshold": 0.47
         },
         "stress": {
-          "k": 0.0132
+          "k": 0.0132,
+          "exp": {
+            "k": 0.00939
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -1255,6 +1581,16 @@
           "curiosity": 0.52
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.77,
+        "baseShift": {
+          "joy": -1.13,
+          "sadness": -0.01,
+          "anger": -0.01,
+          "fear": -0.01,
+          "disgust": -0.01
+        }
       },
       "nameSource": "勝 (1943年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1292,7 +1628,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 7655
         },
         "hunger": {
           "sensitivity": 1.1
@@ -1303,12 +1640,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0105
+          "k": 0.0105,
+          "exp": {
+            "k": 0.00589
+          }
         },
         "drives": {
           "curiosity": 0.32
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.39,
+        "baseShift": {
+          "joy": -0.9,
+          "sadness": -1.26,
+          "anger": -1.26,
+          "fear": -1.26,
+          "disgust": -1.26
+        }
       },
       "nameSource": "花 (2015年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1347,7 +1697,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 28125,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 11523
         },
         "hunger": {
           "sensitivity": 1.1
@@ -1356,7 +1707,10 @@
           "threshold": 0.51
         },
         "stress": {
-          "k": 0.0115
+          "k": 0.0115,
+          "exp": {
+            "k": 0.00725
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -1365,6 +1719,16 @@
           "curiosity": 0.63
         },
         "_comment": "眠気: 推奨の睡眠 9h・夜型、お腹が空きやすい (成長期)、人からの評価が気になる (青年期)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.35,
+        "baseShift": {
+          "joy": 0.23,
+          "sadness": -0.12,
+          "anger": -0.12,
+          "fear": -0.12,
+          "disgust": -0.12
+        }
       },
       "nameSource": "瑛太 (2009年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1402,18 +1766,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 23351
         },
         "safety": {
           "threshold": 0.49
         },
         "stress": {
-          "k": 0.0123
+          "k": 0.0123,
+          "exp": {
+            "k": 0.00829
+          }
         },
         "drives": {
           "curiosity": 0.74
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.82,
+        "baseShift": {
+          "joy": 0.3,
+          "sadness": -0.49,
+          "anger": -0.49,
+          "fear": -0.49,
+          "disgust": -0.49
+        }
       },
       "nameSource": "英樹 (1971年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1452,7 +1830,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 10364
         },
         "hunger": {
           "sensitivity": 0.8
@@ -1461,7 +1840,10 @@
           "threshold": 0.39
         },
         "stress": {
-          "k": 0.0162
+          "k": 0.0162,
+          "exp": {
+            "k": 0.01339
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -1471,6 +1853,16 @@
           "curiosity": 0.7
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスを感じやすい、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.62,
+        "baseShift": {
+          "joy": 1.5,
+          "sadness": 0.8,
+          "anger": 0.8,
+          "fear": 0.8,
+          "disgust": 0.8
+        }
       },
       "nameSource": "浩一 (1961年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1508,7 +1900,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 28125
+          "fullAfter": 28125,
+          "tauW": 17855
         },
         "hunger": {
           "sensitivity": 1.1
@@ -1519,12 +1912,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0197
+          "k": 0.0197,
+          "exp": {
+            "k": 0.01811
+          }
         },
         "drives": {
           "curiosity": 0.54
         },
         "_comment": "眠気: 推奨の睡眠 9h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 2.05,
+        "baseShift": {
+          "joy": -0.24,
+          "sadness": 0.05,
+          "anger": 0.05,
+          "fear": 0.05,
+          "disgust": 0.05
+        }
       },
       "nameSource": "芽依 (2012年生まれの9位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1563,18 +1969,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 20159
         },
         "safety": {
           "threshold": 0.65
         },
         "stress": {
-          "k": 0.0065
+          "k": 0.0065,
+          "exp": {
+            "k": 0.00157
+          }
         },
         "drives": {
           "curiosity": 0.83
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.5,
+        "baseShift": {
+          "joy": -0.32,
+          "sadness": -1.83,
+          "anger": -1.83,
+          "fear": -1.83,
+          "disgust": -1.83
+        }
       },
       "nameSource": "翔 (2001年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1612,18 +2032,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18074
         },
         "safety": {
           "threshold": 0.45
         },
         "stress": {
-          "k": 0.0139
+          "k": 0.0139,
+          "exp": {
+            "k": 0.01033
+          }
         },
         "drives": {
           "curiosity": 0.45
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 0.71,
+        "baseShift": {
+          "joy": 1.01,
+          "sadness": 0.78,
+          "anger": 0.78,
+          "fear": 0.78,
+          "disgust": 0.78
+        }
       },
       "nameSource": "美穂 (1986年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1662,7 +2096,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 16892
         },
         "hunger": {
           "sensitivity": 0.8
@@ -1671,7 +2106,10 @@
           "threshold": 0.56
         },
         "stress": {
-          "k": 0.0099
+          "k": 0.0099,
+          "exp": {
+            "k": 0.00503
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -1681,6 +2119,16 @@
           "curiosity": 0.56
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.75,
+        "baseShift": {
+          "joy": -1.5,
+          "sadness": -0.07,
+          "anger": -0.07,
+          "fear": -0.07,
+          "disgust": -0.07
+        }
       },
       "nameSource": "美代子 (1945年生まれの9位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1718,7 +2166,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 10771
         },
         "hunger": {
           "sensitivity": 1.1
@@ -1729,12 +2178,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0104
+          "k": 0.0104,
+          "exp": {
+            "k": 0.00575
+          }
         },
         "drives": {
           "curiosity": 0.45
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.42,
+        "baseShift": {
+          "joy": 0.09,
+          "sadness": -0.93,
+          "anger": -0.93,
+          "fear": -0.93,
+          "disgust": -0.93
+        }
       },
       "nameSource": "新 (2016年生まれの9位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1773,18 +2235,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 15679
         },
         "safety": {
           "threshold": 0.45
         },
         "stress": {
-          "k": 0.0141
+          "k": 0.0141,
+          "exp": {
+            "k": 0.01059
+          }
         },
         "drives": {
           "curiosity": 0.46
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型"
+      },
+      "emotions": {
+        "halfLifeMul": 0.89,
+        "baseShift": {
+          "joy": -1.03,
+          "sadness": 0.48,
+          "anger": 0.48,
+          "fear": 0.48,
+          "disgust": 0.48
+        }
       },
       "nameSource": "輝 (2005年生まれの7位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1822,18 +2298,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 16276
         },
         "safety": {
           "threshold": 0.5
         },
         "stress": {
-          "k": 0.012
+          "k": 0.012,
+          "exp": {
+            "k": 0.0078
+          }
         },
         "drives": {
           "curiosity": 0.75
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.69,
+        "baseShift": {
+          "joy": 0.46,
+          "sadness": 0.48,
+          "anger": 0.48,
+          "fear": 0.48,
+          "disgust": 0.48
+        }
       },
       "nameSource": "浩二 (1969年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1872,7 +2362,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 24268
         },
         "hunger": {
           "sensitivity": 0.8
@@ -1881,7 +2372,10 @@
           "threshold": 0.58
         },
         "stress": {
-          "k": 0.009
+          "k": 0.009,
+          "exp": {
+            "k": 0.00385
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -1891,6 +2385,16 @@
           "curiosity": 0.54
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.88,
+        "baseShift": {
+          "joy": -1.3,
+          "sadness": -0.22,
+          "anger": -0.22,
+          "fear": -0.22,
+          "disgust": -0.22
+        }
       },
       "nameSource": "洋子 (1957年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1928,7 +2432,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 8528
         },
         "hunger": {
           "sensitivity": 1.1
@@ -1939,12 +2444,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0126
+          "k": 0.0126,
+          "exp": {
+            "k": 0.00862
+          }
         },
         "drives": {
           "curiosity": 0.22
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 2.08,
+        "baseShift": {
+          "joy": 0.35,
+          "sadness": 0.24,
+          "anger": 0.24,
+          "fear": 0.24,
+          "disgust": 0.24
+        }
       },
       "nameSource": "凛 (2014年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -1983,18 +2501,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 17669
         },
         "safety": {
           "threshold": 0.35
         },
         "stress": {
-          "k": 0.0178
+          "k": 0.0178,
+          "exp": {
+            "k": 0.01553
+          }
         },
         "drives": {
           "curiosity": 0.27
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、不安・ストレスを感じやすい、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 1.66,
+        "baseShift": {
+          "joy": 0.31,
+          "sadness": 1.88,
+          "anger": 1.88,
+          "fear": 1.88,
+          "disgust": 1.88
+        }
       },
       "nameSource": "美月 (2003年生まれの8位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2032,18 +2564,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 17662
         },
         "safety": {
           "threshold": 0.55
         },
         "stress": {
-          "k": 0.01
+          "k": 0.01,
+          "exp": {
+            "k": 0.00517
+          }
         },
         "drives": {
           "curiosity": 0.71
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.5,
+        "baseShift": {
+          "joy": 3.02,
+          "sadness": -0.26,
+          "anger": -0.26,
+          "fear": -0.26,
+          "disgust": -0.26
+        }
       },
       "nameSource": "拓也 (1991年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2082,7 +2628,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 18593
         },
         "hunger": {
           "sensitivity": 0.8
@@ -2091,7 +2638,10 @@
           "threshold": 0.52
         },
         "stress": {
-          "k": 0.0112
+          "k": 0.0112,
+          "exp": {
+            "k": 0.00682
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -2101,6 +2651,16 @@
           "curiosity": 0.87
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.98,
+        "baseShift": {
+          "joy": 1.34,
+          "sadness": -0.57,
+          "anger": -0.57,
+          "fear": -0.57,
+          "disgust": -0.57
+        }
       },
       "nameSource": "久美子 (1961年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2138,7 +2698,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 10257
         },
         "hunger": {
           "sensitivity": 1.1
@@ -2149,12 +2710,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0124
+          "k": 0.0124,
+          "exp": {
+            "k": 0.00838
+          }
         },
         "drives": {
           "curiosity": 0.59
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.58,
+        "baseShift": {
+          "joy": 0.66,
+          "sadness": -1.28,
+          "anger": -1.28,
+          "fear": -1.28,
+          "disgust": -1.28
+        }
       },
       "nameSource": "陽翔 (2013年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2193,18 +2767,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 14901
         },
         "safety": {
           "threshold": 0.55
         },
         "stress": {
-          "k": 0.01
+          "k": 0.01,
+          "exp": {
+            "k": 0.0052
+          }
         },
         "drives": {
           "curiosity": 0.48
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型"
+      },
+      "emotions": {
+        "halfLifeMul": 0.46,
+        "baseShift": {
+          "joy": -1.5,
+          "sadness": 0.27,
+          "anger": 0.27,
+          "fear": 0.27,
+          "disgust": 0.27
+        }
       },
       "nameSource": "駿 (2002年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2242,18 +2830,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18912
         },
         "safety": {
           "threshold": 0.53
         },
         "stress": {
-          "k": 0.0109
+          "k": 0.0109,
+          "exp": {
+            "k": 0.00639
+          }
         },
         "drives": {
           "curiosity": 0.21
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.88,
+        "baseShift": {
+          "joy": -0.11,
+          "sadness": 0.01,
+          "anger": 0.01,
+          "fear": 0.01,
+          "disgust": 0.01
+        }
       },
       "nameSource": "洋平 (1985年生まれの9位、生まれ年との差 1年。明治安田生命)"
     },
@@ -2292,7 +2894,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 12307
         },
         "hunger": {
           "sensitivity": 0.8
@@ -2301,7 +2904,10 @@
           "threshold": 0.57
         },
         "stress": {
-          "k": 0.0093
+          "k": 0.0093,
+          "exp": {
+            "k": 0.00429
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -2311,6 +2917,16 @@
           "curiosity": 0.38
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.95,
+        "baseShift": {
+          "joy": 0.1,
+          "sadness": 0.62,
+          "anger": 0.62,
+          "fear": 0.62,
+          "disgust": 0.62
+        }
       },
       "nameSource": "典子 (1956年生まれの10位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2348,7 +2964,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 5890
         },
         "hunger": {
           "sensitivity": 1.1
@@ -2359,12 +2976,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0142
+          "k": 0.0142,
+          "exp": {
+            "k": 0.01084
+          }
         },
         "drives": {
           "curiosity": 0.74
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.64,
+        "baseShift": {
+          "joy": 1.08,
+          "sadness": 0.67,
+          "anger": 0.67,
+          "fear": 0.67,
+          "disgust": 0.67
+        }
       },
       "nameSource": "湊 (2014年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2403,13 +3033,17 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 17370
         },
         "safety": {
           "threshold": 0.3
         },
         "stress": {
-          "k": 0.02
+          "k": 0.02,
+          "exp": {
+            "k": 0.01856
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -2418,6 +3052,16 @@
           "curiosity": 0.22
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、不安・ストレスを感じやすい、人からの評価が気になる (青年期)、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.39,
+        "baseShift": {
+          "joy": 0.33,
+          "sadness": 1.4,
+          "anger": 1.4,
+          "fear": 1.4,
+          "disgust": 1.4
+        }
       },
       "nameSource": "蓮 (2007年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2455,18 +3099,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 20268
         },
         "safety": {
           "threshold": 0.53
         },
         "stress": {
-          "k": 0.0109
+          "k": 0.0109,
+          "exp": {
+            "k": 0.00645
+          }
         },
         "drives": {
           "curiosity": 0.81
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.37,
+        "baseShift": {
+          "joy": -0.62,
+          "sadness": -0.1,
+          "anger": -0.1,
+          "fear": -0.1,
+          "disgust": -0.1
+        }
       },
       "nameSource": "健太 (1981年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2505,7 +3163,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 21138
         },
         "hunger": {
           "sensitivity": 0.8
@@ -2514,7 +3173,10 @@
           "threshold": 0.4
         },
         "stress": {
-          "k": 0.0158
+          "k": 0.0158,
+          "exp": {
+            "k": 0.01297
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -2524,6 +3186,16 @@
           "curiosity": 0.23
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスを感じやすい、親しい少数の人を求める (高齢)、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 1.56,
+        "baseShift": {
+          "joy": 0.18,
+          "sadness": 1.08,
+          "anger": 1.08,
+          "fear": 1.08,
+          "disgust": 1.08
+        }
       },
       "nameSource": "光子 (1943年生まれの9位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2561,7 +3233,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 8852
         },
         "hunger": {
           "sensitivity": 1.1
@@ -2572,12 +3245,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0134
+          "k": 0.0134,
+          "exp": {
+            "k": 0.0097
+          }
         },
         "drives": {
           "curiosity": 0.59
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.48,
+        "baseShift": {
+          "joy": 0.18,
+          "sadness": 0.56,
+          "anger": 0.56,
+          "fear": 0.56,
+          "disgust": 0.56
+        }
       },
       "nameSource": "蒼空 (2013年生まれの10位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2616,18 +3302,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 24864
         },
         "safety": {
           "threshold": 0.47
         },
         "stress": {
-          "k": 0.0131
+          "k": 0.0131,
+          "exp": {
+            "k": 0.00927
+          }
         },
         "drives": {
           "curiosity": 0.49
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型"
+      },
+      "emotions": {
+        "halfLifeMul": 1.4,
+        "baseShift": {
+          "joy": -2.09,
+          "sadness": -0.33,
+          "anger": -0.33,
+          "fear": -0.33,
+          "disgust": -0.33
+        }
       },
       "nameSource": "美羽 (2002年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2665,18 +3365,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 16738
         },
         "safety": {
           "threshold": 0.55
         },
         "stress": {
-          "k": 0.0101
+          "k": 0.0101,
+          "exp": {
+            "k": 0.00537
+          }
         },
         "drives": {
           "curiosity": 0.58
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 0.65,
+        "baseShift": {
+          "joy": -0.1,
+          "sadness": -1.46,
+          "anger": -1.46,
+          "fear": -1.46,
+          "disgust": -1.46
+        }
       },
       "nameSource": "亮 (1979年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2715,7 +3429,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 14230
         },
         "hunger": {
           "sensitivity": 0.8
@@ -2724,7 +3439,10 @@
           "threshold": 0.6
         },
         "stress": {
-          "k": 0.0081
+          "k": 0.0081,
+          "exp": {
+            "k": 0.00262
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -2734,6 +3452,16 @@
           "curiosity": 0.88
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.7,
+        "baseShift": {
+          "joy": 0.22,
+          "sadness": -1.35,
+          "anger": -1.35,
+          "fear": -1.35,
+          "disgust": -1.35
+        }
       },
       "nameSource": "和子 (1951年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2771,7 +3499,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 7573
         },
         "hunger": {
           "sensitivity": 1.1
@@ -2782,12 +3511,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.006
+          "k": 0.006,
+          "exp": {
+            "k": 0.00157
+          }
         },
         "drives": {
           "curiosity": 0.87
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.81,
+        "baseShift": {
+          "joy": 0.64,
+          "sadness": -0.17,
+          "anger": -0.17,
+          "fear": -0.17,
+          "disgust": -0.17
+        }
       },
       "nameSource": "颯 (2015年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2826,7 +3568,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 28125,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 9865
         },
         "hunger": {
           "sensitivity": 1.1
@@ -2835,7 +3578,10 @@
           "threshold": 0.46
         },
         "stress": {
-          "k": 0.0136
+          "k": 0.0136,
+          "exp": {
+            "k": 0.01001
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -2844,6 +3590,16 @@
           "curiosity": 0.89
         },
         "_comment": "眠気: 推奨の睡眠 9h・夜型、お腹が空きやすい (成長期)、人からの評価が気になる (青年期)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.66,
+        "baseShift": {
+          "joy": 0.44,
+          "sadness": 0.39,
+          "anger": 0.39,
+          "fear": 0.39,
+          "disgust": 0.39
+        }
       },
       "nameSource": "颯真 (2010年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2881,18 +3637,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 20330
         },
         "safety": {
           "threshold": 0.51
         },
         "stress": {
-          "k": 0.0115
+          "k": 0.0115,
+          "exp": {
+            "k": 0.00717
+          }
         },
         "drives": {
           "curiosity": 0.24
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.38,
+        "baseShift": {
+          "joy": 0.28,
+          "sadness": 0.93,
+          "anger": 0.93,
+          "fear": 0.93,
+          "disgust": 0.93
+        }
       },
       "nameSource": "雄大 (1996年生まれの10位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2931,7 +3701,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 13523
         },
         "hunger": {
           "sensitivity": 0.8
@@ -2940,7 +3711,10 @@
           "threshold": 0.5
         },
         "stress": {
-          "k": 0.0121
+          "k": 0.0121,
+          "exp": {
+            "k": 0.00803
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -2950,6 +3724,16 @@
           "curiosity": 0.59
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.74,
+        "baseShift": {
+          "joy": 0.31,
+          "sadness": 1.65,
+          "anger": 1.65,
+          "fear": 1.65,
+          "disgust": 1.65
+        }
       },
       "nameSource": "悦子 (1941年生まれの7位、生まれ年との差 0年。明治安田生命)"
     },
@@ -2987,7 +3771,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 9676
         },
         "hunger": {
           "sensitivity": 1.1
@@ -2998,12 +3783,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0089
+          "k": 0.0089,
+          "exp": {
+            "k": 0.00368
+          }
         },
         "drives": {
           "curiosity": 0.68
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.89,
+        "baseShift": {
+          "joy": 0.18,
+          "sadness": 0.23,
+          "anger": 0.23,
+          "fear": 0.23,
+          "disgust": 0.23
+        }
       },
       "nameSource": "さくら (2016年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3041,18 +3839,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 19037
         },
         "safety": {
           "threshold": 0.37
         },
         "stress": {
-          "k": 0.0168
+          "k": 0.0168,
+          "exp": {
+            "k": 0.0143
+          }
         },
         "drives": {
           "curiosity": 0.72
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 3.35,
+        "baseShift": {
+          "joy": 0.59,
+          "sadness": 0.24,
+          "anger": 0.24,
+          "fear": 0.24,
+          "disgust": 0.24
+        }
       },
       "nameSource": "菜月 (2000年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3090,18 +3902,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18315
         },
         "safety": {
           "threshold": 0.58
         },
         "stress": {
-          "k": 0.009
+          "k": 0.009,
+          "exp": {
+            "k": 0.00387
+          }
         },
         "drives": {
           "curiosity": 0.82
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.62,
+        "baseShift": {
+          "joy": -1.03,
+          "sadness": -0.94,
+          "anger": -0.94,
+          "fear": -0.94,
+          "disgust": -0.94
+        }
       },
       "nameSource": "美咲 (1991年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3140,7 +3966,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 16986
         },
         "hunger": {
           "sensitivity": 0.8
@@ -3149,7 +3976,10 @@
           "threshold": 0.6
         },
         "stress": {
-          "k": 0.0084
+          "k": 0.0084,
+          "exp": {
+            "k": 0.00307
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -3159,6 +3989,16 @@
           "curiosity": 0.6
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.35,
+        "baseShift": {
+          "joy": 0.01,
+          "sadness": -0.93,
+          "anger": -0.93,
+          "fear": -0.93,
+          "disgust": -0.93
+        }
       },
       "nameSource": "幸子 (1954年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3196,7 +4036,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 8160
         },
         "hunger": {
           "sensitivity": 1.1
@@ -3207,12 +4048,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0128
+          "k": 0.0128,
+          "exp": {
+            "k": 0.00888
+          }
         },
         "drives": {
           "curiosity": 0.33
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.99,
+        "baseShift": {
+          "joy": -0.39,
+          "sadness": 0.19,
+          "anger": 0.19,
+          "fear": 0.19,
+          "disgust": 0.19
+        }
       },
       "nameSource": "花音 (2015年生まれの7位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3250,18 +4104,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 22074
         },
         "safety": {
           "threshold": 0.38
         },
         "stress": {
-          "k": 0.0166
+          "k": 0.0166,
+          "exp": {
+            "k": 0.01392
+          }
         },
         "drives": {
           "curiosity": 0.44
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 4.31,
+        "baseShift": {
+          "joy": 0.84,
+          "sadness": 0.59,
+          "anger": 0.59,
+          "fear": 0.59,
+          "disgust": 0.59
+        }
       },
       "nameSource": "明日香 (1997年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3299,18 +4167,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 14126
         },
         "safety": {
           "threshold": 0.56
         },
         "stress": {
-          "k": 0.0096
+          "k": 0.0096,
+          "exp": {
+            "k": 0.00464
+          }
         },
         "drives": {
           "curiosity": 0.46
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.81,
+        "baseShift": {
+          "joy": 0.46,
+          "sadness": -0.06,
+          "anger": -0.06,
+          "fear": -0.06,
+          "disgust": -0.06
+        }
       },
       "nameSource": "理恵 (1979年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3349,7 +4231,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 16144
         },
         "hunger": {
           "sensitivity": 0.8
@@ -3358,7 +4241,10 @@
           "threshold": 0.47
         },
         "stress": {
-          "k": 0.0133
+          "k": 0.0133,
+          "exp": {
+            "k": 0.00957
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -3368,6 +4254,16 @@
           "curiosity": 0.26
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.64,
+        "baseShift": {
+          "joy": 0.09,
+          "sadness": 0.42,
+          "anger": 0.42,
+          "fear": 0.42,
+          "disgust": 0.42
+        }
       },
       "nameSource": "正 (1954年生まれの9位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3405,7 +4301,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 8609
         },
         "hunger": {
           "sensitivity": 1.1
@@ -3416,12 +4313,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0096
+          "k": 0.0096,
+          "exp": {
+            "k": 0.00465
+          }
         },
         "drives": {
           "curiosity": 0.86
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.96,
+        "baseShift": {
+          "joy": 0.74,
+          "sadness": 0.04,
+          "anger": 0.04,
+          "fear": 0.04,
+          "disgust": 0.04
+        }
       },
       "nameSource": "結衣 (2016年生まれの8位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3460,13 +4370,17 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 26174
         },
         "safety": {
           "threshold": 0.56
         },
         "stress": {
-          "k": 0.0099
+          "k": 0.0099,
+          "exp": {
+            "k": 0.00508
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -3475,6 +4389,16 @@
           "curiosity": 0.74
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、人からの評価が気になる (青年期)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.75,
+        "baseShift": {
+          "joy": -0.18,
+          "sadness": -0.07,
+          "anger": -0.07,
+          "fear": -0.07,
+          "disgust": -0.07
+        }
       },
       "nameSource": "葵 (2008年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3512,18 +4436,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18435
         },
         "safety": {
           "threshold": 0.41
         },
         "stress": {
-          "k": 0.0152
+          "k": 0.0152,
+          "exp": {
+            "k": 0.01212
+          }
         },
         "drives": {
           "curiosity": 0.41
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.7,
+        "baseShift": {
+          "joy": -1.1,
+          "sadness": -0.31,
+          "anger": -0.31,
+          "fear": -0.31,
+          "disgust": -0.31
+        }
       },
       "nameSource": "哲也 (1967年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3562,7 +4500,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 22879
         },
         "hunger": {
           "sensitivity": 0.8
@@ -3571,7 +4510,10 @@
           "threshold": 0.4
         },
         "stress": {
-          "k": 0.0158
+          "k": 0.0158,
+          "exp": {
+            "k": 0.0129
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -3581,6 +4523,16 @@
           "curiosity": 0.63
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスを感じやすい、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.73,
+        "baseShift": {
+          "joy": 1.36,
+          "sadness": 1.91,
+          "anger": 1.91,
+          "fear": 1.91,
+          "disgust": 1.91
+        }
       },
       "nameSource": "茂 (1950年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3618,7 +4570,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 10058
         },
         "hunger": {
           "sensitivity": 1.1
@@ -3629,12 +4582,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0085
+          "k": 0.0085,
+          "exp": {
+            "k": 0.0032
+          }
         },
         "drives": {
           "curiosity": 0.55
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 1.63,
+        "baseShift": {
+          "joy": 0.58,
+          "sadness": -1.14,
+          "anger": -1.14,
+          "fear": -1.14,
+          "disgust": -1.14
+        }
       },
       "nameSource": "陽葵 (2013年生まれの9位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3673,18 +4639,32 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 17941
         },
         "safety": {
           "threshold": 0.33
         },
         "stress": {
-          "k": 0.0183
+          "k": 0.0183,
+          "exp": {
+            "k": 0.01631
+          }
         },
         "drives": {
           "curiosity": 0.3
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、不安・ストレスを感じやすい、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 6.28,
+        "baseShift": {
+          "joy": 0.56,
+          "sadness": 1.05,
+          "anger": 1.05,
+          "fear": 1.05,
+          "disgust": 1.05
+        }
       },
       "nameSource": "真央 (2006年生まれの8位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3722,18 +4702,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 19917
         },
         "safety": {
           "threshold": 0.62
         },
         "stress": {
-          "k": 0.0077
+          "k": 0.0077,
+          "exp": {
+            "k": 0.00206
+          }
         },
         "drives": {
           "curiosity": 0.67
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.77,
+        "baseShift": {
+          "joy": -0.12,
+          "sadness": -0.04,
+          "anger": -0.04,
+          "fear": -0.04,
+          "disgust": -0.04
+        }
       },
       "nameSource": "裕子 (1975年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3772,7 +4766,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 16315
         },
         "hunger": {
           "sensitivity": 0.8
@@ -3781,7 +4776,10 @@
           "threshold": 0.43
         },
         "stress": {
-          "k": 0.0146
+          "k": 0.0146,
+          "exp": {
+            "k": 0.01136
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -3791,6 +4789,16 @@
           "curiosity": 0.47
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスを感じやすい、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 3.7,
+        "baseShift": {
+          "joy": -1.13,
+          "sadness": 0.09,
+          "anger": 0.09,
+          "fear": 0.09,
+          "disgust": 0.09
+        }
       },
       "nameSource": "栄子 (1938年生まれの10位、生まれ年との差 1年。明治安田生命)"
     },
@@ -3828,7 +4836,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 9255
         },
         "hunger": {
           "sensitivity": 1.1
@@ -3839,12 +4848,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0157
+          "k": 0.0157,
+          "exp": {
+            "k": 0.01277
+          }
         },
         "drives": {
           "curiosity": 0.25
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、不安・ストレスを感じやすい、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 1.52,
+        "baseShift": {
+          "joy": 0.46,
+          "sadness": 0.9,
+          "anger": 0.9,
+          "fear": 0.9,
+          "disgust": 0.9
+        }
       },
       "nameSource": "愛莉 (2014年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3882,18 +4904,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 20348
         },
         "safety": {
           "threshold": 0.49
         },
         "stress": {
-          "k": 0.0125
+          "k": 0.0125,
+          "exp": {
+            "k": 0.00853
+          }
         },
         "drives": {
           "curiosity": 0.61
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 1.43,
+        "baseShift": {
+          "joy": -0.93,
+          "sadness": 0.47,
+          "anger": 0.47,
+          "fear": 0.47,
+          "disgust": 0.47
+        }
       },
       "nameSource": "未来 (1999年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3931,18 +4967,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18758
         },
         "safety": {
           "threshold": 0.63
         },
         "stress": {
-          "k": 0.0073
+          "k": 0.0073,
+          "exp": {
+            "k": 0.00157
+          }
         },
         "drives": {
           "curiosity": 0.56
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.27,
+        "baseShift": {
+          "joy": 0.79,
+          "sadness": -1.37,
+          "anger": -1.37,
+          "fear": -1.37,
+          "disgust": -1.37
+        }
       },
       "nameSource": "翼 (1994年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -3981,7 +5031,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 20716
         },
         "hunger": {
           "sensitivity": 0.8
@@ -3990,7 +5041,10 @@
           "threshold": 0.46
         },
         "stress": {
-          "k": 0.0134
+          "k": 0.0134,
+          "exp": {
+            "k": 0.00978
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4000,6 +5054,16 @@
           "curiosity": 0.56
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.52,
+        "baseShift": {
+          "joy": 1.01,
+          "sadness": 0.63,
+          "anger": 0.63,
+          "fear": 0.63,
+          "disgust": 0.63
+        }
       },
       "nameSource": "進 (1951年生まれの6位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4037,7 +5101,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 26250
+          "fullAfter": 26250,
+          "tauW": 11681
         },
         "hunger": {
           "sensitivity": 1.1
@@ -4048,12 +5113,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0137
+          "k": 0.0137,
+          "exp": {
+            "k": 0.01015
+          }
         },
         "drives": {
           "curiosity": 0.34
         },
         "_comment": "眠気: 推奨の睡眠 10h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.94,
+        "baseShift": {
+          "joy": 0.58,
+          "sadness": 0.67,
+          "anger": 0.67,
+          "fear": 0.67,
+          "disgust": 0.67
+        }
       },
       "nameSource": "陽向 (2014年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4092,7 +5170,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 28125,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 12249
         },
         "hunger": {
           "sensitivity": 1.1
@@ -4101,7 +5180,10 @@
           "threshold": 0.42
         },
         "stress": {
-          "k": 0.0151
+          "k": 0.0151,
+          "exp": {
+            "k": 0.01196
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -4110,6 +5192,16 @@
           "curiosity": 0.21
         },
         "_comment": "眠気: 推奨の睡眠 9h・夜型、お腹が空きやすい (成長期)、不安・ストレスを感じやすい、人からの評価が気になる (青年期)、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 2.36,
+        "baseShift": {
+          "joy": 1.63,
+          "sadness": 0.1,
+          "anger": 0.1,
+          "fear": 0.1,
+          "disgust": 0.1
+        }
       },
       "nameSource": "美桜 (2010年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4147,18 +5239,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 14786
         },
         "safety": {
           "threshold": 0.59
         },
         "stress": {
-          "k": 0.0087
+          "k": 0.0087,
+          "exp": {
+            "k": 0.00349
+          }
         },
         "drives": {
           "curiosity": 0.33
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.81,
+        "baseShift": {
+          "joy": 0.13,
+          "sadness": -1.39,
+          "anger": -1.39,
+          "fear": -1.39,
+          "disgust": -1.39
+        }
       },
       "nameSource": "明美 (1966年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4197,7 +5303,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 18259
         },
         "hunger": {
           "sensitivity": 0.8
@@ -4206,7 +5313,10 @@
           "threshold": 0.55
         },
         "stress": {
-          "k": 0.0103
+          "k": 0.0103,
+          "exp": {
+            "k": 0.00553
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4216,6 +5326,16 @@
           "curiosity": 0.51
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.64,
+        "baseShift": {
+          "joy": -1.05,
+          "sadness": 0.19,
+          "anger": 0.19,
+          "fear": 0.19,
+          "disgust": 0.19
+        }
       },
       "nameSource": "美智子 (1947年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4253,7 +5373,8 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 28125
+          "fullAfter": 28125,
+          "tauW": 15044
         },
         "hunger": {
           "sensitivity": 1.1
@@ -4264,12 +5385,25 @@
           "nightOutside": 0.28
         },
         "stress": {
-          "k": 0.0122
+          "k": 0.0122,
+          "exp": {
+            "k": 0.0081
+          }
         },
         "drives": {
           "curiosity": 0.77
         },
         "_comment": "眠気: 推奨の睡眠 9h、お腹が空きやすい (成長期)、夜・暗がりが怖い (子供)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.15,
+        "baseShift": {
+          "joy": 1.81,
+          "sadness": 1.02,
+          "anger": 1.02,
+          "fear": 1.02,
+          "disgust": 1.02
+        }
       },
       "nameSource": "心春 (2012年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4308,7 +5442,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 28125,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 19163
         },
         "hunger": {
           "sensitivity": 1.1
@@ -4317,7 +5452,10 @@
           "threshold": 0.51
         },
         "stress": {
-          "k": 0.0117
+          "k": 0.0117,
+          "exp": {
+            "k": 0.00744
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -4326,6 +5464,16 @@
           "curiosity": 0.6
         },
         "_comment": "眠気: 推奨の睡眠 9h・夜型、お腹が空きやすい (成長期)、人からの評価が気になる (青年期)"
+      },
+      "emotions": {
+        "halfLifeMul": 1,
+        "baseShift": {
+          "joy": 0.33,
+          "sadness": -0.94,
+          "anger": -0.94,
+          "fear": -0.94,
+          "disgust": -0.94
+        }
       },
       "nameSource": "心愛 (2011年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4363,18 +5511,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 21375
         },
         "safety": {
           "threshold": 0.56
         },
         "stress": {
-          "k": 0.0096
+          "k": 0.0096,
+          "exp": {
+            "k": 0.00469
+          }
         },
         "drives": {
           "curiosity": 0.6
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 0.51,
+        "baseShift": {
+          "joy": 0.55,
+          "sadness": -0.96,
+          "anger": -0.96,
+          "fear": -0.96,
+          "disgust": -0.96
+        }
       },
       "nameSource": "徹 (1962年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4413,7 +5575,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 19412
         },
         "hunger": {
           "sensitivity": 0.8
@@ -4422,7 +5585,10 @@
           "threshold": 0.51
         },
         "stress": {
-          "k": 0.0117
+          "k": 0.0117,
+          "exp": {
+            "k": 0.00744
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4432,6 +5598,16 @@
           "curiosity": 0.66
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 0.98,
+        "baseShift": {
+          "joy": 1.21,
+          "sadness": 0.08,
+          "anger": 0.08,
+          "fear": 0.08,
+          "disgust": 0.08
+        }
       },
       "nameSource": "昇 (1952年生まれの7位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4470,13 +5646,17 @@
       "needs": {
         "sleep": {
           "fullAfter": 30000,
-          "threshold": 0.6
+          "threshold": 0.6,
+          "tauW": 16091
         },
         "safety": {
           "threshold": 0.51
         },
         "stress": {
-          "k": 0.0117
+          "k": 0.0117,
+          "exp": {
+            "k": 0.00747
+          }
         },
         "recognition": {
           "fullAfter": 12000
@@ -4485,6 +5665,16 @@
           "curiosity": 0.64
         },
         "_comment": "眠気: 推奨の睡眠 8h・夜型、人からの評価が気になる (青年期)"
+      },
+      "emotions": {
+        "halfLifeMul": 3.03,
+        "baseShift": {
+          "joy": 0.93,
+          "sadness": 0.16,
+          "anger": 0.16,
+          "fear": 0.16,
+          "disgust": 0.16
+        }
       },
       "nameSource": "優奈 (2007年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4522,18 +5712,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 20551
         },
         "safety": {
           "threshold": 0.37
         },
         "stress": {
-          "k": 0.0169
+          "k": 0.0169,
+          "exp": {
+            "k": 0.01436
+          }
         },
         "drives": {
           "curiosity": 0.68
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 2.49,
+        "baseShift": {
+          "joy": 1.82,
+          "sadness": 2.22,
+          "anger": 2.22,
+          "fear": 2.22,
+          "disgust": 2.22
+        }
       },
       "nameSource": "香織 (1973年生まれの7位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4572,7 +5776,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 26787
         },
         "hunger": {
           "sensitivity": 0.8
@@ -4581,7 +5786,10 @@
           "threshold": 0.64
         },
         "stress": {
-          "k": 0.0066
+          "k": 0.0066,
+          "exp": {
+            "k": 0.00157
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4591,6 +5799,16 @@
           "curiosity": 0.25
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスに強い、親しい少数の人を求める (高齢)、知らない所への関心は薄い"
+      },
+      "emotions": {
+        "halfLifeMul": 0.61,
+        "baseShift": {
+          "joy": 0.68,
+          "sadness": -0.83,
+          "anger": -0.83,
+          "fear": -0.83,
+          "disgust": -0.83
+        }
       },
       "nameSource": "勝利 (1945年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4628,18 +5846,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 23744
         },
         "safety": {
           "threshold": 0.46
         },
         "stress": {
-          "k": 0.0135
+          "k": 0.0135,
+          "exp": {
+            "k": 0.00984
+          }
         },
         "drives": {
           "curiosity": 0.57
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 2.35,
+        "baseShift": {
+          "joy": -0.38,
+          "sadness": -0.21,
+          "anger": -0.21,
+          "fear": -0.21,
+          "disgust": -0.21
+        }
       },
       "nameSource": "萌 (1998年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4677,18 +5909,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 14327
         },
         "safety": {
           "threshold": 0.51
         },
         "stress": {
-          "k": 0.0115
+          "k": 0.0115,
+          "exp": {
+            "k": 0.00713
+          }
         },
         "drives": {
           "curiosity": 0.4
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 1.9,
+        "baseShift": {
+          "joy": 0.08,
+          "sadness": 0.07,
+          "anger": 0.07,
+          "fear": 0.07,
+          "disgust": 0.07
+        }
       },
       "nameSource": "恵 (1981年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4727,7 +5973,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 26078
         },
         "hunger": {
           "sensitivity": 0.8
@@ -4736,7 +5983,10 @@
           "threshold": 0.49
         },
         "stress": {
-          "k": 0.0123
+          "k": 0.0123,
+          "exp": {
+            "k": 0.00826
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4746,6 +5996,16 @@
           "curiosity": 0.55
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.03,
+        "baseShift": {
+          "joy": 0.31,
+          "sadness": -0.4,
+          "anger": -0.4,
+          "fear": -0.4,
+          "disgust": -0.4
+        }
       },
       "nameSource": "京子 (1953年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4783,18 +6043,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 30911
         },
         "safety": {
           "threshold": 0.31
         },
         "stress": {
-          "k": 0.019
+          "k": 0.019,
+          "exp": {
+            "k": 0.01717
+          }
         },
         "drives": {
           "curiosity": 0.6
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 4.1,
+        "baseShift": {
+          "joy": -0.95,
+          "sadness": 0.46,
+          "anger": 0.46,
+          "fear": 0.46,
+          "disgust": 0.46
+        }
       },
       "nameSource": "直美 (1969年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4833,7 +6107,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 14321
         },
         "hunger": {
           "sensitivity": 0.8
@@ -4842,7 +6117,10 @@
           "threshold": 0.41
         },
         "stress": {
-          "k": 0.0153
+          "k": 0.0153,
+          "exp": {
+            "k": 0.01231
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4852,6 +6130,16 @@
           "curiosity": 0.77
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、不安・ストレスを感じやすい、親しい少数の人を求める (高齢)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.5,
+        "baseShift": {
+          "joy": -1.07,
+          "sadness": 0.91,
+          "anger": 0.91,
+          "fear": 0.91,
+          "disgust": 0.91
+        }
       },
       "nameSource": "清 (1948年生まれの4位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4889,18 +6177,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 18460
         },
         "safety": {
           "threshold": 0.33
         },
         "stress": {
-          "k": 0.0182
+          "k": 0.0182,
+          "exp": {
+            "k": 0.01612
+          }
         },
         "drives": {
           "curiosity": 0.63
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスを感じやすい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.25,
+        "baseShift": {
+          "joy": -1.85,
+          "sadness": 2.33,
+          "anger": 2.33,
+          "fear": 2.33,
+          "disgust": 2.33
+        }
       },
       "nameSource": "学 (1975年生まれの3位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4939,7 +6241,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 12841
         },
         "hunger": {
           "sensitivity": 0.8
@@ -4948,7 +6251,10 @@
           "threshold": 0.52
         },
         "stress": {
-          "k": 0.0112
+          "k": 0.0112,
+          "exp": {
+            "k": 0.00683
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -4958,6 +6264,16 @@
           "curiosity": 0.61
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)"
+      },
+      "emotions": {
+        "halfLifeMul": 1.04,
+        "baseShift": {
+          "joy": -0.25,
+          "sadness": -1.04,
+          "anger": -1.04,
+          "fear": -1.04,
+          "disgust": -1.04
+        }
       },
       "nameSource": "恵子 (1959年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -4995,18 +6311,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 24990
         },
         "safety": {
           "threshold": 0.58
         },
         "stress": {
-          "k": 0.0091
+          "k": 0.0091,
+          "exp": {
+            "k": 0.00391
+          }
         },
         "drives": {
           "curiosity": 0.71
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 3.14,
+        "baseShift": {
+          "joy": -1.45,
+          "sadness": -0.11,
+          "anger": -0.11,
+          "fear": -0.11,
+          "disgust": -0.11
+        }
       },
       "nameSource": "智子 (1977年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -5045,7 +6375,8 @@
       "needs": {
         "sleep": {
           "fullAfter": 30938,
-          "threshold": 0.5
+          "threshold": 0.5,
+          "tauW": 15914
         },
         "hunger": {
           "sensitivity": 0.8
@@ -5054,7 +6385,10 @@
           "threshold": 0.48
         },
         "stress": {
-          "k": 0.0126
+          "k": 0.0126,
+          "exp": {
+            "k": 0.00871
+          }
         },
         "connection": {
           "bond": 0.45,
@@ -5064,6 +6398,16 @@
           "curiosity": 0.79
         },
         "_comment": "眠気: 推奨の睡眠 7.5h・早く眠い、空腹を感じにくい (高齢)、親しい少数の人を求める (高齢)、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 3.88,
+        "baseShift": {
+          "joy": -0.97,
+          "sadness": 0.02,
+          "anger": 0.02,
+          "fear": 0.02,
+          "disgust": 0.02
+        }
       },
       "nameSource": "節子 (1950年生まれの5位、生まれ年との差 0年。明治安田生命)"
     },
@@ -5101,18 +6445,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 16031
         },
         "safety": {
           "threshold": 0.5
         },
         "stress": {
-          "k": 0.0121
+          "k": 0.0121,
+          "exp": {
+            "k": 0.00802
+          }
         },
         "drives": {
           "curiosity": 0.75
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.4,
+        "baseShift": {
+          "joy": 1.16,
+          "sadness": 0.4,
+          "anger": 0.4,
+          "fear": 0.4,
+          "disgust": 0.4
+        }
       },
       "nameSource": "達也 (1988年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -5150,18 +6508,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 24738
         },
         "safety": {
           "threshold": 0.48
         },
         "stress": {
-          "k": 0.0126
+          "k": 0.0126,
+          "exp": {
+            "k": 0.00863
+          }
         },
         "drives": {
           "curiosity": 0.77
         },
         "_comment": "眠気: 推奨の睡眠 8h、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 1.13,
+        "baseShift": {
+          "joy": -1.66,
+          "sadness": -0.71,
+          "anger": -0.71,
+          "fear": -0.71,
+          "disgust": -0.71
+        }
       },
       "nameSource": "誠 (1973年生まれの1位、生まれ年との差 0年。明治安田生命)"
     },
@@ -5199,18 +6571,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 10774
         },
         "safety": {
           "threshold": 0.56
         },
         "stress": {
-          "k": 0.0096
+          "k": 0.0096,
+          "exp": {
+            "k": 0.00461
+          }
         },
         "drives": {
           "curiosity": 0.72
         },
         "_comment": "眠気: 推奨の睡眠 8h、不安・ストレスに強い、知らない所に行きたい"
+      },
+      "emotions": {
+        "halfLifeMul": 0.64,
+        "baseShift": {
+          "joy": 0.87,
+          "sadness": -2.09,
+          "anger": -2.09,
+          "fear": -2.09,
+          "disgust": -2.09
+        }
       },
       "nameSource": "浩 (1964年生まれの2位、生まれ年との差 0年。明治安田生命)"
     },
@@ -5248,18 +6634,32 @@
       },
       "needs": {
         "sleep": {
-          "fullAfter": 30000
+          "fullAfter": 30000,
+          "tauW": 16559
         },
         "safety": {
           "threshold": 0.53
         },
         "stress": {
-          "k": 0.0109
+          "k": 0.0109,
+          "exp": {
+            "k": 0.00643
+          }
         },
         "drives": {
           "curiosity": 0.39
         },
         "_comment": "眠気: 推奨の睡眠 8h"
+      },
+      "emotions": {
+        "halfLifeMul": 1.56,
+        "baseShift": {
+          "joy": 0.57,
+          "sadness": -0.45,
+          "anger": -0.45,
+          "fear": -0.45,
+          "disgust": -0.45
+        }
       },
       "nameSource": "祐介 (1984年生まれの6位、生まれ年との差 1年。明治安田生命)"
     }
@@ -5272,13 +6672,17 @@
     "_comment": "人としての欲求とストレス (src/needs.js)。ここは全員に効く。人ごとの差は personas[].needs で上書きする。書いていない係数は needs.js の NEEDS_DEFAULTS (全員同じ)。増え方の係数は実測から調整する",
     "_comment_sleep": "眠気はベッドで寝たときだけ減る (2026-11-07 ユーザー決定: wait・look_around を外したので、床で休む扱い restActions は空)",
     "sleep": {
-      "restActions": []
+      "restActions": [],
+      "model": "processS",
+      "_comment_model": "眠気: processS = 睡眠の2過程モデル (src/needs.js の説明)。linear = 旧 (直線 + 夜 2.5 倍)。人ごとの tauW は personas[].needs.sleep"
     },
     "stress": {
       "k": 0.012,
       "T": 6000,
       "power": 2,
-      "recover": 0.03
+      "recover": 0.03,
+      "model": "exp",
+      "_comment_model": "ストレス: exp = 半減期 exp.halfLife の指数で抜け、power 0.5 (src/needs.js の説明)。linear = 旧 (k・power 2・recover)。人ごとの exp.k は personas[].needs.stress.exp"
     },
     "anticipate": {
       "_comment": "予期される欲求 (先のつらさ。src/anticipate.js、2026-11-05 ユーザー決定「備える」)。先の不安 night = 夜までの近さ (夜の horizon tick 前から、^power。夜のあいだは1) × 見込み (base + (1−base)(1−exp(−Σ 夜ごとの 死んだ×perDeath + 傷を受けた×perHurt + 敵が近くに来た×perAttack × nightDecay^何夜前))) × (1 − 備え: 武器・防具・盾・松明・囲まれた寝床・ベッド、prepMax まで) × (1 + braveryScale×(0.5−bravery)×2)。先の空腹 food = (1 − 手持ちの食べ物の回数/wantMeals) × (入手元を知っていれば sourceMul) × (lowMul + (1−lowMul)×いまの空腹/hungerRef)。ゴールを選ぶときのつらさの点 = 値/threshold × weight。書いていない係数は anticipate.js の ANTICIPATE_DEFAULTS。人ごとの差は personas[].needs.anticipate で上書きする",
@@ -5601,6 +7005,10 @@
         "ignored": -3,
         "asked": 1
       }
+    },
+    "emotions": {
+      "model": "perEmotion",
+      "_comment": "感情: perEmotion = 感情ごとの半減期 (tick)・文献の基準値・occupancy に合わせた上げ幅 (src/social.js の EMOTION_DEFAULTS)。uniform = 旧 (毎判断 0.85 倍)。人ごとの halfLifeMul・baseShift は personas[].emotions"
     }
   },
   "others": {
@@ -5620,7 +7028,11 @@
     "actions": true,
     "aggression": true,
     "threshold": 0.15,
-    "hits": 3
+    "hits": 3,
+    "grudgeParams": {
+      "decayUnit": "ticks",
+      "_comment_decay": "わだかまりの薄れ方を実際に進んだ tick で (halfLifeTicks 27000 = 旧の 150 判断 × 180 tick)。decisions = 旧"
+    }
   },
   "provenance": {
     "_comment": "設置物の来歴と所有 (src/provenance.js・src/ownership.js・src/ownership_agent.js。2026-11-10 引き継ぎ)。ledger: 台帳 (ground truth。runs/<id>/provenance/<名前>.jsonl。観察だけで行動は変えない)。actions: 部分的な知識 (自分で置いた・見た・聞いた・共有にされた物だけ所有者を知る) と行動の分離 (collect は天然と見ている物だけ、dismantle_own / take_placed / ask_permission / make_amends / repair_or_relocate_public)。penalty: 所有のペナルティ (take_placed の重み + 関係の変化)。比較実験は run.js の --provenance on|off・--ownership-penalty on|off。取ることは禁止しない (重みは 0 にしない)。理由 (reasonCode) は行動の前に欲求・代替手段・所有の知識・許可・損害・性格から決定的に決めて記録する (event: intent)",
