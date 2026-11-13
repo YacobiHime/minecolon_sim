@@ -36,10 +36,9 @@ const EMOTION_DEFAULTS = {
   decay: 0.85, // uniform: 1判断ごとに基準値との差がこの割合に縮む
   halfLife: { joy: 17500, sadness: 10080, anger: 2160, fear: 670, disgust: 560, surprise: 1640 },
   base: { joy: 5.9, sadness: 0.9, anger: 0.7, fear: 0.7, disgust: 0.7, surprise: 0 },
-  gain: { joy: 0.042, sadness: 1.082, anger: 0.716, fear: 0.333, disgust: 1, surprise: 1 }, // calibrate_emotions.js --fit (嫌悪は出来事が記録にほぼ無く合わせられず 1、驚きは目標が無く 1)
+  gain: { joy: 0.048, sadness: 1.075, anger: 0.7, fear: 0.324, disgust: 1, surprise: 1 }, // calibrate_emotions.js --fit (嫌悪は出来事が記録にほぼ無く合わせられず 1、驚きは目標が無く 1)
   above: 2, // 言葉に出るしきい値 = 集団の base + above
   perDecisionTicks: 180, // 旧の「1判断ごと」の量を tick あたりに直すときの判断の間隔 (runs/2026-11-11T03-43-35 の平均)
-  maxDt: 6000, // 1回で進める tick の上限 (needs と同じ)
   halfLifeMul: 1, // 人ごと
   baseShift: {}, // 人ごと { joy, sadness, anger, fear, disgust }
 };
@@ -75,6 +74,7 @@ const STRESS_SOURCE = {
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function r2(v) { return Math.round(v * 100) / 100; }
 function r1(v) { return Math.round(v * 10) / 10; }
+function r4(v) { return Math.round(v * 10000) / 10000; }
 
 // 好感の動き (2026-11-07 ユーザー決定「上がり幅を小さく、上限・下限に近いほど動きにくく」)。
 //   変化 = 基の幅 × 残りの割合。残りの割合 = min(1, 残りの幅 ÷ room)。残りの幅は、上がるときは 100 − 好感、下がるときは 好感 − 0。
@@ -258,20 +258,22 @@ class Social {
   }
 
   perEmotion() { return this.emoCfg.model === 'perEmotion'; }
+  // 値の丸め。perEmotion は 1判断の戻り・上げ幅が小さい (喜びの半減期 17500 tick に対し判断の間隔は 120 tick 前後) ので 0.0001 まで持つ (旧は 0.01)
+  emoRound(v) { return this.perEmotion() ? r4(v) : r2(v); }
   // 感情を d だけ動かす。perEmotion では感情ごとの上げ幅 gain を掛ける
   bump(emo, d) {
     const g = this.perEmotion() ? (this.emoCfg.gain[emo] ?? 1) : 1;
-    this.emotions[emo] = r2(clamp(this.emotions[emo] + d * g, 0, 10));
+    this.emotions[emo] = this.emoRound(clamp(this.emotions[emo] + d * g, 0, 10));
   }
   // 基準値へ戻る。uniform: 1判断ぶん (decay 倍)。perEmotion: dt (tick) ぶん、感情ごとの半減期で
   decayEmotions(dt = 0) {
     if (!this.perEmotion()) { for (const e of EMOTIONS) this.emotions[e] = r2(EMO_BASE[e] + (this.emotions[e] - EMO_BASE[e]) * this.decay); return; }
     const c = this.emoCfg;
-    const t = clamp(Number(dt) || 0, 0, c.maxDt);
+    const t = Math.max(0, Number(dt) || 0); // dt は needs.update が maxDt (6000) で切った値
     for (const e of EMOTIONS) {
       const h = (c.halfLife[e] || 1) * (c.halfLifeMul || 1);
       const b = this.emoBase[e];
-      this.emotions[e] = r2(b + (this.emotions[e] - b) * Math.pow(0.5, t / h));
+      this.emotions[e] = r4(b + (this.emotions[e] - b) * Math.pow(0.5, t / h));
     }
   }
   // 言葉に出すしきい値 [感じている, 中, 強い] (感情ごと)
@@ -313,7 +315,7 @@ class Social {
     const st = n.cfg.stress;
     const S = n.stress;
     const t = this.temperament;
-    const f = this.perEmotion() && dt != null ? clamp(Number(dt) || 0, 0, this.emoCfg.maxDt) / this.emoCfg.perDecisionTicks : 1;
+    const f = this.perEmotion() && dt != null ? Math.max(0, Number(dt) || 0) / this.emoCfg.perDecisionTicks : 1;
     if (S > st.from) {
       const tilt = { anger: 1.3 - t.obedience * 0.8 + t.greed * 0.2, sadness: 0.4 + t.empathy * 0.4 + t.sociability * 0.4, fear: 1.3 - t.bravery };
       const tot = Object.values(n.inflow).reduce((a, b) => a + b, 0);

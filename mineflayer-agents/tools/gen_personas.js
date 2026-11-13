@@ -343,12 +343,13 @@ function needsFor(age, z, curiosity) {
 const STRESS_EXP_K = 0.00785; // tools/calibrate_emotions.js --fit で決めた (runs/2026-11-11T03-43-35 の再生で、ストレスが言葉に出た人日の割合が 0.38)
 const TAUW_POINTS = [[11.9, 8900], [14.2, 15400], [20, 18200]]; // 年齢 → τw の中央値 (tick)
 const TAUW_SIGMA = 0.22;
+const TAUW_MEDIAN = (age) => interp(TAUW_POINTS, age);
 const EMO_SEX = Math.sqrt(2.5);
 const copula = (rho, zTrait, eps) => rho * zTrait + Math.sqrt(1 - rho * rho) * eps;
 // rng2: 前からの値を変えないための別の乱数の列。返り値 { tauW, stressExpK, emotions }
 function groundedFor(age, sex, z, rng2) {
   const e1 = normal(rng2); const e2 = normal(rng2); const e3 = normal(rng2); const e4 = normal(rng2);
-  const tauW = Math.round(interp(TAUW_POINTS, age) * Math.exp(TAUW_SIGMA * e1));
+  const tauW = Math.round(TAUW_MEDIAN(age) * Math.exp(TAUW_SIGMA * e1));
   const stressExpK = Math.round(STRESS_EXP_K * Math.max(0.2, 1 + 0.51 * z.N) * 100000) / 100000;
   const halfLifeMul = r2((sex === 'female' ? EMO_SEX : 1 / EMO_SEX) * Math.exp(0.5 * copula(0.23, z.N, e2)));
   const neg = r2(0.9 * copula(0.64, z.N, e3));
@@ -478,4 +479,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { MODEL_OVERLAY, deepMerge, groundedFor, STRESS_EXP_K, TAUW_POINTS, generate, traitNorm, layerCounts, personalityText, speechText, needsFor, phi, mulberry32, TEMPERAMENT_MAP, LAYERS, layerOf, READING, loadData };
+module.exports = { MODEL_OVERLAY, deepMerge, groundedFor, STRESS_EXP_K, TAUW_POINTS, TAUW_MEDIAN, generate, traitNorm, layerCounts, personalityText, speechText, needsFor, phi, mulberry32, TEMPERAMENT_MAP, LAYERS, layerOf, READING, loadData };
