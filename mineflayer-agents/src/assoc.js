@@ -29,7 +29,7 @@ const DEFAULTS = {
   // 得点の重み (HAM-VLN: 関連度 α 1.0・新しさ β 0.3・重要度 γ 0.3)
   alpha: 1.0, beta: 0.3, gamma: 0.3,
   // 広げ方: 段数・2段目からの減衰・扇の形 ('log' = 1/(1+ln fan)、'actr' = (S − ln fan)/S を 0 で止める)・ACT-R の S
-  maxHops: 3, decay: 0.5, fan: 'log', S: 2, minAct: 0.002, aFloor: 0.05,
+  maxHops: 3, decay: 0.5, fan: 'log', S: 2, minAct: 0.002, aFloor: 0.05, cueFloor: 0.05,
   // 手がかりの重み (種類ごと)。人は関係の強さ (わだかまり・好感の離れ) で personSalience まで重くする
   cueWeights: { place: 0.8, person: 1.0, item: 0.5, goal: 1.0, next: 0.8, need: 1.0, heard: 0.7, time: 0.4, question: 1.5, asker: 0.3 },
   personSalience: 0.5, personRadius: 24, maxItemCues: 6, maxHeardCues: 6,
@@ -392,7 +392,23 @@ function recall(memory, cues, { social = null } = {}) {
   const graph = memory.graph;
   const C = graph.cfg;
   const ctx = buildCtx(memory, graph, social);
-  const act = spread(cues, ctx, C);
+  // 手がかりごとに広げ、手がかりごとに「いちばん届いた記憶 = 1」に合わせてから重みを掛けて足す
+  //   (1つの強い手がかり (今いる所) が、段数の深い手がかり (作業台 → 板材 → 原木) を押しつぶさないように。
+  //    届き方が弱すぎる手がかりは cueFloor × 重み で割って、小さいまま残す)
+  const cand = new Set([...graph.eps.map((e) => e.id), ...(memory.places || []).map(lmId)]);
+  const act = new Map();
+  for (const c of cues.list) {
+    const one = spread({ list: [c] }, ctx, C);
+    let mx = 0;
+    for (const [k, v] of one) if (cand.has(k) && v.a > mx) mx = v.a;
+    const den = Math.max(mx, c.w * C.cueFloor);
+    for (const [k, v] of one) {
+      const n = (v.a / den) * c.w;
+      const p = act.get(k);
+      if (!p) act.set(k, { ...v, a: n, best: n });
+      else { p.a += n; if (n > p.best) { p.best = n; p.cue = v.cue; p.hop = v.hop; p.via = v.via; } }
+    }
+  }
   const whyOf = (v) => (v ? { type: v.cue.type, label: v.cue.label, node: v.cue.node, hop: v.hop, via: v.via || null } : { type: 'recency', hop: null });
   const embed = typeof memory.embedRelevance === 'function' ? memory.embedRelevance : null; // 埋め込みの関連度の差し込み口 (今は無し)
   const epA = graph.eps.map((e) => (act.get(e.id) || {}).a || 0);
