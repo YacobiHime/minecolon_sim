@@ -14,11 +14,16 @@
 const { LLMDecider } = require('./llm');
 const { SplitDecider } = require('./split');
 const { ScriptedDecider, RandomDecider } = require('./mock');
+const { JevDecider } = require('./jev');
 
-function createDecider(cfg = {}, overrides = {}) {
+// deps = { meter, jevClient, llmOpts } (実行で共有するもの)
+function createDecider(cfg = {}, overrides = {}, deps = {}) {
   const type = cfg.type || 'llm';
-  const llmOpts = { ...(cfg.llm || {}), ...overrides };
+  // deps.llmOpts: 提供元を解決した opts (llm_provider.llmOptsFor(cfg, 'act'))。無ければ decider.llm (今まで通り)
+  const llmOpts = { ...(deps.llmOpts || cfg.llm || {}), ...overrides };
   if (type === 'llm') return new LLMDecider(llmOpts);
+  // 行動は Jev。発言は agent が Talker (2B) で作る
+  if (type === 'jev') return new JevDecider({ ...(cfg.jev || {}), meter: deps.meter, client: deps.jevClient });
   if (type === 'split') {
     // 行動担当と会話担当を分ける (どちらも LLM。行動担当は Jev などに差し替える想定)
     return new SplitDecider({
@@ -32,4 +37,4 @@ function createDecider(cfg = {}, overrides = {}) {
   throw new Error(`unknown decider type: ${type}`);
 }
 
-module.exports = { createDecider, LLMDecider, SplitDecider, ScriptedDecider, RandomDecider };
+module.exports = { createDecider, LLMDecider, SplitDecider, ScriptedDecider, RandomDecider, JevDecider };

@@ -9,7 +9,7 @@ function systemPrompt(persona, goal, opts = {}) {
   return [
     `あなたは Minecraft の世界にいる「${persona.name}」。${persona.personality || ''}`,
     persona.speech ? `話し方: ${persona.speech}` : '',
-    `目標: ${goal.text}`,
+    goal.text ? `目標: ${goal.text}` : '',
     goal.hints && goal.hints.length ? `知っていること: ${goal.hints.join(' ')}` : '',
     'あなたが知っているのは、自分で見たこと・やったこと・聞いたことだけ。',
     '毎回、「できる行動」から1つ選び、JSON だけを1行で出力する:',
@@ -23,9 +23,10 @@ function systemPrompt(persona, goal, opts = {}) {
 }
 
 // progress (目標の手順の進み具合) は、小さいモデルが最後の方をよく読むので、行動一覧の後に置く
-function userPrompt(obsText, memText, actions, progress = '') {
+function userPrompt(obsText, memText, actions, progress = '', socialText = '') {
   return [
     '## 今の様子', obsText,
+    socialText ? `## 気持ちと人間関係\n${socialText}` : '',
     '## 覚えていること', memText,
     '## できる行動', actionsToText(actions),
     progress ? `## 目標の手順 (持ち物と見えているものから判定)\n${progress}` : '',

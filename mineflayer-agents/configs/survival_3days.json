@@ -1,0 +1,927 @@
+{
+  "_comment": "personas は20人 (--agents N で先頭から N 人。先頭の5人は Taro・Hanako・Jiro・Yuki・Ken)。normal・昼夜あり・等倍で60分 (= 3日) 動かす。3日は実験の長さ・環境の厳しさで、全体の目標は渡さない (goal.text は空。ユーザー決定 2026-11-03)。人としての欲求 (needs.js: 空腹・眠気・安心・つながり・認められたい・性格ごとの欲求) とストレスを持ち、ゴールは欲求から 2B が物・人・場所で決め、物のゴールはプログラムがレシピをたどって道筋を作り、Jev が道筋の次の物と目の前の様子から行動を選ぶ (help.goalPath。2026-11-04)。小屋・build・②手順・③進み具合は使わない。拠点は set_base で自分で決める",
+  "personas": [
+    {
+      "name": "Taro",
+      "personality": "まじめで少しのんびりしている。",
+      "personality_en": "Earnest and a little easygoing.",
+      "speech": "くだけた短い日本語。語尾に「〜だな」をよく使う。",
+      "temperament": {
+        "bravery": 0.5,
+        "empathy": 0.6,
+        "obedience": 0.6,
+        "greed": 0.3,
+        "sociability": 0.5
+      },
+      "needs": {
+        "_comment": "よく食べる (お腹が空きやすい)",
+        "hunger": {
+          "fullAfter": 6000,
+          "sensitivity": 1.2
+        }
+      }
+    },
+    {
+      "name": "Hanako",
+      "personality": "世話好きで、人に教えるのが好き。",
+      "personality_en": "Caring; likes teaching people.",
+      "speech": "やわらかい丁寧語。",
+      "temperament": {
+        "bravery": 0.4,
+        "empathy": 0.9,
+        "obedience": 0.5,
+        "greed": 0.2,
+        "sociability": 0.8
+      },
+      "needs": {
+        "_comment": "人とのつながりを強く求め、人の役に立つと満たされやすい",
+        "connection": {
+          "threshold": 0.5
+        },
+        "care": {
+          "helped": 0.45
+        }
+      }
+    },
+    {
+      "name": "Jiro",
+      "personality": "せっかちで負けず嫌い。自分でやりたがる。",
+      "personality_en": "Impatient and competitive; wants to do things himself.",
+      "speech": "ぶっきらぼうで短い。",
+      "temperament": {
+        "bravery": 0.8,
+        "empathy": 0.3,
+        "obedience": 0.3,
+        "greed": 0.6,
+        "sociability": 0.3
+      },
+      "needs": {
+        "_comment": "眠気には強いが、ストレスがたまりやすい",
+        "sleep": {
+          "fullAfter": 36000
+        },
+        "stress": {
+          "k": 0.016
+        }
+      }
+    },
+    {
+      "name": "Yuki",
+      "personality": "慎重で怖がり。夜が苦手。",
+      "personality_en": "Cautious and timid; does not like the night.",
+      "speech": "控えめで、ときどき言いよどむ。",
+      "temperament": {
+        "bravery": 0.2,
+        "empathy": 0.6,
+        "obedience": 0.7,
+        "greed": 0.3,
+        "sociability": 0.4
+      },
+      "needs": {
+        "_comment": "怖がり: 不安のしきい値が低く、殺された怖さが長く残る",
+        "safety": {
+          "threshold": 0.4,
+          "deathHalfLife": 60000
+        }
+      }
+    },
+    {
+      "name": "Ken",
+      "personality": "陽気で話し好き。段取りを仕切りたがる。",
+      "personality_en": "Cheerful and talkative; likes to run the show.",
+      "speech": "元気なくだけた話し方。",
+      "temperament": {
+        "bravery": 0.6,
+        "empathy": 0.5,
+        "obedience": 0.4,
+        "greed": 0.4,
+        "sociability": 0.9
+      },
+      "needs": {
+        "_comment": "知らない所が好きで、人恋しくなりやすい",
+        "drives": {
+          "curiosity": 0.75
+        },
+        "connection": {
+          "fullAfter": 7000
+        }
+      }
+    },
+    {
+      "name": "Mai",
+      "personality": "素直で、人に言われたことをそのまま信じる。",
+      "personality_en": "Honest; believes what people tell her.",
+      "speech": "明るい丁寧語。",
+      "temperament": {
+        "bravery": 0.4,
+        "empathy": 0.7,
+        "obedience": 0.9,
+        "greed": 0.2,
+        "sociability": 0.6
+      },
+      "needs": {
+        "_comment": "褒められたい気持ちが強い",
+        "recognition": {
+          "threshold": 0.5,
+          "fullAfter": 12000
+        }
+      }
+    },
+    {
+      "name": "Sota",
+      "personality": "無口で、一人で黙々とやるのが好き。",
+      "personality_en": "Quiet; likes to work alone in silence.",
+      "speech": "ほとんど話さず、話すときは一言だけ。",
+      "temperament": {
+        "bravery": 0.6,
+        "empathy": 0.4,
+        "obedience": 0.4,
+        "greed": 0.4,
+        "sociability": 0.1
+      },
+      "needs": {
+        "_comment": "人恋しくなりにくい",
+        "connection": {
+          "fullAfter": 24000,
+          "threshold": 0.75
+        }
+      }
+    },
+    {
+      "name": "Aoi",
+      "personality": "好奇心が強く、知らない物や場所が気になってしかたない。",
+      "personality_en": "Very curious; cannot stop thinking about unknown things and places.",
+      "speech": "はきはきした話し方で、よく質問する。",
+      "temperament": {
+        "bravery": 0.7,
+        "empathy": 0.5,
+        "obedience": 0.3,
+        "greed": 0.3,
+        "sociability": 0.6
+      },
+      "needs": {
+        "_comment": "知らない所に行きたくなりやすい",
+        "drives": {
+          "curiosity": 0.9
+        }
+      }
+    },
+    {
+      "name": "Daiki",
+      "personality": "欲張りで、物をたくさん持っていないと落ち着かない。",
+      "personality_en": "Greedy; feels uneasy without lots of things.",
+      "speech": "遠慮のないくだけた話し方。",
+      "temperament": {
+        "bravery": 0.5,
+        "empathy": 0.2,
+        "obedience": 0.4,
+        "greed": 0.9,
+        "sociability": 0.4
+      },
+      "needs": {
+        "_comment": "物が欲しい気持ちが強い",
+        "drives": {
+          "greed": 0.9
+        }
+      }
+    },
+    {
+      "name": "Rin",
+      "personality": "ずる賢く、自分が損をしないように立ち回る。",
+      "personality_en": "Crafty; acts so as never to lose out.",
+      "speech": "愛想のいい丁寧語だが、本音はあまり言わない。",
+      "temperament": {
+        "bravery": 0.4,
+        "empathy": 0.3,
+        "obedience": 0.2,
+        "greed": 0.7,
+        "sociability": 0.6
+      },
+      "needs": {
+        "_comment": "認められたい気持ちは弱め、物は欲しい",
+        "drives": {
+          "greed": 0.7
+        },
+        "recognition": {
+          "fullAfter": 24000
+        }
+      }
+    },
+    {
+      "name": "Haruto",
+      "personality": "勇敢で、危ない所にも先に行ってしまう。",
+      "personality_en": "Brave; goes ahead even into dangerous places.",
+      "speech": "短く力強い言い方。",
+      "temperament": {
+        "bravery": 0.95,
+        "empathy": 0.5,
+        "obedience": 0.5,
+        "greed": 0.3,
+        "sociability": 0.5
+      },
+      "needs": {
+        "_comment": "怖がりにくい",
+        "safety": {
+          "threshold": 0.7,
+          "deathHalfLife": 18000
+        }
+      }
+    },
+    {
+      "name": "Emi",
+      "personality": "心配性で、いつも先のことを気にしている。",
+      "personality_en": "A worrier; always thinking about what comes next.",
+      "speech": "小さな声で、念を押すように話す。",
+      "temperament": {
+        "bravery": 0.3,
+        "empathy": 0.7,
+        "obedience": 0.6,
+        "greed": 0.3,
+        "sociability": 0.5
+      },
+      "needs": {
+        "_comment": "不安と空腹を早めに気にする",
+        "safety": {
+          "threshold": 0.4
+        },
+        "hunger": {
+          "threshold": 0.4
+        }
+      }
+    },
+    {
+      "name": "Shota",
+      "personality": "のんきで、あまり急がない。",
+      "personality_en": "Carefree; rarely in a hurry.",
+      "speech": "のんびりした話し方。語尾がのびる。",
+      "temperament": {
+        "bravery": 0.5,
+        "empathy": 0.5,
+        "obedience": 0.5,
+        "greed": 0.2,
+        "sociability": 0.5
+      },
+      "needs": {
+        "_comment": "ストレスがたまりにくく、お腹も空きにくい",
+        "stress": {
+          "k": 0.007
+        },
+        "hunger": {
+          "fullAfter": 9000,
+          "sensitivity": 0.8
+        }
+      }
+    },
+    {
+      "name": "Nana",
+      "personality": "寂しがりで、一人になるのが嫌い。",
+      "personality_en": "Gets lonely easily; hates being alone.",
+      "speech": "甘えたような、くだけた話し方。",
+      "temperament": {
+        "bravery": 0.3,
+        "empathy": 0.6,
+        "obedience": 0.5,
+        "greed": 0.3,
+        "sociability": 0.85
+      },
+      "needs": {
+        "_comment": "人恋しくなりやすい",
+        "connection": {
+          "fullAfter": 6000,
+          "threshold": 0.5
+        }
+      }
+    },
+    {
+      "name": "Ryo",
+      "personality": "頑固で、自分のやり方を曲げない。",
+      "personality_en": "Stubborn; does not change his own way.",
+      "speech": "理屈っぽく、短く言い切る。",
+      "temperament": {
+        "bravery": 0.6,
+        "empathy": 0.3,
+        "obedience": 0.1,
+        "greed": 0.5,
+        "sociability": 0.3
+      },
+      "needs": {
+        "_comment": "眠気に強い",
+        "sleep": {
+          "fullAfter": 38000
+        }
+      }
+    },
+    {
+      "name": "Kaori",
+      "personality": "几帳面で、物をきちんと揃えておきたい。",
+      "personality_en": "Meticulous; wants things neatly in order.",
+      "speech": "きっちりした丁寧語。",
+      "temperament": {
+        "bravery": 0.4,
+        "empathy": 0.5,
+        "obedience": 0.7,
+        "greed": 0.5,
+        "sociability": 0.4
+      },
+      "needs": {
+        "_comment": "眠くなりやすい (早寝)",
+        "sleep": {
+          "fullAfter": 22000
+        }
+      }
+    },
+    {
+      "name": "Takumi",
+      "personality": "見栄っ張りで、人に良く思われたい。",
+      "personality_en": "Vain; wants people to think well of him.",
+      "speech": "大げさな話し方で、自慢が混じる。",
+      "temperament": {
+        "bravery": 0.6,
+        "empathy": 0.4,
+        "obedience": 0.4,
+        "greed": 0.6,
+        "sociability": 0.7
+      },
+      "needs": {
+        "_comment": "認められたい気持ちが強い",
+        "recognition": {
+          "fullAfter": 9000,
+          "threshold": 0.5
+        }
+      }
+    },
+    {
+      "name": "Mio",
+      "personality": "人見知りで、知らない人に話しかけるのが苦手。",
+      "personality_en": "Shy; finds it hard to talk to people she does not know.",
+      "speech": "控えめで言葉が少ない。",
+      "temperament": {
+        "bravery": 0.3,
+        "empathy": 0.6,
+        "obedience": 0.6,
+        "greed": 0.2,
+        "sociability": 0.2
+      },
+      "needs": {
+        "_comment": "人の役に立ちたい気持ちはある",
+        "drives": {
+          "care": 0.7
+        },
+        "connection": {
+          "fullAfter": 18000
+        }
+      }
+    },
+    {
+      "name": "Goro",
+      "personality": "気が短く、思いどおりにならないとすぐ怒る。",
+      "personality_en": "Short-tempered; gets angry quickly when things do not go his way.",
+      "speech": "荒っぽいくだけた話し方。",
+      "temperament": {
+        "bravery": 0.7,
+        "empathy": 0.2,
+        "obedience": 0.2,
+        "greed": 0.5,
+        "sociability": 0.4
+      },
+      "toolVoice": { "_comment": "よくぶつぶつ言う (独り言の多さを直接 0.6。性格の表からだと 0.33)", "mutter": 0.6 },
+      "needs": {
+        "_comment": "ストレスがたまりやすく、よく食べる",
+        "stress": {
+          "k": 0.018
+        },
+        "hunger": {
+          "fullAfter": 6000,
+          "sensitivity": 1.2
+        }
+      }
+    },
+    {
+      "name": "Sayaka",
+      "personality": "お人よしで、頼まれると断れない。",
+      "personality_en": "Good-natured; cannot say no when asked.",
+      "speech": "穏やかで落ち着いた話し方。",
+      "temperament": {
+        "bravery": 0.5,
+        "empathy": 0.85,
+        "obedience": 0.8,
+        "greed": 0.1,
+        "sociability": 0.7
+      },
+      "needs": {
+        "_comment": "人の役に立つと満たされやすい",
+        "care": {
+          "helped": 0.45
+        },
+        "drives": {
+          "care": 0.85
+        }
+      }
+    }
+  ],
+  "goal": {
+    "text": "",
+    "hints": []
+  },
+  "needs": {
+    "_comment": "人としての欲求とストレス (src/needs.js)。ここは全員に効く。人ごとの差は personas[].needs で上書きする。書いていない係数は needs.js の NEEDS_DEFAULTS (全員同じ)。増え方の係数は実測から調整する",
+    "_comment_sleep": "眠気はベッドで寝たときだけ減る (2026-11-07 ユーザー決定: wait・look_around を外したので、床で休む扱い restActions は空)",
+    "sleep": {
+      "restActions": []
+    },
+    "stress": {
+      "k": 0.012,
+      "T": 6000,
+      "power": 2,
+      "recover": 0.03
+    },
+    "anticipate": {
+      "_comment": "予期される欲求 (先のつらさ。src/anticipate.js、2026-11-05 ユーザー決定「備える」)。先の不安 night = 夜までの近さ (夜の horizon tick 前から、^power。夜のあいだは1) × 見込み (base + (1−base)(1−exp(−Σ 夜ごとの 死んだ×perDeath + 傷を受けた×perHurt + 敵が近くに来た×perAttack × nightDecay^何夜前))) × (1 − 備え: 武器・防具・盾・松明・囲まれた寝床・ベッド、prepMax まで) × (1 + braveryScale×(0.5−bravery)×2)。先の空腹 food = (1 − 手持ちの食べ物の回数/wantMeals) × (入手元を知っていれば sourceMul) × (lowMul + (1−lowMul)×いまの空腹/hungerRef)。ゴールを選ぶときのつらさの点 = 値/threshold × weight。書いていない係数は anticipate.js の ANTICIPATE_DEFAULTS。人ごとの差は personas[].needs.anticipate で上書きする",
+      "night": { "horizon": 9000, "power": 1.5, "base": 0.3, "perDeath": 0.5, "perHurt": 0.08, "perAttack": 0.05, "nightDecay": 0.6, "braveryScale": 0.6, "threshold": 0.3, "weight": 1.2 },
+      "food": { "wantMeals": 3, "sourceMul": 0.5, "threshold": 0.5, "weight": 0.8 }
+    }
+  },
+  "knowledge": {
+    "_comment": "知っていること (仕様の事実) は knowledge/facts.json に置き、持ち物・見えている物・選択肢の対象・plan に出てくる名前に当たるもの (と always のもの) だけを、1回に max 個まで見せる。goal.hints は facts.json に移した",
+    "file": "knowledge/facts.json",
+    "max": 8,
+    "stage2Max": 4
+  },
+  "world": {
+    "base": "self",
+    "hut": null
+  },
+  "help": {
+    "hints": true,
+    "steps": false,
+    "progress": false,
+    "askOthers": true,
+    "excludeFailures": false,
+    "noChange": true,
+    "askHint": false,
+    "hut": false,
+    "selfGoal": false,
+    "goalPlan": false,
+    "goalPath": true
+  },
+  "goalPath": {
+    "_comment": "help.goalPath (src/goalpath.js・planner.js・vocab.js): 2B がゴール {kind: item/person/place, target (候補から), count, why, need} を決める。物のゴールは毎判断、持ち物と見えている物から planner がレシピ・焼く・掘る・倒すをたどって道筋を作り、Jev の plan に「ゴール / 道筋 / 次」だけを出す (手順の文・Jev の手順の確認・step_done は使わない)。済んだか: 物を持った・人の近く (渡した)・場所に着いた + 元の欲求が needDrop 下がる か needLow 以下。needWait 判断待っても下がらなければ選び直し。困りごとが troubleTicks 判断続く・道筋の残り (人・場所までの距離) が patience 判断縮まない → 選び直し。たどれない物は 2B に maxTries 回まで聞き直す。候補の物は maxItems 個まで",
+    "maxItems": 40,
+    "maxTries": 2,
+    "needDrop": 0.15,
+    "needLow": 0.3,
+    "needWait": 12,
+    "troubleTicks": 4,
+    "patience": 15,
+    "nearDist": 5,
+    "arriveDist": 6,
+    "farDist": 48,
+    "maxShown": 5,
+    "maxTokens": 120,
+    "prompt": {
+      "_comment": "ゴール選びのプロンプトの大きさ (src/promptfit.js。2026-11-06): 人の候補は付き合い・話した回数・近さで上位 maxPeople 人、覚えている場所は maxMemPlaces、知っていることは maxFacts、全体チャットは欄ごとに maxBoardLines 行。入力の見積もり (文字数 ÷ 1トークンあたりの文字数。実測で学ぶ) が ctxTokens (llama-server の -c ÷ -np) − 出力の上限 − margin を超えたら、steps の順 (これまでのゴール → 全体チャット → 記憶 → 知っていること → 周りの人 → 人の候補 → 場所 → 物の候補 …) に削る。あふれた (HTTP 400) ら1回作り直す。毎回の入力のトークン・見積もり・削った欄・出力が切れたか (finishReason) は goal / proposals の記録に入る",
+      "maxPeople": 8,
+      "maxMemPlaces": 4,
+      "maxFacts": 8,
+      "maxBoardLines": 4,
+      "ctxTokens": 8192,
+      "margin": 256
+    },
+    "_comment_states": "states: 状態のゴール (kind: state。src/states.js) を候補に出す: 囲いの中の動物 (pen_cow 等)・水の近くの耕地 (farmland)・拠点の明かり (lit_base)・拠点が囲われている (walled_base)・拠点のチェストの物 (chest_<物>)。済んだかはプログラムが確かめる。物の候補には先にたどった道筋の事実 (入手元が見えるか・要る物・手間 小/中/大) を添える (annotate)",
+    "states": true,
+    "annotate": true,
+    "freeform": {
+      "_comment": "自由記述のゴール (src/resolve.js。2026-11-07 ユーザー決定): enabled 'auto' なら local (2B) 以外の提供元 (luna) で使う。ゴールの物・状態・人・場所を候補の enum から選ばせず自由に書かせ、プログラムが正式名に直す (minecraft-data の名前・表示名・names_ja の日本語名・表記ゆれ・複数形・打ち間違い・種類違い (木・色) は 持っている > 見えている > 例 > 手間 の順)。直せない・たどれない・もう満たされている・重複の案は理由を添えて maxRewrites 回まで書き直させる。候補の一覧は例として maxExamples 個まで見せる。textStates: 今の状態の型に当てはまらない状態の文は、済んだかを Jev の noul で聞く (選ぶ前に「見て確かめられるか」が checkableP 未満なら外す、textCheckEvery 判断ごとに聞き textDoneP 以上で済んだ)",
+      "enabled": "auto",
+      "maxRewrites": 2,
+      "maxExamples": 120,
+      "textStates": true,
+      "textCheckEvery": 4,
+      "textDoneP": 0.7,
+      "checkableP": 0.5
+    },
+    "stateOpts": {
+      "penSize": 5,
+      "wallSize": 3,
+      "counts": {
+        "pen": 2,
+        "farmland": 8,
+        "lit": 4,
+        "walled": 1,
+        "chest": 8
+      }
+    },
+    "select": {
+      "_comment": "ゴールの選び方 (サーベイ R1、D2A の形。ユーザー了承 2026-11-05): 2B が案を k 個 (今の候補から、schema の enum) → もう満たされている・たどれない案を外す → Jev に「この案を果たすと、この欲求が和らぐか」を 案 × 欲求 (今つらい上位 needs 個。しきい値に対する割合 minRatio 以上) の noul で1回に聞く → 点 = Σ つらさ^power × P の最大を選ぶ。最大との差 tieEps 以内は 2B が先に書いた案。全部の P が lowP 未満なら onAllLow (best: 点の最大 / first: 2B の最初の案)。つらい欲求が無いときは Jev を呼ばず 2B の最初の案。つらさ = (効いている強さ / しきい値) × ストレスの重み × (1 + 満たされない時間 / T) (needs.js distress)。maxTokens・temperature は案を出す 2B の呼び出し",
+      "enabled": true,
+      "_comment_k": "k: 案の数。提供元ごと (2026-11-07 ユーザー決定: luna 10、local (2B) 4)。数を1つ書けば全部それ。tokensPerProposal: 案1つあたりの出力の上限 (maxTokens と大きい方を使う)。maxQuestions・maxBodyBytes: Jev の1回の呼び出しの質問の数・本文の大きさ (OpenRouter は 32,000 バイトを超えると long-context) の上限。超えるなら案を分けて並列に呼ぶ",
+      "k": {
+        "local": 4,
+        "luna": 10
+      },
+      "tokensPerProposal": 110,
+      "maxQuestions": 60,
+      "maxBodyBytes": 30000,
+      "needs": 3,
+      "minRatio": 0.6,
+      "power": 1,
+      "tieEps": 0.02,
+      "lowP": 0.3,
+      "onAllLow": "best",
+      "maxTokens": 480,
+      "temperature": 0.7,
+      "_comment_later": "先のつらさ (needs.anticipate) も 案 × 先の欲求 (夜・この先の食べ物) の noul で同じ呼び出しに足し、点 = Σ いまのつらさ × P + Σ 先のつらさ × P(先に役立つ)。laterMinRatio 未満の先のつらさは入れない。どちらの点で決まったかは event の select.decidedBy (now: いまの点だけでも同じ案 / later: 先の点で案が変わった / later_only: いまつらい欲求が無い)",
+      "later": true,
+      "laterNeeds": 2,
+      "laterMinRatio": 0.5,
+      "effort": {
+        "_comment": "手間で割る (2026-11-06): 点 = (Σ つらさ × P) ÷ (1 + alpha × 手間)。手間 = planner の手間 (物: 持ち物を引いたあとの手間の和、状態: planState の effort)、人・場所: 距離 × perMeter (見えない人は unseenPerson)。alpha 0 で手間を見ない。record: select.formula・scores[].cost/effort/factor/noEffort・effortChanged",
+        "alpha": 0.04,
+        "perMeter": 0.0625,
+        "unseenPerson": 6,
+        "_comment_scale": "手間の感じ方 (2026-11-07。planner の costScale): unseenT: まだ見ていない入手元を探す手間 × (1 − unseenT × T_探検) (division の exploring の T。好奇心・勇敢な人ほど小さく感じる)。nightTravel: 夜のあいだ、見えていない入手元・人・場所へ出かける手間 × (1 + nightTravel × 夜の危なさの見込み) (anticipate の night.risk。死んだ・傷を受けた・敵が近くに来た夜の経験で上がる)。拠点・手元でできること (作る・焼く・置く・チェスト) の手間は変わらない",
+        "unseenT": 0.6,
+        "nightTravel": 4
+      },
+      "value": {
+        "_comment": "珍しさ・大事さ (src/scarcity.js。2026-11-07 ユーザー決定 2): 点 = (q/m0) × (Σ つらさ × P × (1 + beta × T) + gamma × T + lambda × (1 − a) × Imp) × R ÷ (1 + alpha × 手間')。珍しさ R: 入手元ごとに自分が見かけた記録 (マスごとの一度に見えた数の最大の和 S・最後に見てからの時間) から a = (1 − exp(−S/k0)) × (recencyFloor + (1 − recencyFloor) × exp(−経った tick/tau))、R = 1 + rho × (1 − 2a) + rhoNow × (1 − a) × (今見えている)。掘る・倒すで直接取る物はその入手元の R、作る物は珍しい材料の R を 1 より大きいときだけ。大事さ Imp: 同じ選び直しのほかの案 j の道筋 (レシピ) に案 i の物が材料として出れば N_j = Σ つらさ × P_j を足し、探す要る度合い 1 − a を掛ける (入手元だけが同じなら sourceShare 倍。ありふれた材料・手元で作れる物には効かない)",
+        "enabled": true,
+        "k0": 24,
+        "tau": 12000,
+        "recencyFloor": 0.5,
+        "rho": 0.5,
+        "rhoNow": 0.5,
+        "lambda": 0.3,
+        "sourceShare": 0.5
+      }
+    }
+  },
+  "reflect": {
+    "_comment": "振り返りと方針 (src/reflect.js): 1日の終わり (夕方に入ったとき)・寝る前 (寝られるようになったとき)・死んだあと・ゴールを afterGoals 個終えたあとに、記録から数えた事実を材料に 2B が方針 (長く続けたいこと) と何のためを書く。方針はゴールを選ぶ 2B と Jev の state.policy に出す。minGap 判断あける",
+    "enabled": true,
+    "onDayEnd": true,
+    "onSleep": true,
+    "onDeath": true,
+    "afterGoals": 3,
+    "minGap": 10,
+    "maxTokens": 160
+  },
+  "division": {
+    "_comment": "分業をメンタルモデルの側で生ませる (src/division.js。2026-11-06 ユーザー決定「必要なものに対して欲求を上げる」)。1. 慣れ: 活動 (farming・wood・mining・hunting・exploring・building・cooking・crafting・social。ゴールの target と行動から分類) ごとに、やった回数・うまくいった回数。fam = exp/(exp+halfExp)、exp = うまくいったゴール + actWeight × うまくいった行動。言葉 (「畑のことは慣れている」) を体と心の言葉に足し、ゴール選びの手間を × (1 − score.skillCut × fam) にする (心の中の手間)。2. 刺激 s: 見聞きした範囲だけ (共有のチェストの中身・聞いた依頼の形の発言・自分の拠点が暗い/囲まれていない・取り決めと共同の目標の残り)。ほかの人がその活動をしているのを見聞きするほど ÷ (1 + coverW × 人数)。3. しきい値 θ = theta0 × (1 − traitScale × z(性格)) × (1 − famCut × fam)。性格と活動の表は division.js の TRAIT_ACT (論拠のコメント付き)。反応 T = s²/(s²+θ²) (Bonabeau)。4. 点 = (Σ つらさ × P × (1 + beta × T) + gamma × T) ÷ (1 + alpha × 手間')。つらい欲求が無くても T があれば gamma × T で選ぶ (rule division_only)。2B のゴールの案には「みんなに足りていない物 (自分が見聞きした範囲)」を渡す。5. 振り返りで自分がよくしていることを role に書かせ、ほかの人がよくしていること (見聞き) を人の言葉と Jev の others_doing に出す。記録: 毎判断の division {s, theta, T, fam, act}、goal の select.division (changed: 分業を入れなければ別の案)",
+    "enabled": true,
+    "experience": {
+      "actWeight": 0.2,
+      "halfExp": 6,
+      "levels": [
+        0.15,
+        0.4,
+        0.65
+      ],
+      "maxWords": 3
+    },
+    "stimulus": {
+      "chestW": 0.6,
+      "chestEnough": 16,
+      "heardW": 0.5,
+      "heardHalfLife": 20,
+      "heardKeep": 80,
+      "baseW": 0.3,
+      "projectW": 0.6,
+      "projectEnough": 8,
+      "coverW": 0.5,
+      "coverHalfLife": 30,
+      "coverKeep": 90,
+      "sMax": 1.5,
+      "showMin": 0.2,
+      "maxLines": 3,
+      "maxEvidence": 3
+    },
+    "threshold": {
+      "theta0": 0.5,
+      "traitScale": 0.5,
+      "famCut": 0.5,
+      "min": 0.05,
+      "max": 1
+    },
+    "score": {
+      "beta": 0.5,
+      "gamma": 0.4,
+      "skillCut": 0.3
+    },
+    "others": {
+      "roleHalfLife": 120,
+      "roleMin": 3,
+      "roleShare": 0.4,
+      "sayW": 0.5
+    },
+    "tools": {
+      "_comment": "他人のための道具 (2026-11-07 ユーザー決定): ほかの人が壊した・耕したときの手の物 (others.js) と発言 (素手で・木の斧で) から、その人の仕事 (wood・mining・farming) を石の道具でしたらどれだけ効率が上がるか (gain: 掘る速さ 素手1・木2・石4・鉄6 の比、石は素手で取れない=1、耕すは耐久値 木59・石131 の差 × durW) を見積もる。生の刺激 += toolW × min(toolCap, Σ_人 薄れ × gain) を acts (石掘り・物を作ること) に足す。言葉は事実だけ (「Ken・Maiが素手や木の道具で木を切っているのを見た」)",
+      "enabled": true,
+      "_toolW": "2026-11-07 使う側の声 (toolWant・items) を足したので、見て察する分は 0.4 → 0.2 に弱めて残す",
+      "toolW": 0.2,
+      "toolCap": 1,
+      "toolHalfLife": 60,
+      "target": "stone",
+      "durW": 0.3,
+      "showMin": 0.1,
+      "sayW": 0.7,
+      "acts": ["mining", "crafting"]
+    },
+    "items": {
+      "_comment": "物単位の刺激 (2026-11-07 ユーザー決定「使う側の声から刺激を生む」)。聞いた頼みごと・独り言 (道具の言葉 + 欲しい/壊れた/遅いなどの形。英語の名前 stone_axe か 石の斧) を物ごとに、人ごとに1まで、形の重み (近くで頼まれた 1・全体チャット allW・独り言 mutterW)、半減期 halfLife 判断。自分の不満 (toolWant) も selfW で足す。共有のチェストがあれば、道具の種類ごとに 足りなさ = 1 − 数 ÷ (使う人 × perUser × (1 + breakK × 壊れたのを見聞きした回数)) を stockW × 足りなさ × min(1, 使う人/usersRef) で target の素材の道具 (stone_axe など) に。ゴールの T = (s_活動 + s_物)²/((s_活動 + s_物)² + θ_活動²): 物を作るゴール・渡すゴール (give)・共有のチェストに入れる状態のゴールに同じ s_物 が効く",
+      "enabled": true, "heardW": 0.6, "mutterW": 0.6, "allW": 0.8, "halfLife": 30, "keep": 120, "selfW": 1, "sMax": 1.5,
+      "stockW": 0.5, "perUser": 0.5, "usersRef": 2, "breakK": 0.5, "breakHalfLife": 60, "usersHalfLife": 120, "target": "stone", "showMin": 0.1, "maxLines": 3
+    }
+  },
+  "toolWant": {
+    "_comment": "使う側の不満と声 (src/toolwant.js。2026-11-07 ユーザー決定)。不満 v[物]: 掘るのに時間がかかった (1段上・2段上の道具ごとに upW × slowW × min(slowCap, 失った秒/slowRef)、失った秒 = 掘った秒 × (1 − 今の速さ/その道具の速さ))・素手で取れなかった (cantW)・壊れた (同じ物 brokeW、1段上 brokeW × upW[1] × (1 + 耐久の伸び))・耐久が少ない (いまの値 wornW × (1 − 残り/wornFrac))。半減期 halfLife 判断、x 以上の段の道具を手に入れたら 0。声: θ = theta0 × (1 − traitScale × z(性格、voice.traits))、近くの人に頼む θ × (1 − friendCut × 仲の良さ) × (1 + repeatMul × 頼んだ回数)、全体 θ × allMul × (同)、独り言 p = 独り言の多さ m × T(d, θ × mutterTheta)、m = mutterBase × (1 + mutterScale × z(voice.mutterTraits)) か persona.toolVoice.mutter。T = d²/(d²+θ²)。文は文を作る LLM (talk / broadcast の役)。独り言は文の頭に「(ひとりごと)」を付けて mutterRadius m まで。自分の不満は selfW × (0.5 + greed) × v で自分の物の刺激にも (greed が高いほど自分で作ろうとする)",
+    "enabled": true,
+    "halfLife": 40, "slowW": 0.5, "slowRef": 10, "slowCap": 2, "cantW": 0.6, "cantGap": 5, "brokeW": 0.8, "upW": [1, 0.5], "wornW": 0.5, "wornFrac": 0.3, "vMax": 2, "showMin": 0.15, "selfW": 0.4,
+    "mutterRadius": 16, "nearRadius": 16,
+    "voice": {
+      "_traits": "言い出しやすさの性格の表 (w > 0: 高いほど θ が下がる)。sociability +0.6: 人に話しかけるのが平気な人は小さな不満でも気兼ねなく頼む (低い人は不満が大きくなるか、仲の良い人が近くに来るのを待つ。それまでは独り言)。obedience +0.3: 集団に合わせ人を頼る傾向で、頼む/頼まれるのやりとりに抵抗が少ない。greed −0.3: 人に頼まず自分で作ろうとする (自分の刺激 selfW の側)",
+      "_mutterTraits": "独り言の多さの表 (w > 0: 高いほど多い)。sociability −0.5: 人に言わない分を口の中で言う。greed +0.3: 自分の物への不満を口にしやすい。obedience −0.2: 従順な人は不満を飲み込みがち",
+      "enabled": true, "minD": 0.15, "theta0": 0.6, "traitScale": 0.6, "min": 0.1, "max": 2,
+      "traits": { "sociability": 0.6, "obedience": 0.3, "greed": -0.3 },
+      "friendCut": 0.4, "friendAff": 70, "allMul": 1.8, "repeatMul": 0.6, "repeatHalfLife": 40,
+      "mutterBase": 0.25, "mutterScale": 0.8, "mutterTheta": 0.6,
+      "mutterTraits": { "sociability": -0.5, "greed": 0.3, "obedience": -0.2 },
+      "gap": { "near": 6, "all": 15, "mutter": 5 }
+    }
+  },
+  "experience": {
+    "_comment": "経験から確実さと効率を学ぶ (src/experience.js。2026-11-07 ユーザー決定)。ゴールの対象 (物・状態・人・場所) ごとに 試した・達成した・かかった判断とゲーム内の時間・諦めた理由。選べる行動が無くて失敗したのも同じ1回。成功の見込み q = (k0 m0 + 達成 + hw 聞いた達成) / (k0 + 試した + hw 聞いた試し)、点の分子に q / m0 を掛ける (経験が無ければ1)。手間 = (kc × planner の手間 + n × 1回あたりの判断の数 × perDecision) / (kc + n)。言葉 (「生の鮭は3回試して、手に入らなかった (計約6分)」) を 2B のゴール作り・振り返り・Jev の state に出す。聞いた経験 (「鮭は取れない」) は heard.weight で弱く、同じ人から maxPerSpeaker 回まで",
+    "enabled": true,
+    "prior": { "mean": 0.8, "strength": 3 },
+    "cost": { "strength": 2, "perDecision": 0.25 },
+    "heard": { "enabled": true, "weight": 0.3, "maxPerSpeaker": 2 },
+    "words": { "maxLines": 5, "ticksPerMinute": 1200 }
+  },
+  "social": {
+    "affinity": {
+      "_comment": "好感の動き (src/social.js。2026-11-07 ユーザー決定「上がり幅を小さく、端に近いほど動きにくく」): 変化 = 基の幅 × min(1, 残りの幅 / room)。残りの幅は上がるとき 100 − 好感、下がるとき 好感。Jev の Score の基の幅 = (score − 2) × scoreStep (前は 6)。出来事の基の幅も前の約半分 (前: もらった +6・教えてもらった +8・知らなかった −1・返事なし −5・聞かれて答えた +2)",
+      "scoreStep": 1.5,
+      "room": 50,
+      "roomScale": true,
+      "events": { "received": 3, "answered": 4, "notKnown": -1, "ignored": -3, "asked": 1 }
+    }
+  },
+  "others": {
+    "_comment": "行動中に近く (radius、既定は visionRadius) でほかの人が拾った物・壊したブロックを、actions の行動の結果の文に足す (記憶にも入る)",
+    "enabled": true,
+    "actions": [
+      "collect",
+      "pick_up",
+      "attack",
+      "hunt"
+    ],
+    "maxItems": 4
+  },
+  "conflict": {
+    "_comment": "わだかまりと、悪い関係のときの行動 (src/social.js の GRUDGE_DEFAULTS・src/conflict.js・src/conflict_agent.js。2026-11-12 ユーザー決定)。grudge: 相手ごとのわだかまり (ある間は好感が元の値まで戻らない: 上限 = きっかけの前の好感 − ceilDrop × わだかまり。halfLife 判断で半分に薄れ、謝罪・返却・補修で大きく減る。関係の言葉に「何をされたか。まだ許していない」が出る)。actions: わだかまりのある相手が近いときの候補 (avoid_person・complain・demand_back・take_back・call_help)。aggression: 殴る (hit_person、1回 hits 発まで)。候補に出すだけで、選ぶのは Jev (重みは掛けない)。比較実験は run.js の --grudge on|off・--conflict on|off・--aggression on|off。grudgeParams で social.js の GRUDGE_DEFAULTS (きっかけごとの大きさなど) を上書き",
+    "grudge": true,
+    "actions": true,
+    "aggression": true,
+    "threshold": 0.15,
+    "hits": 3
+  },
+  "provenance": {
+    "_comment": "設置物の来歴と所有 (src/provenance.js・src/ownership.js・src/ownership_agent.js。2026-11-10 引き継ぎ)。ledger: 台帳 (ground truth。runs/<id>/provenance/<名前>.jsonl。観察だけで行動は変えない)。actions: 部分的な知識 (自分で置いた・見た・聞いた・共有にされた物だけ所有者を知る) と行動の分離 (collect は天然と見ている物だけ、dismantle_own / take_placed / ask_permission / make_amends / repair_or_relocate_public)。penalty: 所有のペナルティ (take_placed の重み + 関係の変化)。比較実験は run.js の --provenance on|off・--ownership-penalty on|off。取ることは禁止しない (重みは 0 にしない)。理由 (reasonCode) は行動の前に欲求・代替手段・所有の知識・許可・損害・性格から決定的に決めて記録する (event: intent)",
+    "ledger": true,
+    "actions": true,
+    "penalty": true,
+    "emergencyNeed": 0.8,
+    "speech": "llm"
+  },
+  "board": {
+    "_comment": "全体チャット・提案・取り決め・共有のチェスト・共同の目標 (src/board.js)。サーバーの全体チャットに【…】の印を付けた行で全員に届く (近くの声とは別)。broadcast / propose / share_chest は Jev の行動の候補 (act.enable)。全体チャットは Jev の state.board に maxBoard 件まで (優先: 自分の名前 > 自分のゴール・道筋の物の名前 > 関係の強い人。keepTicks 判断のあいだ)。提案は賛成 (提案者を含む) が agreeRatio × 提案の時点の生きている人数 を超えたら成立。賛成は Jev の noul ≥ voteThreshold。受付は proposalTtlMs。共有のチェストは maxShared 個まで、中身は maxChestItems 種類まで見せる。ruleAdd: 取り決めのゴール候補で入れる数。proposeGap: 提案してから次に提案できるまでの判断の数",
+    "enabled": true,
+    "maxBoard": 4,
+    "keepTicks": 8,
+    "agreeRatio": 0.3334,
+    "voteThreshold": 0.5,
+    "proposalTtlMs": 600000,
+    "maxOpen": 2,
+    "maxShared": 4,
+    "maxChestItems": 6,
+    "maxAgreements": 4,
+    "maxProjects": 3,
+    "ruleAdd": 4,
+    "proposeGap": 5
+  },
+  "selfGoal": {
+    "_comment_off": "help.selfGoal は false (goalPlan に置き換えた)。every: 0 で一定ループごとの書き直しをしない",
+    "_comment": "最初・済んだ (Jev の goal_done ≥ doneThreshold)・困りごとが新しく出た・every ループごとに 2B で目標と段取りを書き直す",
+    "every": 0,
+    "doneThreshold": 0.7,
+    "maxTokens": 160
+  },
+  "noChange": {
+    "_comment": "help.noChange のとき: 同じ行動で状態が変わらないのが直近 window 回で repeat 回 → 困っている。直近 weightWindow 回で変わらなかった回数 n だけ Jev の確率に weight^n を掛ける",
+    "window": 4,
+    "repeat": 2,
+    "weight": 0.5,
+    "weightWindow": 6,
+    "_comment_net": "net: 直近 netWindow 回をさかのぼって、持ち物の差の合計 ≤ invTol・位置の差 < moveDist・新しいマスなし・|置いた−掘った| ≤ blockTol なら、その間に netRepeat 回以上出た行動を「何度やっても何も変わらなかった」扱いにする (繰り返した行動1つ・2つの組だけで正味0のときも、回数の合計が netMinLoops 以上なら)",
+    "net": true,
+    "netWindow": 10,
+    "netRepeat": 2,
+    "netMinLoops": 4,
+    "invTol": 1,
+    "moveDist": 8,
+    "blockTol": 1
+  },
+  "llm": {
+    "_comment": "文を作る LLM の提供元 (src/llm_provider.js、README の「LLM の提供元」)。provider: local (llama.cpp の 2B) | luna (gpt-6-luna)。roles: 役ごと {goal, talk, reflect, answer, broadcast, act} (無い役は provider)。providers.<名前>: baseUrl・model・ctxTokens・pricing などを上書き。maxUsd: 費用の上限 (全員の合計、null で無し)",
+    "provider": "local",
+    "roles": {},
+    "providers": {},
+    "maxUsd": null
+  },
+  "decider": {
+    "type": "jev",
+    "jev": {
+      "_comment_provider": "Jev の提供元: openrouter (既定。キー OPENROUTER_API / /root/.config/openrouter.env) か typesafe (TypeSafe 直)。版を固定するなら providers.openrouter.model を typesafe/jev-1.14 に",
+      "provider": "openrouter",
+      "model": "jev-latest",
+      "twoStage": {
+        "_comment": "対象が maxDirect 個以下の行動と direct の行動は1回目にそのまま並べ、ほかは分類1つにまとめて、選ばれたら2回目で対象を選ぶ。enabled: false で1段",
+        "enabled": false,
+        "maxDirect": 3,
+        "direct": [
+          "eat",
+          "sleep",
+          "flee",
+          "set_base",
+          "ask"
+        ],
+        "summaryMax": 8
+      },
+      "maxConcurrent": 8,
+      "timeoutMs": 15000,
+      "stateLang": "en",
+      "_comment_state": "stateLang: en = Jev の state を英語にする (観察・記憶・気持ち・道筋・知識・拠点・last_result。人の名前・発言・2B の書いた方針は原文)。ja で前の日本語の state。state: 英語の state に入れる数 (見えるブロックは目印と道筋の名前だけ maxVisible 種類・近くの物 maxNearby・覚えている場所 maxPlaces・やったこと maxEvents・聞いた話 maxHeard・教わったこと maxTaught)",
+      "state": {
+        "maxVisible": 8,
+        "maxNearby": 6,
+        "maxPlaces": 4,
+        "maxEvents": 5,
+        "maxHeard": 3,
+        "maxTaught": 2
+      }
+    },
+    "llm": {
+      "think": true
+    }
+  },
+  "talk": {
+    "threshold": 0.6,
+    "llm": {
+      "maxTokens": 64,
+      "temperature": 0.7
+    }
+  },
+  "ask": {
+    "waitMs": 45000,
+    "cooldown": 10,
+    "useWindow": 6
+  },
+  "usage": {
+    "maxJevInputTokens": 12000000
+  },
+  "memory": {
+    "perRun": true,
+    "limits": {
+      "promptItems": 20,
+      "promptPlaces": 6,
+      "halfLife": 40,
+      "impBoost": 6,
+      "forgetBelow": 0.08
+    }
+  },
+  "perception": {
+    "visionRadius": 16,
+    "_comment_people": "近くの交流の範囲 (2026-11-06 ユーザー決定で 24 → 48)。hearRadius: 近くの声 (発言・call・ask) の届く距離。peopleRadius: follow・give・go_to(人) の対象になる近くの人の距離。どちらも視線を問わず、サーバーが送る相手の位置からの距離だけで決める (src/people.js)。サーバーがプレイヤーの位置を送る距離 min(512 × entity-broadcast-range-percentage/100, (view-distance − 1) × 16) 以下にする (fabric の今の設定 view-distance 8 で 112m)",
+    "hearRadius": 48,
+    "peopleRadius": 48,
+    "showDay": true
+  },
+  "act": {
+    "enable": [
+      "report_find",
+      "attack",
+      "flee",
+      "smelt",
+      "sleep",
+      "equip",
+      "use_on",
+      "use_item",
+      "dismount",
+      "chest_put",
+      "chest_take",
+      "furnace_take",
+      "trade",
+      "enchant",
+      "brew",
+      "anvil",
+      "follow",
+      "give",
+      "call",
+      "lure",
+      "enclose",
+      "broadcast",
+      "propose",
+      "share_chest"
+    ],
+    "_comment_disabled": "look_around (立ち止まって見回す) は外す (2026-11-07 ユーザー決定: 役に立たず、重みで減らした人への移動の分が流れていた)。wait (待つ) も外す (2026-11-07 ユーザー決定: 作物が育つのを待つ間も別のことをする。探索が無くなることは無い)。選べなかったときの代わりは search → explore → (どちらも無ければ) explore の方角を1つ作る (actions.fallbackDecision)",
+    "disabled": [
+      "hunt",
+      "build",
+      "look_around",
+      "wait"
+    ],
+    "fleeRadius": 12,
+    "fleeDistance": 16,
+    "smeltMax": 3,
+    "smeltWaitMs": 30000,
+    "sleepWaitMs": 30000,
+    "timeouts": {
+      "_comment": "explore・search の時間切れ (歩く距離を倍以上にしたので 90 秒 → 150 秒。2026-11-07)",
+      "explore": 150000,
+      "search": 150000
+    },
+    "explore": {
+      "_comment": "varied: 8方位 x 近く 12m / 遠く 160m・まだ行っていないマス・でたらめ (15〜120m)。遠く 80 → 160・でたらめ 60 → 120 (2026-11-07 ユーザー決定「探索を倍以上」)",
+      "mode": "varied",
+      "near": 12,
+      "far": 160,
+      "randomMin": 15,
+      "randomMax": 120,
+      "maxRing": 6,
+      "_comment_share": "shared: 踏破したマスと今いる所を runs/<id>/explored/ に書き出す (分析用。shareEvery 判断ごと。src/explored.js)。scope: self (既定。2026-11-06 ユーザー決定) では書き出すだけで読まず、「まだ行っていない」「行ったか」は自分の踏破だけで決める (場所の共有は【発見】・近くの声・聞いて答える の会話だけで起きる)。all で全員の踏破を読んで決める。extra: 近さだけで選ばない候補 (拠点から離れる方・踏破したマスが少ない方・人の少ない方。行き先は far m 先) を足す。sectorRing: 方角ごとに数えるマスの範囲",
+      "shared": true,
+      "shareEvery": 5,
+      "scope": "self",
+      "extra": true,
+      "sectorRing": 12
+    },
+    "search": {
+      "_comment": "探しながら歩く (src/search.js。2026-11-07 ユーザー決定 1・2・4): 道筋に要る物が見えていないとき、まだ行っていない方へ周りを見ながら歩く。歩く距離は探検の反応の強さ T (division の exploring) で minDist〜maxDist m。scanMs ごとに周りを見て、interrupts (道筋の物・敵 hostileRadius 以内・名前を呼ばれた・newPersonTicks 判断のあいだ見ていない人) が見えたら区切って判断に戻り、continueTicks 判断のあいだ「このまま進む」を出す。方角は自分が行ったマスと、聞いた場所・見かけた人の居たマスを避け (othersWeight)、人ごとの好みの方角 (jitter) でずらした点の高い choices 個",
+      "_comment_dist": "歩く距離 50〜160m (前は 24〜80。2026-11-07 ユーザー決定「探索を倍以上」)。outward: よく行った範囲 (自分の踏破したマスの、行った回数で重みを付けた重心) から外へ向かう方角の点に outward × cos を足す (内へ向かう方角は引く)",
+      "enabled": true,
+      "minDist": 50,
+      "maxDist": 160,
+      "outward": 0.3,
+      "choices": 3,
+      "othersWeight": 1,
+      "jitter": 0.25,
+      "scanMs": 1000,
+      "hostileRadius": 12,
+      "newPersonTicks": 20,
+      "continueTicks": 3,
+      "minLeft": 8,
+      "interrupts": ["hostile", "called", "goal", "person"]
+    },
+    "followMs": 30000,
+    "_comment_more": "use_on: 持ち物(と素手) x 見えている対象 (近いブロック5種+目印4種+生き物4種)。maxUseChoices で上限。craftables: all = レシピのある物すべて、placeable: .* = 持っているブロックすべて",
+    "maxUseChoices": 12,
+    "maxGiveChoices": 8,
+    "_comment_caps": "use_on・give は、近い対象 (人)・数の多い持ち物の組から上限まで (2段をやめて1段で全部並べるため)",
+    "_comment_ground": "collectExclude: collect の候補から外すブロック (地面そのもの。sand・gravel は残す。耕す・植えるはその場の土に use_on でできる)。useOnPlaceable: false で use_on の持ち物の側からブロックとして置ける物を外す (苗木・種など植える物は残す)",
+    "collectExclude": [
+      "dirt",
+      "grass_block",
+      "coarse_dirt",
+      "podzol",
+      "mycelium",
+      "rooted_dirt",
+      "dirt_path",
+      "mud"
+    ],
+    "useOnPlaceable": false
+  },
+  "choiceWeights": {
+    "_comment": "選択肢の重み (src/choice_weight.js。2026-11-07 ユーザー決定 3): Jev の選択確率に掛けて足して1にし、一番大きいものを選ぶ (noChange の重みと同じ所)。people: go_to(人)・follow。ゴールがその人のときは掛けない。exemptTicks 判断以内にその人に呼ばれた/頼まれた/誘われた (名前と、呼ぶ・聞く・頼む・誘う形の発言) ときは called を掛ける (1 = 下げない)。memPlace: ゴール・道筋に関係しない覚えた場所 (M) への go_to",
+    "enabled": true,
+    "people": 0.4,
+    "memPlace": 0.7,
+    "called": 1,
+    "exemptTicks": 10,
+    "_comment_visited": "visited: 行き先のある explore の選択肢 (方角・遠く・拠点から離れる方など) に 1 − (1 − visited) × (行き先までの道のりのうち自分が行ったマスの割合) を掛ける。出現地点のまわりなど、よく行った範囲を通るだけの方角ほど下がる (2026-11-07 ユーザー決定「探索を倍以上」)。1 で下げない",
+    "visited": 0.5
+  },
+  "craftables": "all",
+  "placeable": [
+    ".*"
+  ],
+  "loop": {
+    "minutes": 60,
+    "failWindow": 4,
+    "failRepeat": 2
+  },
+  "order": {
+    "_comment": "選択肢の並べ方を毎回変える (src/order.js。サーベイ R5): Jev の行動の選択肢・2段目の対象・2B のゴールの候補 (物・状態・人・場所の一覧)・Jev に聞くゴールの案。seed は実行の種 (--seed で上書き。null なら run.js が決めて start / run.json に残す)。人ごとの種 = hash(seed:名前)、1回ごとの並びは (人の種, 流れ, 通し番号 n) から決まる",
+    "shuffle": true,
+    "seed": null
+  }
+}
