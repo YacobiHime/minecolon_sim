@@ -2,7 +2,7 @@
 // 実行中の負荷を一定の間隔で記録する (20人を1つ・複数の node プロセスで動かすときの見張り)。
 //   1行 = { ts, proc, sec, cpuPct (このプロセスの CPU、1コア = 100), rssMb, heapMb, loopLag (イベントループの遅れ ms: p50/p99/max),
 //           loadavg, bots: { alive, total, disconnects }, decisions (この間の判断の数と1人あたりの間隔 秒), twoB (この間の 2B の待ち), jev (この間の呼び出し・429) }
-// 記録は runs/<時刻>/monitor[-<proc>].jsonl。console には短い1行。
+// 記録は runs/<時刻>/monitor[-<proc>].jsonl。console には短い1行。phase は 'connect' (接続の途中。run.js は接続を始める前から見張る) か 'run'。
 const fs = require('fs');
 const os = require('os');
 const { monitorEventLoopDelay } = require('perf_hooks');
@@ -57,7 +57,7 @@ class Monitor {
       this.lastJev = { ...j };
     }
     const row = {
-      ts: new Date(now).toISOString(), proc: this.proc, sec: Math.round((now - this.t0) / 1000),
+      ts: new Date(now).toISOString(), proc: this.proc, phase: this.phase || 'run', sec: Math.round((now - this.t0) / 1000),
       cpuPct: Math.round(((cpu.user + cpu.system) / 1000 / wall) * 1000) / 10,
       rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576),
       loopLag: { p50: lagMs(this.lag.percentile(50)), p99: lagMs(this.lag.percentile(99)), max: lagMs(this.lag.max) },
@@ -72,7 +72,7 @@ class Monitor {
     this.rows.push(row);
     if (this.file) fs.appendFileSync(this.file, JSON.stringify(row) + '\n');
     const t = row.twoB;
-    this.log(`[monitor${this.proc ? ' ' + this.proc : ''}] ${row.sec}s cpu ${row.cpuPct}% rss ${row.rssMb}MB lag p99 ${row.loopLag.p99}ms bots ${row.bots.alive}/${row.bots.total} (切断 ${row.bots.disconnects}) 判断 ${n} (間隔 ${row.decisions.intervalSec}s) 2B ${t.calls}回 待ち p50 ${t.waitMs.p50}ms p95 ${t.waitMs.p95}ms${jev ? ` Jev ${jev.calls}回 429 ${jev.rateLimited} ${jev.inputTokens}tok` : ''}`);
+    this.log(`[monitor${this.proc ? ' ' + this.proc : ''}] ${row.phase === 'connect' ? '接続中 ' : ''}${row.sec}s cpu ${row.cpuPct}% rss ${row.rssMb}MB lag p99 ${row.loopLag.p99}ms bots ${row.bots.alive}/${row.bots.total} (切断 ${row.bots.disconnects}) 判断 ${n} (間隔 ${row.decisions.intervalSec}s) 2B ${t.calls}回 待ち p50 ${t.waitMs.p50}ms p95 ${t.waitMs.p95}ms${jev ? ` Jev ${jev.calls}回 429 ${jev.rateLimited} ${jev.inputTokens}tok` : ''}`);
     return row;
   }
 
