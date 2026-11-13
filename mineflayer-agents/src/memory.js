@@ -212,10 +212,11 @@ class Memory {
   isUnreachable(p) { return p.unreachableUntil != null && this.tick < p.unreachableUntil; }
 
   // 以前覚えた場所に行ったが、もう無かった (切った木など)
-  forgetPlace(kind, pos, radius = CELL) {
+  //   why: 'gone' (行ったら無かった = 空振り) | 'dug_by_me' (自分で掘った。メモは付けない)
+  forgetPlace(kind, pos, radius = CELL, why = 'gone') {
     this.places = this.places.filter((p) => !(p.kind === kind && dist3(p, pos) <= radius));
     // 空振りの失敗のメモ (覚えた場所に物が無かった)。禁止はせず、その場所を思い出したときだけ戻す
-    if (pos) this.addNote(assoc.areaOf(pos), 'gone', `前に${kind}を取りに来たら無かった`, `the ${kind} you remembered there was gone`, 0.5);
+    if (pos && why === 'gone') this.addNote(assoc.areaOf(pos), 'gone', `前に${kind}を取りに来たら無かった`, `the ${kind} you remembered there was gone`, 0.5);
   }
 
   // 失敗のメモを点 (場所・人) に付ける (failureNotes のときだけ)

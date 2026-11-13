@@ -797,6 +797,50 @@
       "halfLife": 40,
       "impBoost": 6,
       "forgetBelow": 0.08
+    },
+    "_comment_assoc": "記憶の選び方 (2026-11-13 ユーザー決定)。retrieval: associative = 記憶のグラフを手がかりから線でたどる (src/assoc.js) / legacy = 今までの選び方。store: dual = 経過 tick で2つの貯蔵 (半減期 500 tick と 45 日、Murre & Dros 2015) / single = 判断の回数で1本の指数。failureNotes: 空振り・行けなかった・死んだ・されたことのメモを場所・人に付け、思い出したときだけ戻す。relevance.embedding: 埋め込みの関連度の差し込み口 (今は null。実装していない)。assoc: 得点 = alpha × 活性 + beta × 新しさ + gamma × 大事さ (HAM-VLN の 1.0/0.3/0.3)、広げる段数・減衰・件数など (assoc.js の DEFAULTS)",
+    "retrieval": "associative",
+    "store": "dual",
+    "failureNotes": true,
+    "relevance": {
+      "embedding": null,
+      "embeddingWeight": 0
+    },
+    "dual": {
+      "h1": 500,
+      "h2": 1080000,
+      "w0": 0.3,
+      "heardW0": 0.2,
+      "impRef": 0.5
+    },
+    "assoc": {
+      "alpha": 1,
+      "beta": 0.3,
+      "gamma": 0.3,
+      "maxHops": 3,
+      "decay": 0.5,
+      "fan": "log",
+      "seedK": 3,
+      "expandMax": 3,
+      "explain": true,
+      "budget": {
+        "llm": {
+          "items": 14,
+          "must": 2,
+          "notes": 2,
+          "maxChars": 1600
+        },
+        "jev": {
+          "items": 8,
+          "must": 2,
+          "notes": 2,
+          "maxChars": 1100
+        },
+        "answer": {
+          "items": 5,
+          "notes": 1
+        }
+      }
     }
   },
   "perception": {
