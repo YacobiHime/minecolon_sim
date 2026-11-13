@@ -26,6 +26,7 @@ switch_level() { # $1=level $2=difficulty $3=spawn-monsters
 }
 
 # 最寄りの平原を出現地点にして、ゲームルールを設定する (サーバー起動後に1回)。$1=difficulty、残り=追加のコマンド
+# maxEntityCramming 0: 出現の広がり 0 で100人が同じ1マスに出ると、24 人を超えた所で押しつぶされて死ぬ (2026-11-10 の 100人の試験)。押しつぶしだけを止める
 init_world() {
   [ -p cmd_pipe ] || { echo "ERROR: サーバーが動いていない"; exit 1; }
   local DIFF="$1"; shift
@@ -40,7 +41,7 @@ init_world() {
   send "execute positioned $X 0 $Z positioned over motion_blocking_no_leaves run setworldspawn ~ ~ ~" 1
   send "forceload remove $X $Z" 0.5
   for c in 'gamerule spawnRadius 0' 'gamerule doDaylightCycle true' 'gamerule doWeatherCycle false' 'weather clear' \
-           'gamerule doInsomnia false' 'gamerule doTraderSpawning false' 'gamerule doMobSpawning true' "difficulty $DIFF" "$@" 'time set 0'; do
+           'gamerule doInsomnia false' 'gamerule doTraderSpawning false' 'gamerule doMobSpawning true' 'gamerule maxEntityCramming 0' "difficulty $DIFF" "$@" 'time set 0'; do
     send "$c" 0.3
   done
   tail -n +"$((START + 1))" console.log | grep -E 'spawn point|Set the world spawn|Gamerule|difficulty|time|<--\[HERE\]' | tail -12
