@@ -40,6 +40,23 @@
 //     つながり (65 歳以上): connection.bond 0.3 → 0.45・near 0.015 → 0.008 (年を取ると親しい少数の相手を選び、周辺の相手は減る。
 //       社会情動的選択性理論 Carstensen ら 1999, Am. Psychol. 54, 165-181、English & Carstensen 2014, IJBD 38, 195-202)  [中]
 //     認められたい (15〜19 歳): recognition.fullAfter 16000 → 12000 (青年期は仲間からの評価に敏感。Somerville 2013, CDPS 22, 121-127)  [中]
+//   ■ 2026-11-13 に足した値 (新しいモデル用。旧モデルに戻すと使われない。前からの値を変えないよう、乱数は別の種 seed + 1113 の列から引く)。
+//     個人差はガウス型コピュラ: 各値に潜在の z_p = ρ·z_特性 + √(1−ρ²)·ε を持たせ、値 = 分布の逆関数 (対数正規なら 中央値 × exp(σ·z_p))。
+//     眠気の上がり方 sleep.tauW (needs.sleep.model: 'processS' の τw、tick = 1時間 1000):
+//       中央値は年齢で: 11.9 歳まで 8900 (思春期前・初期 8.9h)、14.2 歳で 15400 (成熟した思春期 15.4h) (Jenni, Achermann, & Carskadon 2005, Sleep 28, 1446-1454)、
+//       20 歳から 18200 (若い大人 18.2h。Daan, Beersma, & Borbély 1984 の値を Skeldon & Dijk 2025・Hagenauer & Lee 2013 で確認)。間は線でつなぐ。
+//       高齢者の時定数の測定は見つからないので大人の値のまま。人の散らばり: 対数正規 σ 0.22 (Rusterholz, Dürr, & Achermann 2010, Sleep 33, 491-498 の
+//       8人の範囲 14.1〜26.4h を、8人の範囲の期待値 2.85 SD で割った ln(26.4/14.1)/2.85)。性格とは結ばない (断眠への弱さは神経症傾向・外向性・
+//       特性不安で予測されなかった。Van Dongen ら 2004, Sleep 27, 423-433)  [中]
+//     ストレスのたまり方 stress.exp.k (needs.stress.model: 'exp'): STRESS_EXP_K × max(0.2, 1 + 0.51 zN)。0.51 = ストレスの主効果 .030 に対し
+//       ストレス×神経症傾向 .023 × N の SD 0.67 (Mroczek & Almeida 2004, J. Pers. 72, 355-378, Table 3)。STRESS_EXP_K は tools/calibrate_emotions.js で決めた値  [中]
+//     感情 (social.emotions.model: 'perEmotion') の persona.emotions:
+//       halfLifeMul (全感情の半減期に掛ける): 性別 女性 ×√2.5・男性 ÷√2.5 (持続の中央値 女性 5.04h・男性 2h、性×感情の交互作用なし。
+//         Verduyn & Lavrijsen 2015, Motiv. Emot. 39, 119-127) × 対数正規 exp(0.5·z_p)、z_p は神経症傾向と ρ .23 (反すうと戻る速さ r −.23。
+//         Kuppens, Oravecz, & Tuerlinckx 2010, JPSP 99, 1042-1060)。σ 0.5 は人の間の SD が見つからないので仮  [弱]
+//       baseShift (基準値に足す、0〜10): 負の感情 (悲しみ・怒り・恐れ・嫌悪。1つの z_p を共有) = 0.9·z_p、ρ .64 で神経症傾向
+//         (N と負の感情 ρ .64。Steel, Schmidt, & Shultz 2008, Psychol. Bull. 134, 138-161, Table 2。人の間の SD 0.9 は日々の負の感情の SD 0.36/4 × 10、
+//         Mroczek & Almeida 2004 Table 1)  [中]。喜び = 1.0·z_p、ρ .54 で外向性 (E と正の感情 ρ .54。Steel 2008)。SD 1.0 は見つからないので仮  [弱]
 //     入れなかったもの: 独り言の多さ (toolVoice) は年齢差の根拠が弱い (幼児の私的発話の研究が主) ので入れず、toolwant.js が気質から出す。
 //       子供の好奇心の上乗せ (Gopnik 2020 の探索の理論) も量の根拠が無いので入れない。
 // ■ 名前: 明治安田生命「生まれ年別名前ベスト10」(生まれ年 = 2026 − 年齢、性別) から、生まれ年に近い年の上位の名前を引く。
@@ -322,9 +339,40 @@ function needsFor(age, z, curiosity) {
   return n;
 }
 
+// ---- 2026-11-13 に足した値 (新しいモデル用。上の説明「2026-11-13 に足した値」) ----
+const STRESS_EXP_K = 0.00785; // tools/calibrate_emotions.js --fit で決めた (runs/2026-11-11T03-43-35 の再生で、ストレスが言葉に出た人日の割合が 0.38)
+const TAUW_POINTS = [[11.9, 8900], [14.2, 15400], [20, 18200]]; // 年齢 → τw の中央値 (tick)
+const TAUW_SIGMA = 0.22;
+const EMO_SEX = Math.sqrt(2.5);
+const copula = (rho, zTrait, eps) => rho * zTrait + Math.sqrt(1 - rho * rho) * eps;
+// rng2: 前からの値を変えないための別の乱数の列。返り値 { tauW, stressExpK, emotions }
+function groundedFor(age, sex, z, rng2) {
+  const e1 = normal(rng2); const e2 = normal(rng2); const e3 = normal(rng2); const e4 = normal(rng2);
+  const tauW = Math.round(interp(TAUW_POINTS, age) * Math.exp(TAUW_SIGMA * e1));
+  const stressExpK = Math.round(STRESS_EXP_K * Math.max(0.2, 1 + 0.51 * z.N) * 100000) / 100000;
+  const halfLifeMul = r2((sex === 'female' ? EMO_SEX : 1 / EMO_SEX) * Math.exp(0.5 * copula(0.23, z.N, e2)));
+  const neg = r2(0.9 * copula(0.64, z.N, e3));
+  const joy = r2(1.0 * copula(0.54, z.E, e4));
+  return { tauW, stressExpK, emotions: { halfLifeMul, baseShift: { joy, sadness: neg, anger: neg, fear: neg, disgust: neg } } };
+}
+
+// survival_100 だけで新しいモデルを既定にする (2026-11-13 ユーザー決定「どの変更も設定で旧/新を切り替えられるように。survival_100 の既定は新」)。
+//   base (survival_3days) の設定に重ねる。旧に戻すときはここの model を書き換えて作り直すか、出来た設定の値を変える
+const MODEL_OVERLAY = {
+  needs: {
+    sleep: { model: 'processS', _comment_model: '眠気: processS = 睡眠の2過程モデル (src/needs.js の説明)。linear = 旧 (直線 + 夜 2.5 倍)。人ごとの tauW は personas[].needs.sleep' },
+    stress: { model: 'exp', _comment_model: 'ストレス: exp = 半減期 exp.halfLife の指数で抜け、power 0.5 (src/needs.js の説明)。linear = 旧 (k・power 2・recover)。人ごとの exp.k は personas[].needs.stress.exp' },
+  },
+  social: { emotions: { model: 'perEmotion', _comment: '感情: perEmotion = 感情ごとの半減期 (tick)・文献の基準値・occupancy に合わせた上げ幅 (src/social.js の EMOTION_DEFAULTS)。uniform = 旧 (毎判断 0.85 倍)。人ごとの halfLifeMul・baseShift は personas[].emotions' } },
+  conflict: { grudgeParams: { decayUnit: 'ticks', _comment_decay: 'わだかまりの薄れ方を実際に進んだ tick で (halfLifeTicks 27000 = 旧の 150 判断 × 180 tick)。decisions = 旧' } },
+};
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+function deepMerge(a, b) { const out = { ...a }; for (const [k, v] of Object.entries(b)) out[k] = isObj(v) && isObj(a[k]) ? deepMerge(a[k], v) : v; return out; }
+
 function generate({ n = 100, seed = 20261110, base } = {}) {
   const { pop, bf, names } = loadData();
   const rng = mulberry32(seed);
+  const rng2 = mulberry32(seed + 1113); // 2026-11-13 に足した値の列 (前からの値の乱数の並びを変えない)
   const R = bf.adult.corr; const L = cholesky(R);
   const { counts } = layerCounts(pop, n);
   // 年齢と性別 (層の中で人口に比例)
@@ -380,6 +428,10 @@ function generate({ n = 100, seed = 20261110, base } = {}) {
     const ordT = { bravery: temperament.bravery, empathy: temperament.empathy, obedience: temperament.obedience, greed: temperament.greed, sociability: temperament.sociability };
     const curiosity = 0.2 + 0.7 * phi(z.O);
     const pick = picked[idx];
+    const g = groundedFor(p.age, p.sex, z, rng2);
+    const needs = needsFor(p.age, z, curiosity);
+    needs.sleep.tauW = g.tauW;
+    needs.stress = { ...needs.stress, exp: { k: g.stressExpK } };
     // 文 (重なれば特性を4つまで増やす)
     let txt = personalityText(p.age, p.sex, z);
     for (let k = 4; usedText.has(txt.ja) && k <= 5; k++) txt = personalityText(p.age, p.sex, z, k);
@@ -394,11 +446,12 @@ function generate({ n = 100, seed = 20261110, base } = {}) {
       speech: speechText(p.age, z),
       temperament: ordT,
       bigFive: { _comment: 'TIPI-J の得点 (2〜14) と日本の成人を基準にした z', tipi, z: Object.fromEntries(TRAITS.map((t) => [t, r2(z[t])])) },
-      needs: needsFor(p.age, z, curiosity),
+      needs,
+      emotions: g.emotions,
       nameSource: `${pick.kanji} (${pick.year}年生まれの${pick.rank}位、生まれ年との差 ${pick.gap}年。明治安田生命)`,
     });
   }
-  const cfg = JSON.parse(JSON.stringify(base));
+  const cfg = deepMerge(JSON.parse(JSON.stringify(base)), MODEL_OVERLAY);
   cfg._comment = `${n}人版 (tools/gen_personas.js で生成。種 ${seed})。personas 以外は survival_3days.json と同じ (作り直すときは base を変えてから gen_personas.js)。`
     + '年齢: 人口推計 2024 (総務省統計局) から、子供 10〜14・若者 15〜29・大人 30〜64・老人 65〜89 の各層に 20 人 + 残りを人口比で。'
     + '性格: Big Five (川本ら 2015 の TIPI-J の年代×性別、10〜24 歳は Soto ら 2011 の年齢差) → 気質・欲求。名前: 明治安田生命の生まれ年別ベスト10。'
@@ -425,4 +478,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { generate, traitNorm, layerCounts, personalityText, speechText, needsFor, phi, mulberry32, TEMPERAMENT_MAP, LAYERS, layerOf, READING, loadData };
+module.exports = { MODEL_OVERLAY, deepMerge, groundedFor, STRESS_EXP_K, TAUW_POINTS, generate, traitNorm, layerCounts, personalityText, speechText, needsFor, phi, mulberry32, TEMPERAMENT_MAP, LAYERS, layerOf, READING, loadData };

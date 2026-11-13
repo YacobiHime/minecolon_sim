@@ -21,10 +21,16 @@ const KEYS = ['bravery', 'empathy', 'obedience', 'greed', 'sociability'];
 const avg = (v) => v.reduce((s, x) => s + x, 0) / v.length;
 const grp = (g) => ps.filter((p) => p.ageGroup === g);
 
-test('survival_100: 生成し直すと同じ (種が固定)・personas 以外は survival_3days と同じ', () => {
+test('survival_100: 生成し直すと同じ (種が固定)・personas 以外は survival_3days に新しいモデルの切り替え (MODEL_OVERLAY) を重ねたもの', () => {
   const { cfg: again } = gen.generate({ n: 100, seed: 20261110, base });
   assert.strictEqual(JSON.stringify(again, null, 2) + '\n', fs.readFileSync(CFG100, 'utf8'), 'node tools/gen_personas.js で作り直す');
-  for (const k of Object.keys(base)) if (k !== 'personas' && k !== '_comment') assert.deepStrictEqual(cfg[k], base[k], k);
+  const want = gen.deepMerge(base, gen.MODEL_OVERLAY);
+  for (const k of Object.keys(want)) if (k !== 'personas' && k !== '_comment') assert.deepStrictEqual(cfg[k], want[k], k);
+  // survival_100 の既定は新しいモデル (2026-11-13 ユーザー決定)
+  assert.strictEqual(cfg.needs.sleep.model, 'processS');
+  assert.strictEqual(cfg.needs.stress.model, 'exp');
+  assert.strictEqual(cfg.social.emotions.model, 'perEmotion');
+  assert.strictEqual(cfg.conflict.grudgeParams.decayUnit, 'ticks');
   assert.strictEqual(base.personas.length, 20); // 比べるための 20 人はそのまま
 });
 

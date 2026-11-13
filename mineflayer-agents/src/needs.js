@@ -79,10 +79,16 @@ const NEEDS_DEFAULTS = {
   //   (1 + …) は maxMul (上の欲求は maxMulHigher) で頭打ち。満たされない欲求が無ければ recover × dt/1000 ずつ抜ける。
   //   満たされた欲求の「満たされない時間」は unmetDecay 倍の速さで戻る
   //   model: 'linear' (上の旧モデル: 満たされない欲求が無いときだけ recover で直線に抜ける) |
-  //          'exp' (2026-11-13 ユーザー決定: いつも半減期 halfLife (tick) の指数で抜け、満たされない分が足される。
-  //                 半減期 11500 = 前日の負の感情の係数 .235 から 24h·ln0.5/ln0.235 = 11.5h。Mroczek & Almeida 2004, J. Pers. 72, 355-378, Table 2)
+  //          'exp' (2026-11-13 ユーザー決定。係数は exp の中の値で上書きする (人ごとの k も exp.k。旧の k と別に持つので、linear に戻すと旧の値で動く)):
+  //            いつも半減期 exp.halfLife (tick) の指数で抜け、満たされない分が足される: S ← S·0.5^(dt/halfLife) + dS。
+  //            halfLife 11500 = 前日の負の感情の係数 .235 から 24h·ln0.5/ln0.235 = 11.5h (Mroczek & Almeida 2004, J. Pers. 72, 355-378, Table 2)。
+  //            抜け方がいつも効くので、満たされない欲求が続いてもストレスは頭打ちになる (睡眠不足の効果は約60hで頭打ち。Palmer ら 2024, Psychol. Bull. 150, 440-463)。
+  //            power 0.5: 長く満たされないほど速くたまる形は残すが、2乗で加速する測定は無い (Palmer 2024 は上に凸) ので1より下げた [仮。ユーザー決定「power を2から下げる」]。
+  //            k: tools/calibrate_emotions.js で、ストレスが言葉に出る (0.2 以上) 日の割合を、日々のストレッサーのある日の割合 38% (ストレスの無い日 62%。
+  //               Mroczek & Almeida 2004 Table 1 の DISE) に合わせた値。人ごとに × max(0.2, 1 + 0.51·zN) (gen_personas.js)
   stress: {
-    model: 'linear', halfLife: 11500,
+    model: 'linear',
+    exp: { halfLife: 11500, k: 0.00785, power: 0.5 },
     k: 0.012, T: 6000, power: 2, maxMul: 6, maxMulHigher: 2, recover: 0.03, unmetDecay: 2,
     weights: { hunger: 1, sleep: 1.2, safety: 1.5, connection: 0.4, recognition: 0.25, curiosity: 0.2, greed: 0.2, care: 0.2 },
     // 感情への出方: ストレスが from を超えると、毎判断 S × gain × 性格の傾き × (0.3 + 出どころの割合) だけ怒り・悲しみ・恐れを上げる
@@ -327,8 +333,19 @@ class Needs {
       possession: c.recognition.possession * clamp((s.invKinds || 0) / c.recognition.possessionKinds),
     };
     // ストレス
-    const e = this.effective();
-    const st = c.stress;
+    const { dS } = this.accumulateStress(this.effective(), dt);
+    for (const k of NEEDS) v[k] = r3(v[k]);
+    // 先のつらさ (anticipate.js)
+    this.ant.update({ ...s, timeOfDay: tod }, { hurt: hurtNow, hunger: v.hunger });
+    return { dt, dS };
+  }
+
+  // ストレスの係数 (model: 'exp' なら exp の中の値で上書き)
+  stressParams() { const st = this.cfg.stress; return st.model === 'exp' ? { ...st, ...(st.exp || {}) } : st; }
+  // ストレスを dt (tick) 進める。e: 効いている欲求の強さ (effective())。unmet・inflow・stress を書き換える。返り値 { dS }
+  //   (update から呼ぶ。tools/calibrate_emotions.js も記録の欲求からこれでストレスを作り直す)
+  accumulateStress(e, dt) {
+    const st = this.stressParams();
     let dS = 0;
     let anyUnmet = false;
     for (const k of NEEDS) {
@@ -347,11 +364,8 @@ class Needs {
     }
     if (st.model === 'exp') this.stress = clamp(halve(this.stress, dt, st.halfLife) + dS); // いつも指数で抜け、満たされない分が足される
     else this.stress = clamp(anyUnmet ? this.stress + dS : this.stress - st.recover * (dt / 1000));
-    for (const k of NEEDS) v[k] = r3(v[k]);
     this.stress = r3(this.stress);
-    // 先のつらさ (anticipate.js)
-    this.ant.update({ ...s, timeOfDay: tod }, { hurt: hurtNow, hunger: v.hunger });
-    return { dt, dS };
+    return { dS };
   }
 
   // ---- 出来事 ----

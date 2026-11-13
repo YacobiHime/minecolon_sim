@@ -36,7 +36,7 @@ const EMOTION_DEFAULTS = {
   decay: 0.85, // uniform: 1判断ごとに基準値との差がこの割合に縮む
   halfLife: { joy: 17500, sadness: 10080, anger: 2160, fear: 670, disgust: 560, surprise: 1640 },
   base: { joy: 5.9, sadness: 0.9, anger: 0.7, fear: 0.7, disgust: 0.7, surprise: 0 },
-  gain: { joy: 1, sadness: 1, anger: 1, fear: 1, disgust: 1, surprise: 1 },
+  gain: { joy: 0.042, sadness: 1.082, anger: 0.716, fear: 0.333, disgust: 1, surprise: 1 }, // calibrate_emotions.js --fit (嫌悪は出来事が記録にほぼ無く合わせられず 1、驚きは目標が無く 1)
   above: 2, // 言葉に出るしきい値 = 集団の base + above
   perDecisionTicks: 180, // 旧の「1判断ごと」の量を tick あたりに直すときの判断の間隔 (runs/2026-11-11T03-43-35 の平均)
   maxDt: 6000, // 1回で進める tick の上限 (needs と同じ)
