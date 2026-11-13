@@ -3,7 +3,7 @@
 //   - 子へ送るのは、つながっている (c.connected) 子だけ。送れなかった失敗はコールバックで受け、'error' イベントも拾う
 //     (2026-11-13: 終わった子に send して ERR_IPC_CHANNEL_CLOSED が未処理になり、親が落ちて run.json ができなかった)
 //   - 止め方: 1回目の SIGINT/SIGTERM (や stop()) = 子に stop を送り、終わるのを待つ。
-//             2回目 = まだ動いている子に SIGINT (子はすぐ自分の run-part を書いて終わる)。killAfterMs 待っても残れば SIGKILL。
+//             2回目 = まだ動いている子に stop (force) と SIGINT (子はすぐ自分の run-part を書いて終わる)。killAfterMs 待っても残れば SIGKILL。
 //             3回目 = 残っている子にすぐ SIGKILL。
 //     どの止め方でも、子がすべて終わったら残っている run-part から run.json を作る (欠けた子は missingParts)。
 const { writeRunSummary } = require('./run_parts');
@@ -35,6 +35,7 @@ function superviseChildren(children, { runDir, procs, agents, meta = {}, namesBy
       for (const c of children) safeSend(c, { type: 'stop' });
     } else if (level === 2) {
       log(`stopping (${why}, 2回目): 残りの子 ${left} 個に SIGINT (run-part を書いてすぐ終わる)。${Math.round(killAfterMs / 1000)} 秒で残れば SIGKILL。もう一度 Ctrl-C ですぐ SIGKILL`);
+      for (const c of children) safeSend(c, { type: 'stop', force: true });
       kill('SIGINT');
       killTimer = setTimeout(() => { if (alive().length) { log(`残りの子 ${alive().length} 個に SIGKILL`); kill('SIGKILL'); } }, killAfterMs);
       if (killTimer.unref) killTimer.unref();
@@ -57,4 +58,21 @@ function superviseChildren(children, { runDir, procs, agents, meta = {}, namesBy
   return { stop, done, exits, send: (msg) => children.forEach((c) => safeSend(c, msg)) };
 }
 
-module.exports = { superviseChildren, safeSend };
+// 子の側 (node run.js --child): 親へ使用量を送る・親の stop で onStop(why, force)・親がいなくなっても (disconnect) onStop。
+// 送るのは親とつながっているときだけで、失敗はコールバックで受ける (未処理の 'error' で落ちない。2026-11-13 に子が落ちて run-part を書けなかった)。
+// getUsage() → 送る中身 (type は 'usage')。返り値 { send, stop }
+function childIpc({ getUsage, onStop, intervalMs = 5000, log = console.log, proc = 0 } = {}) {
+  const send = () => {
+    if (!process.send || !process.connected) return false;
+    try { process.send({ type: 'usage', ...getUsage() }, () => { /* 親がいない */ }); return true; } catch (_) { return false; }
+  };
+  let timer = null;
+  if (!process.send) return { send, stop() {} };
+  process.on('error', (e) => log(`[proc ${proc}] IPC: ${e && e.message}`));
+  process.on('message', (m) => { if (m && m.type === 'stop') onStop(m.force ? '親から (すぐ)' : '親から', !!m.force); });
+  process.on('disconnect', () => { if (timer) clearInterval(timer); timer = null; onStop('親がいなくなった'); });
+  timer = setInterval(send, intervalMs);
+  return { send, stop() { if (timer) clearInterval(timer); timer = null; } };
+}
+
+module.exports = { superviseChildren, safeSend, childIpc };

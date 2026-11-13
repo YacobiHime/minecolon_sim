@@ -200,8 +200,11 @@ async function main() {
   LLM_USAGE.onExceeded((u) => stopAll(`LLM の費用が上限 $${u.maxUsd} に達した ($${u.costUsd})`));
   if (jevClient) jevClient.onFatal((f) => stopAll(f.error));
   let forceExit = null; // 下で定める (run-part を書いてすぐ終わる)
+  // 2回目は「シグナルの2回目」で数える (端末の Ctrl-C は親と子の両方に届くので、親からの stop と合わせて2回と数えない)
+  let signals = 0;
   const onSignal = (sig) => () => {
-    if (stopRequested && forceExit) { console.log(`${sig} (2回目): 待たずに記録を書いて終わる`); forceExit(sig); return; }
+    signals += 1;
+    if (signals >= 2 && forceExit) { console.log(`${sig} (2回目): 待たずに記録を書いて終わる`); forceExit(sig); return; }
     stopAll(sig);
   };
   process.on('SIGINT', onSignal('SIGINT'));
@@ -209,17 +212,9 @@ async function main() {
   process.on('unhandledRejection', (e) => console.log('unhandledRejection:', e && e.message));
   // 子プロセス: 親へ使用量を送り、親の stop で止まる。親がいなくなっても (disconnect) 止まって自分の run-part を書く。
   // 送るのは親とつながっているときだけ。送れなかった失敗はコールバックで受ける ('error' を未処理にしない。2026-11-13 に子が落ちた)
-  let usageTimer = null;
-  const sendUsage = () => {
-    if (!child || !process.send || !process.connected) return;
-    try { process.send({ type: 'usage', jevInputTokens: meter.jev.inputTokens, llmUsd: LLM_USAGE.totalUsd }, () => { /* 親がいない */ }); } catch (_) { /* ignore */ }
-  };
-  if (child && process.send) {
-    process.on('error', (e) => console.log(`[proc ${child}] IPC: ${e && e.message}`));
-    process.on('message', (m) => { if (m && m.type === 'stop') stopAll('親から'); });
-    process.on('disconnect', () => { if (usageTimer) clearInterval(usageTimer); usageTimer = null; if (!stopRequested) stopAll('親がいなくなった'); });
-    usageTimer = setInterval(sendUsage, 5000);
-  }
+  const { childIpc } = require('./src/supervise');
+  const ipc = child ? childIpc({ proc: child, getUsage: () => ({ jevInputTokens: meter.jev.inputTokens, llmUsd: LLM_USAGE.totalUsd }),
+    onStop: (why, force) => { if (force && forceExit) forceExit('親から'); else if (!stopRequested || why !== '親がいなくなった') stopAll(why); } }) : null;
 
   // 接続の見張り (src/netdiag.js): 接続を始める前から。--netdiag-sec 0 で止める
   const ndSec = Number(args['netdiag-sec'] ?? 10);
@@ -249,8 +244,7 @@ async function main() {
     partWritten = true;
     if (monitor) monitor.stop();
     if (netdiag) netdiag.stop();
-    if (usageTimer) { clearInterval(usageTimer); usageTimer = null; }
-    sendUsage();
+    if (ipc) { ipc.stop(); ipc.send(); }
     const summary = { runId: stamp, config: path.resolve(args.config), order: base.order || null, agents: n, connected: ready.length, ...(child ? { proc: child, agentRange: [from, to] } : {}), decider: decType,
       minutes: Math.round((Date.now() - t0) / 600) / 100, results, disconnects, usage: meter.summary(), twoBLatency: LLM_STATS.total(), ...extra,
       ...(child ? { twoBLatencyRaw: { ms: LLM_STATS.all.map((r) => r.ms), waitMs: LLM_STATS.all.map((r) => r.waitMs), serverMs: LLM_STATS.all.map((r) => r.serverMs) } } : {}) };

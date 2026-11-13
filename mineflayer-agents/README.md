@@ -131,13 +131,31 @@ node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ -
 準備〜開始と停止〜集計をそれぞれ1つにしたもの (手順は手で打つときと同じ。サーバーは `MC_DIR`、既定 `/root/mc-server-fabric`)。
 `exp_start.sh` は接続者・ボットを確かめ、内容と推定の費用を見せて y/N を聞いてから、pristine のコピー・起動・出現地点・朝・run.js の起動まで行い、
 記録のフォルダに `exp_start.json` (引数・ワールド・コミット) を残す。`exp_stop.sh` は SIGINT で止めて check_scale_run・summarize_run・conflict_stats を通し、要点を出す。
+実験が自然に終わりかけている (予定の時間を過ぎた・子が `run-part` を書き始めた。`tools/run_progress.js`) ときは SIGINT を送らず、終わるのを待つ (`--now` で待たずに送る)。
+`run.json` が無ければ、残っている `run-part<k>.json` から `tools/merge_run_parts.js` で作ってから集計する。
 
 ```bash
 bash mineflayer-agents/tools/exp_start.sh --dry-run                       # 打つコマンドを見るだけ
 bash mineflayer-agents/tools/exp_start.sh                                 # 100人30分・すべて on・新しいワールド world_survival3d_<次の番号>
 bash mineflayer-agents/tools/exp_start.sh --grudge off --conflict off --aggression off --reuse world_survival3d_19
 bash mineflayer-agents/tools/exp_stop.sh [--stop-server]                  # 止めて集計 (いちばん新しい runs/<時刻>)
+node mineflayer-agents/tools/merge_run_parts.js runs/<時刻> [--force]      # run.json を run-part から作り直す (欠けた子は missingParts)
 ```
+
+### 止め方 (run.js)
+
+| 操作 | 何が起きるか |
+| --- | --- |
+| 予定の時間 (`--minutes`) が来る | 各自が今の1歩を終えて止まり、子は `run-part<k>.json` を書いて終わる。親は全部の子を待って `run.json` を作る |
+| Ctrl-C (SIGINT) か SIGTERM を1回 | 同じ (今の1歩を終えて止まる。数十秒かかることがある)。親は子に stop を送り、終わるのを待つ |
+| 止める途中にもう1回 Ctrl-C | 子は待たずに今ある分で `run-part` を書いてすぐ終わる (results は `aborted: true`)。親は子に stop (force) と SIGINT を送り、15 秒で残る子は SIGKILL |
+| 3回目 | 親が残りの子をすぐ SIGKILL |
+| 親が落ちた・殺された | 子は親がいなくなったこと (IPC の disconnect) に気づいて止まり、自分の `run-part` を書いて終わる。`run.json` は `merge_run_parts.js` で作る |
+
+どの止め方でも、親は残っている `run-part` から `run.json` を作る。書けなかった子は `run.json` の `missingParts` (子の番号・人の範囲・名前・終わり方) と `partial: true` に残り、
+その子の人の `results` は各自の記録 (`<名前>-<時刻>.jsonl`) から拾い直す (`fromRecord: true`)。その子の使用量は失われる (記録の Jev の分だけ `usage.missingEstimate` に見積もる。2B・LLM の費用は不明)。
+切断の数はその子の `monitor-<k>.jsonl` の最後の行から足す。`check_scale_run` は欠けた子があれば `run parts` を NG にする。
+`kill -9` は使わない (記録が途中で切れる)。止めるときは `exp_stop.sh` か Ctrl-C。
 
 ### Jev の提供元 (openrouter / typesafe) と API キー
 
@@ -462,7 +480,15 @@ node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻> --
   (自動でつなぎ直しはしない)。Fabric は max-players 120、rate-limit 0。100人では同一地点の圧死だけを
   `maxEntityCramming 0` で止める。
 - **負荷の見張り** (`--monitor-sec`、既定 30): `runs/<時刻>/monitor[-k].jsonl` に CPU・RSS・イベントループの遅れ・生きているボット・判断の数と間隔・
-  2B の呼び出しと待ち・Jev の呼び出しと 429。
+  2B の呼び出しと待ち・Jev の呼び出しと 429。接続を始める前から測る (`phase: connect` → `run`)。
+- **切断の調べ** (`--netdiag-sec`、既定 10。0 で止める。`src/netdiag.js`): `runs/<時刻>/netdiag[-k].jsonl` に、
+  - `sample` (10 秒ごと): 250ms 間隔で測ったイベントループの遅れの最大と1秒超えの回数・CPU・ボットごとの受信 (バイト・パケット数・量の多いパケット上位3つ・ソケットの読んだ量)・
+    keepalive (受けた回数・最後に受けてからの ms・遅れの推定の最大)・最後のパケットからの ms・ソケットの読み/書き待ちの量 (`rq`/`wq`)
+  - `lag`: イベントループが1秒以上止まったとき、その場で
+  - `connect` / `spawn` (かかった ms) / `ka` (keepalive の遅れが2秒以上か、間隔が20秒以上のとき) / `kicked`・`end`・`error` (理由と、その時点の様子:
+    最後のパケット・最後の keepalive からの ms・最近4回の keepalive の遅れと間隔・ソケットの読み書き待ち・解く前の受信の溜まり)
+  keepalive の遅れの推定: サーバーの keepAliveId はサーバーの時計の ms なので、「受けた時刻 − id」の最小値を基準にどれだけ伸びたかを見る。
+  サーバーは 15 秒ごとに keepalive を送り、次の 15 秒で応答が来なければ `Timed out` で切る。
 - **2B の待ち時間**: llama-server の応答の `timings` (prompt_ms + predicted_ms) を処理時間とし、全体の時間から引いた残りを待ち (スロットの空き待ち。
   イベントループの遅れも入る) として数える (`src/deciders/llm.js` の `LLM_STATS`)。`run.json` の `twoBLatency`。
 - **Jev**: 429・502・503・524・529 と in-flight 予算の 402 は `jev_client.js` が retry-after (無ければ 0.5・1・2・4 秒、最大 30 秒) で4回まで再試行する。同時の呼び出しは1プロセス `decider.jev.maxConcurrent` (8) まで。

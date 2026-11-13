@@ -272,3 +272,46 @@ test('exp_digest: summary.txt の先頭の JSON だけ読み、成功率・他�
     assert.match(text, /費用 +記録なし/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('exp_stop: 自然に終わりかけていれば SIGINT を送らず待つ。run.json が無ければ run-part から作る', () => {
+  const e = mockEnv({});
+  try {
+    const dir = path.join(e.m, 'runs', '2026-11-13T00-00-00');
+    const old = new Date(Date.now() - 10 * 60000).toISOString();
+    w(path.join(dir, 'exp_start.json'), JSON.stringify({ args: { agents: 2, procs: 2, minutes: 1 } }));
+    w(path.join(dir, 'run-part1.json'), JSON.stringify({ runId: '2026-11-13T00-00-00', agents: 2, proc: 1, connected: 1, minutes: 1, results: [{ name: 'A' }], disconnects: { n: 0 }, usage: { jev: { calls: 1 } } }));
+    w(path.join(dir, 'A-2026-11-13T00-00-00.jsonl'), `${JSON.stringify({ ts: old, event: 'start' })}\n`);
+    w(path.join(dir, 'B-2026-11-13T00-00-00.jsonl'), `${JSON.stringify({ ts: old, event: 'start' })}\n${JSON.stringify({ ts: old, loop: 3 })}\n`);
+    // 2 秒で自分で終わる模擬のボット (SIGINT を受けたら印を残す)
+    const body = `trap 'echo got-int > "${e.st}/int"; exit 0' INT; echo $$ > "${e.st}/bot_pid"; for i in $(seq 1 20); do sleep 0.1; done`;
+    spawnSync('setsid', ['-f', 'bash', '-c', body], { stdio: 'ignore' });
+    const t0 = Date.now();
+    while (!fs.existsSync(path.join(e.st, 'bot_pid')) && Date.now() - t0 < 5000) spawnSync('sleep', ['0.1']);
+    const r = sh(STOP, ['--timeout', '20'], e.env);
+    assert.match(r.out, /自然に終わりかけている \(子が終わり始めている/);
+    assert.match(r.out, /ボットは自分で終わった/);
+    assert.ok(!fs.existsSync(path.join(e.st, 'int')), 'SIGINT は送らない');
+    assert.match(r.out, /run\.json が無い .*作り直す/);
+    const run = JSON.parse(fs.readFileSync(path.join(dir, 'run.json'), 'utf8'));
+    assert.strictEqual(run.partial, true);
+    assert.deepStrictEqual(run.missingParts.map((m) => m.proc), [2]);
+    assert.deepStrictEqual(run.results.map((x) => x.name).sort(), ['A', 'B']);
+    assert.match(fs.readFileSync(path.join(dir, 'check.txt'), 'utf8'), /NG run parts: 欠けた子 2/);
+  } finally { e.cleanup(); }
+});
+
+test('exp_stop --now: 終わりかけでも SIGINT を送る', () => {
+  const e = mockEnv({});
+  try {
+    const dir = path.join(e.m, 'runs', '2026-11-13T00-00-00');
+    fakeRun(dir);
+    w(path.join(dir, 'run-part1.json'), '{}');
+    const body = `trap 'echo got-int > "${e.st}/int"; exit 0' INT; echo $$ > "${e.st}/bot_pid"; while true; do sleep 0.1; done`;
+    spawnSync('setsid', ['-f', 'bash', '-c', body], { stdio: 'ignore' });
+    const t0 = Date.now();
+    while (!fs.existsSync(path.join(e.st, 'bot_pid')) && Date.now() - t0 < 5000) spawnSync('sleep', ['0.1']);
+    const r = sh(STOP, ['--now', '--timeout', '10'], e.env);
+    assert.match(r.out, /SIGINT\) を送る: PID/);
+    assert.strictEqual(fs.readFileSync(path.join(e.st, 'int'), 'utf8').trim(), 'got-int');
+  } finally { e.cleanup(); }
+});
