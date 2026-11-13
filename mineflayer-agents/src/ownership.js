@@ -34,7 +34,7 @@ const DEFAULTS = {
   speech: 'llm', // 説明・許可の発話: 'llm' (talker があれば確定した記録から発話を作る) | 'template'
   knowledge: { max: 200, imp: { self: 0.95, project: 0.85, seen: 0.6, heard: 0.5 } },
   weights: { harm: 0.6, social: 0.5, alt: 0.6, unknown: 0.85, denied: 0.5, greed: 0.2, floor: 0.15 },
-  permission: { base: 0.2, empathy: 0.35, obedience: 0.2, affinity: 0.25, greed: 0.3, harm: 0.4, emergency: 0.3, threshold: 0.35 },
+  permission: { base: 0.2, empathy: 0.35, obedience: 0.2, affinity: 0.25, greed: 0.3, harm: 0.4, emergency: 0.3, grudge: 0.5, threshold: 0.35 }, // grudge: 頼んだ人へのわだかまり (0〜1) の分だけ貸しにくい
   impact: {
     witnessed: { affinity: -6, trust: -0.12, anger: 1.5 },
     heard: { affinity: -3, trust: -0.06, anger: 0.6 },
@@ -45,7 +45,7 @@ const DEFAULTS = {
     apology: { affinity: 2, trust: 0.04 },
     returned: { affinity: 3, trust: 0.06, joy: 0.5 },
     repaired: { affinity: 3, trust: 0.06, joy: 0.5 },
-    mitigate: { emergency_need: 0.4, unknown_ownership: 0.5, mistaken_as_natural: 0.5, accidental: 0.3, permission_granted: 0, own_relocation: 0, public_repair: 0.3, selfish_acquisition: 1, unmodeled: 1 },
+    mitigate: { retaliation: 1, emergency_need: 0.4, unknown_ownership: 0.5, mistaken_as_natural: 0.5, accidental: 0.3, permission_granted: 0, own_relocation: 0, public_repair: 0.3, selfish_acquisition: 1, unmodeled: 1 },
     denied: 1.3, // 断られたのに取った
     explained: 0.7, // 説明があった
     repeatStep: 0.25, // 同じ相手に取られた回数ごと (4回まで)
@@ -81,7 +81,7 @@ const STATION = /^(crafting_table|furnace|smoker|blast_furnace|chest|trapped_che
 const CONTAINER = /^(chest|trapped_chest|barrel)$/;
 const FARM = /^(farmland|wheat|carrots|potatoes|beetroots|melon_stem|pumpkin_stem|hay_block)$/;
 const WALLISH = /_planks$|^cobblestone$|_log$|^stone_bricks$|_fence$|_fence_gate$|_door$|_trapdoor$|^glass$|^glass_pane$|_wool$|^dirt$|_slab$|_stairs$|bricks$|^stone$|^cobbled_deepslate$/;
-const TAKE_ACTIONS = new Set(['collect', 'take_placed', 'dismantle_own', 'repair_or_relocate_public']);
+const TAKE_ACTIONS = new Set(['collect', 'take_placed', 'dismantle_own', 'repair_or_relocate_public', 'take_back']);
 
 // その物が満たす欲求 (緊急の判定に使う)。無ければ null (緊急にはならない)
 function needOf(block) {
@@ -222,6 +222,7 @@ function decideReason(o = {}) {
   const need = emergency ? { type: needType, value: needVal } : motive === 'greed' ? { type: 'greed', value: greed } : { type: needType || 'greed', value: needType ? needVal : greed };
   const out = (reasonCode, rule) => ({ reasonCode, rule, motive, need, emergency });
   if (o.action === 'repair_or_relocate_public') return out('public_repair', 'action=repair_or_relocate_public');
+  if (o.action === 'take_back') return out('retaliation', 'take_back from a person the agent holds a grudge against'); // わだかまりのある相手から取り返す (conflict.js)
   if (!TAKE_ACTIONS.has(o.action)) return out('accidental', `dig during ${o.action || 'no action'}`);
   if (o.action === 'collect') return o.modelOn === false ? out('unmodeled', 'ownership model off') : out('mistaken_as_natural', 'collect of a placed block the agent did not recognize');
   if (o.action === 'dismantle_own') return out('own_relocation', 'own placed block');
@@ -260,8 +261,8 @@ function permissionAnswer(o = {}, cfg = DEFAULTS) {
   const t = { empathy: 0.5, obedience: 0.5, greed: 0.5, ...(o.temperament || {}) };
   const harm = o.harm ? o.harm.score || 0 : 0;
   if (o.harm && o.harm.bed && o.harm.bed.occupied) return { yes: false, score: 0, why: 'in use' };
-  const score = r3(P.base + P.empathy * t.empathy + P.obedience * t.obedience + P.affinity * ((o.affinity ?? 50) / 100) - P.greed * t.greed - P.harm * harm + (o.emergency ? P.emergency : 0));
-  return { yes: score >= P.threshold, score, why: score >= P.threshold ? 'ok' : harm >= 0.5 ? 'needed' : 'no' };
+  const score = r3(P.base + P.empathy * t.empathy + P.obedience * t.obedience + P.affinity * ((o.affinity ?? 50) / 100) - P.greed * t.greed - P.harm * harm + (o.emergency ? P.emergency : 0) - P.grudge * (o.grudge || 0));
+  return { yes: score >= P.threshold, score, why: score >= P.threshold ? 'ok' : (o.grudge || 0) >= 0.15 && score + P.grudge * o.grudge >= P.threshold ? 'grudge' : harm >= 0.5 ? 'needed' : 'no' };
 }
 
 // 持ち主の側の関係と感情の変化 (決定的)。kind: impact の名前。o: { reasonCode, temperament (持ち主), times (この相手に取られた回数), explained, denied, n (噂の回数) }
@@ -376,7 +377,7 @@ const TAG = /^【(許可\?|許可|説明|返却|補修|噂) ([^】]*)】(.*)$/;
 const NAME = /^[A-Za-z0-9_]{1,16}$/;
 const ID = /^[A-Za-z0-9_-]+$/;
 const BLOCK = /^[a-z0-9_]+$/;
-const REASONS = new Set(['selfish_acquisition', 'emergency_need', 'own_relocation', 'permission_granted', 'public_repair', 'unknown_ownership', 'mistaken_as_natural', 'accidental', 'unmodeled']);
+const REASONS = new Set(['retaliation', 'selfish_acquisition', 'emergency_need', 'own_relocation', 'permission_granted', 'public_repair', 'unknown_ownership', 'mistaken_as_natural', 'accidental', 'unmodeled']);
 function pstr(p) { const [x, y, z] = posArr(p); return `${x},${y},${z}`; }
 function pparse(s) { const m = String(s || '').match(/^(-?\d+),(-?\d+),(-?\d+)$/); return m ? [+m[1], +m[2], +m[3]] : null; }
 function clean(s, n = 80) { return String(s || '').replace(/[【】\n\r]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n); }

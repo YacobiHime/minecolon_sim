@@ -12,12 +12,13 @@ const search = require('./search');
 const { moreHandlers, MORE_TIMEOUTS, noteContainer, furnaceItems, invDiff } = require('./act_more');
 const { penHandlers, PEN_TIMEOUTS } = require('./act_pen');
 const { ownHandlers, OWN_TIMEOUTS } = require('./act_own');
+const { conflictHandlers, CONFLICT_TIMEOUTS } = require('./act_conflict');
 const unstuck = require('./unstuck');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
 const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, search: 90000, craft: 30000, place: 25000 /* 置けなかったら別の所で置き直す (3回まで。1回 blockUpdate の時間切れ 5 秒) */, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
-  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS, ...OWN_TIMEOUTS };
+  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS, ...OWN_TIMEOUTS, ...CONFLICT_TIMEOUTS };
 const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
 const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
 
@@ -769,6 +770,7 @@ Object.assign(handlers, moreHandlers({ gotoGoal, haltPath, pathErr, invCount, pi
 Object.assign(handlers, penHandlers({ gotoGoal, haltPath, pathErr }));
 Object.assign(handlers, ownHandlers({ gotoGoal, haltPath, pathErr, invCount, pickUpNear, equipBestTool,
   give: (b, c, x) => handlers.give(b, c, x), place: (b, c, x) => handlers.place(b, c, x) }));
+Object.assign(handlers, conflictHandlers({ gotoGoal, haltPath, flee: (b, c, x) => handlers.flee(b, c, x), takePlaced: (b, c, x) => handlers.take_placed(b, c, x) }));
 
 async function executeAction(bot, resolved, ctx) {
   const h = handlers[resolved.action];

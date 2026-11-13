@@ -14,6 +14,7 @@ const toolVoiceTool = require('./toolvoice_stats');
 const searchTool = require('./search_stats');
 const ageTool = require('./age_stats');
 const provTool = require('./provenance_stats');
+const conflictTool = require('./conflict_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -1023,6 +1024,8 @@ function main() {
   // 設置物の取得と理由・社会的な結果 (tools/provenance_stats.js。intent / take / ownership_* の記録と台帳 runs/<id>/provenance/)
   out.provenance = all.some((r) => r.event === 'intent' || r.event === 'take' || r.event === 'ownership_social') || (isDir && fs.existsSync(path.join(target, 'provenance')))
     ? provTool.provenanceStats(all, { ledgerDir: isDir ? path.join(target, 'provenance') : null }) : null;
+  // わだかまりと悪い関係の行動 (tools/conflict_stats.js)
+  out.conflict = all.some((r) => r.event === 'grudge' || r.event === 'conflict_act' || (r.conflict && r.conflict.near)) ? conflictTool.conflictStats(all) : null;
   // 年齢層ごと (persona.age・ageGroup。configs/survival_100.json)。年齢の無い記録では「年齢なし」の1層だけ
   out.ageGroups = ageTool.ageGroupStats(rowsByName, { survival: out.survival, clusters: out.clusters, needs: out.needs, spawnDistance: out.spawnDistance, relations: out.relations });
   out.load = { monitor: isDir ? scale.monitorStats(target) : null, twoBLatency: runJson ? runJson.twoBLatency || null : null,
@@ -1043,6 +1046,7 @@ function main() {
     console.log(`訪れたマス ${allCells.size} 個 (${agents[0] ? agents[0].explore.cell : 16} 四方、1人あたり ${agents.map((a) => a.explore.visitedCells).join('/')})、explore ${sum(agents.map((a) => a.explore.n))} 回 (新しいマスに着いた ${sum(agents.map((a) => a.explore.newCell))}、種類 ${JSON.stringify(agents.reduce((m, a) => { for (const [k, v] of Object.entries(a.explore.byKind)) m[k] = (m[k] || 0) + v; return m; }, {}))})`);
     for (const l of searchTool.lines(out.movement)) console.log(l);
     for (const l of provTool.lines(out.provenance)) console.log(l);
+    for (const l of conflictTool.lines(out.conflict)) console.log(l);
     const bs = (k, f) => sum(agents.map((a) => a.build[k][f]));
     console.log(`build で置いた物: 原木 ${bs('log', 'placed')} 個 (${bs('log', 'n')} 回)・板材 ${bs('planks', 'placed')} 個 (${bs('planks', 'n')} 回)・そのほか ${bs('other', 'placed')} 個 (${bs('other', 'n')} 回)`);
     console.log(`pillar ${acts('pillar')} 回 (成功 ${actsOk('pillar')})、pick_up ${acts('pick_up')} 回 (成功 ${actsOk('pick_up')})、go_to ${acts('go_to')} 回 (成功 ${actsOk('go_to')})`);

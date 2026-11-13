@@ -5614,6 +5614,14 @@
     ],
     "maxItems": 4
   },
+  "conflict": {
+    "_comment": "わだかまりと、悪い関係のときの行動 (src/social.js の GRUDGE_DEFAULTS・src/conflict.js・src/conflict_agent.js。2026-11-12 ユーザー決定)。grudge: 相手ごとのわだかまり (ある間は好感が元の値まで戻らない: 上限 = きっかけの前の好感 − ceilDrop × わだかまり。halfLife 判断で半分に薄れ、謝罪・返却・補修で大きく減る。関係の言葉に「何をされたか。まだ許していない」が出る)。actions: わだかまりのある相手が近いときの候補 (avoid_person・complain・demand_back・take_back・call_help)。aggression: 殴る (hit_person、1回 hits 発まで)。候補に出すだけで、選ぶのは Jev (重みは掛けない)。比較実験は run.js の --grudge on|off・--conflict on|off・--aggression on|off。grudgeParams で social.js の GRUDGE_DEFAULTS (きっかけごとの大きさなど) を上書き",
+    "grudge": true,
+    "actions": true,
+    "aggression": true,
+    "threshold": 0.15,
+    "hits": 3
+  },
   "provenance": {
     "_comment": "設置物の来歴と所有 (src/provenance.js・src/ownership.js・src/ownership_agent.js。2026-11-10 引き継ぎ)。ledger: 台帳 (ground truth。runs/<id>/provenance/<名前>.jsonl。観察だけで行動は変えない)。actions: 部分的な知識 (自分で置いた・見た・聞いた・共有にされた物だけ所有者を知る) と行動の分離 (collect は天然と見ている物だけ、dismantle_own / take_placed / ask_permission / make_amends / repair_or_relocate_public)。penalty: 所有のペナルティ (take_placed の重み + 関係の変化)。比較実験は run.js の --provenance on|off・--ownership-penalty on|off。取ることは禁止しない (重みは 0 にしない)。理由 (reasonCode) は行動の前に欲求・代替手段・所有の知識・許可・損害・性格から決定的に決めて記録する (event: intent)",
     "ledger": true,

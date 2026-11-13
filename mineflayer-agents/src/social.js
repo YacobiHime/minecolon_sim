@@ -51,6 +51,35 @@ function r1(v) { return Math.round(v * 10) / 10; }
 //   roomScale: false で前の形 (残りの割合を掛けない、端で切るだけ)
 const AFFINITY_DEFAULTS = { scoreStep: 1.5, room: 50, roomScale: true, events: { received: 3, answered: 4, notKnown: -1, ignored: -3, asked: 1 } };
 
+// わだかまり (2026-11-12 ユーザー決定)。相手ごとに好感とは別に持つ (r.grudge = { v: 0〜1, kind, item, tick, origin })。
+//   ある間は好感が元の値 (最初のきっかけの直前の好感 origin) まで戻らない: 上がる方の上限 = origin − ceilDrop × v。
+//   時間で薄れる (halfLife 判断で半分)。謝られた・返してもらった・元に戻してもらった で大きく減る (ease)。clearBelow を下回ったら消える。
+//   きっかけごとの大きさ add (わだかまりに足す分) と aff (好感の基の幅。既にほかで好感を動かしているきっかけは 0)。
+//   数値はモデルに見せない。関係の言葉に「何をされたか。まだ許していない」を出す (relationWord)。
+const GRUDGE_DEFAULTS = {
+  enabled: false, halfLife: 150, ceilDrop: 15, clearBelow: 0.03, showFrom: 0.1,
+  kinds: {
+    took_witnessed: { add: 0.4, aff: 0 }, took_heard: { add: 0.25, aff: 0 }, took_told: { add: 0.2, aff: 0 }, // 自分の物を取られた (好感は ownership の socialImpact)
+    ignored: { add: 0.1, aff: 0 }, // 聞いた・頼んだのに返事がなかった (好感は onIgnored)
+    denied: { add: 0.1, aff: -2 }, // 許可を断られた
+    hit: { add: 0.5, aff: -8 }, killed: { add: 0.9, aff: -15 }, // 殴られた・殺された
+    bed_taken: { add: 0.15, aff: -2 }, // 寝ようとしたベッドを先に使われていた
+    snatched: { add: 0.2, aff: -3 }, // 自分が掘った物を先に拾われた
+    call_ignored: { add: 0.08, aff: -1 }, // 呼んだのに来なかった
+    breach: { add: 0.15, aff: 0 }, // 取り決めを破られた (好感は Jev の採点)
+    complained: { add: 0.05, aff: -1 }, // 文句を言われた
+    saw_hit: { add: 0, aff: -3 }, // 人が人を殴るのを見た・助けを呼ぶ声を聞いた (わだかまりにはしない。見方だけ下がる)
+  },
+  ease: { apology: 0.5, returned: 0.3, repaired: 0.3, received: 0.8, answered: 0.85, came: 0.9, defended: 0.5 }, // わだかまりに掛ける (小さいほど大きく減る)
+  good: { came: 1, defended: 4 }, // 良い出来事の好感の基の幅 (もらった・教わった・謝られた・返してもらった は今までの所で動かす)
+};
+const GRUDGE_JA = { took_witnessed: (i) => `${i || '物'}を取られた`, took_heard: (i) => `${i || '物'}を取られたと聞いた`, took_told: (i) => `${i || '物'}を取られた`, ignored: () => '聞いたのに返事がなかった',
+  denied: (i) => `${i || '物'}を使わせてと頼んで断られた`, hit: () => '殴られた', killed: () => '殺された', bed_taken: () => '寝ようとしたベッドを先に使われた', snatched: (i) => `自分が掘った${i || '物'}を先に拾われた`,
+  call_ignored: () => '呼んだのに来なかった', breach: () => '取り決めを破られた', complained: () => '文句を言われた' };
+const GRUDGE_EN = { took_witnessed: (i) => `they took my ${i || 'thing'}`, took_heard: (i) => `I heard they took my ${i || 'thing'}`, took_told: (i) => `they took my ${i || 'thing'}`, ignored: () => 'they did not answer when I asked',
+  denied: (i) => `they refused when I asked to use their ${i || 'thing'}`, hit: () => 'they hit me', killed: () => 'they killed me', bed_taken: () => 'they were in the bed I went to sleep in', snatched: (i) => `they picked up the ${i || 'thing'} I dug`,
+  call_ignored: () => 'they did not come when I called', breach: () => 'they broke an agreement', complained: () => 'they complained at me' };
+
 class Social {
   constructor(opts = {}) {
     const t = opts.temperament || {};
@@ -60,6 +89,8 @@ class Social {
     this.relations = {}; // name -> { affinity, trust, talks, helpedMe, iHelped, ignoredMe, met, note }
     const af = opts.affinity || {};
     this.aff = { ...AFFINITY_DEFAULTS, ...af, events: { ...AFFINITY_DEFAULTS.events, ...(af.events || {}) } };
+    const g = opts.grudge || {};
+    this.grudgeCfg = { ...GRUDGE_DEFAULTS, ...g, kinds: { ...GRUDGE_DEFAULTS.kinds, ...(g.kinds || {}) }, ease: { ...GRUDGE_DEFAULTS.ease, ...(g.ease || {}) }, good: { ...GRUDGE_DEFAULTS.good, ...(g.good || {}) } };
     this.decay = opts.decay ?? 0.85; // 1ループごとに基準値との差がこの割合に縮む
     this.lastTalkTick = 0;
   }
@@ -93,8 +124,80 @@ class Social {
     const a = r.affinity;
     const left = d > 0 ? 100 - a : a;
     const f = this.aff.roomScale ? clamp(left / (this.aff.room || 50), 0, 1) : 1;
-    r.affinity = r1(clamp(a + d * f, 0, 100));
+    let to = clamp(a + d * f, 0, 100);
+    // わだかまりがある間は、上がる方に上限が掛かる (元の値まで戻らない)
+    const cap = d > 0 ? this.affinityCeiling(name) : null;
+    if (cap != null && to > cap) { to = Math.max(a, cap); r.capped = (r.capped || 0) + 1; }
+    r.affinity = r1(to);
     return r1(r.affinity - a);
+  }
+
+  // ---- わだかまり ----
+  grudgeOf(name) { const r = this.relations[name]; return this.grudgeCfg.enabled && r && r.grudge && r.grudge.v > 0 ? r.grudge.v : 0; }
+  affinityCeiling(name) {
+    const r = this.relations[name];
+    if (!this.grudgeCfg.enabled || !r || !r.grudge) return null;
+    return r1(clamp(r.grudge.origin - this.grudgeCfg.ceilDrop * r.grudge.v, 0, 100));
+  }
+  // きっかけ kind で name へのわだかまりを足し、好感を動かす。返り値 { kind, add, v, affinity (動いた幅), ceiling } | null (off・知らない kind)
+  addGrudge(name, kind, { item = null, tick = 0, scale = 1 } = {}) {
+    const k = this.grudgeCfg.kinds[kind];
+    if (!this.grudgeCfg.enabled || !k || !name) return null;
+    const r = this.rel(name);
+    const origin0 = r.affinity;
+    const moved = k.aff ? this.moveAffinity(name, k.aff * scale) : 0;
+    const add = k.add * scale;
+    if (add > 0) {
+      if (!r.grudge) r.grudge = { v: 0, kind, item, tick, origin: origin0 };
+      const g = r.grudge;
+      // 何をされたかは、いちばん大きいきっかけを残す
+      const cur = this.grudgeCfg.kinds[g.kind];
+      if (!cur || add >= cur.add) { g.kind = kind; g.item = item; }
+      g.v = r2(clamp(g.v + add, 0, 1));
+      g.tick = tick; g.n = (g.n || 0) + 1;
+    }
+    if (kind === 'hit' || kind === 'killed') { this.bump('fear', (kind === 'killed' ? 3 : 1.5) * (1.3 - this.temperament.bravery)); this.bump('anger', kind === 'killed' ? 3 : 2); } else if (add > 0) this.bump('anger', 4 * add);
+    return { kind, add: r2(add), v: r.grudge ? r.grudge.v : 0, affinity: moved, ceiling: this.affinityCeiling(name) };
+  }
+  // 良い出来事でわだかまりを減らす (kind: ease の名前)。good にある出来事は好感も動かす。返り値 { kind, before, v, affinity } | null
+  easeGrudge(name, kind) {
+    if (!this.grudgeCfg.enabled || !name) return null;
+    const r = this.rel(name);
+    const up = this.grudgeCfg.good[kind];
+    const before = r.grudge ? r.grudge.v : 0;
+    const m = this.grudgeCfg.ease[kind];
+    if (r.grudge && m != null) { r.grudge.v = r2(r.grudge.v * m); if (r.grudge.v < this.grudgeCfg.clearBelow) delete r.grudge; }
+    const moved = up ? this.moveAffinity(name, up) : 0;
+    if (!before && !moved) return null;
+    const out = { kind, who: name, before, v: r.grudge ? r.grudge.v : 0, affinity: moved };
+    this.eased = this.eased || [];
+    this.eased.push(out); // agent が記録に書いて空にする
+    return out;
+  }
+  // 1判断ごとに薄れる
+  decayGrudges() {
+    if (!this.grudgeCfg.enabled) return;
+    const f = Math.pow(0.5, 1 / Math.max(1, this.grudgeCfg.halfLife));
+    for (const r of Object.values(this.relations)) {
+      if (!r.grudge) continue;
+      r.grudge.v = Math.round(r.grudge.v * f * 10000) / 10000;
+      if (r.grudge.v < this.grudgeCfg.clearBelow) delete r.grudge;
+    }
+  }
+  // わだかまりの言葉 (何をされたか。まだ許していない)。無ければ ''
+  grudgeWord(name, { lang = 'ja' } = {}) {
+    const r = this.relations[name];
+    if (!this.grudgeCfg.enabled || !r || !r.grudge || r.grudge.v < this.grudgeCfg.showFrom) return '';
+    const f = (lang === 'en' ? GRUDGE_EN : GRUDGE_JA)[r.grudge.kind];
+    if (!f) return '';
+    return lang === 'en' ? `${f(r.grudge.item)}; I have not forgiven it yet` : `${f(r.grudge.item)}。まだ許していない`;
+  }
+  // わだかまりのある相手 { 名前: v } (showFrom 以上)
+  grudges() {
+    const out = {};
+    if (!this.grudgeCfg.enabled) return out;
+    for (const [n, r] of Object.entries(this.relations)) if (r.grudge && r.grudge.v >= this.grudgeCfg.showFrom) out[n] = r.grudge.v;
+    return out;
   }
 
   bump(emo, d) { this.emotions[emo] = r2(clamp(this.emotions[emo] + d, 0, 10)); }
@@ -103,6 +206,7 @@ class Social {
   //   sense: agent.js が bot から作る { time, light, shelter, atHome, unfamiliar, newCell } (無ければ raw から分かる分だけ)
   tick({ tick = 0, raw = null, sense = {} } = {}) {
     for (const e of EMOTIONS) this.emotions[e] = r2(EMO_BASE[e] + (this.emotions[e] - EMO_BASE[e]) * this.decay);
+    this.decayGrudges();
     const s = { ...sense };
     if (raw && raw.self) {
       if (s.timeOfDay == null) s.timeOfDay = raw.self.timeOfDay;
@@ -169,6 +273,7 @@ class Social {
   onReceived(from) {
     const r = this.rel(from);
     r.helpedMe += 1;
+    this.easeGrudge(from, 'received');
     this.moveAffinity(from, this.aff.events.received);
     r.note = '前に物をくれた';
     this.needsModel.onHelpedBy(from);
@@ -190,6 +295,7 @@ class Social {
     const r = this.rel(from);
     if (known) {
       r.helpedMe += 1;
+      this.easeGrudge(from, 'answered');
       this.moveAffinity(from, this.aff.events.answered);
       r.trust = r2(clamp(r.trust + 0.1, 0, 1));
       r.note = '前にやり方を教えてくれた';
@@ -207,6 +313,8 @@ class Social {
     this.moveAffinity(from, this.aff.events.ignored);
     r.note = '聞いたのに返事がなかった';
     this.bump('sadness', 0.6);
+    const gr = this.addGrudge(from, 'ignored');
+    if (gr) { this.grieved = this.grieved || []; this.grieved.push({ who: from, ...gr }); } // agent が記録に書いて空にする
   }
 
   // 誰かに聞かれて答えた (頼られた)
@@ -223,6 +331,8 @@ class Social {
     for (const e of ['anger', 'sadness', 'joy']) if (imp[e]) this.bump(e, imp[e]);
     if (!name) return null;
     const r = this.rel(name);
+    // 謝られた・返してもらった・元に戻してもらった: わだかまりを先に減らす (好感の上限が緩んでから上げる)
+    if (['returned', 'repaired', 'apology'].includes(imp.kind)) this.easeGrudge(name, imp.kind);
     if (imp.affinity) this.moveAffinity(name, imp.affinity);
     if (imp.trust) r.trust = r2(clamp(r.trust + imp.trust, 0, 1));
     const neg = (imp.affinity || 0) < 0 || (imp.trust || 0) < 0;
@@ -248,6 +358,8 @@ class Social {
     if (!r) return en ? 'a stranger' : '知らない人';
     const i = r.affinity >= 75 ? 0 : r.affinity >= 58 ? 1 : r.affinity <= 25 ? 2 : r.affinity <= 42 ? 3 : 4;
     const how = (en ? ['close friends', 'on good terms', 'on bad terms', 'a little uncomfortable with them', 'acquaintances'] : ['仲が良い', '感じが良い', '仲が悪い', '少し苦手', '知り合い'])[i];
+    const gw = this.grudgeWord(name, { lang });
+    if (gw) return en ? `${how}; ${gw}` : `${how}。${gw}`; // わだかまりがある間は、何をされたかを出す
     if (en) return `${how}${r.note ? `; ${NOTE_EN[r.note] || r.note}` : ''}`;
     return `${how}${r.note ? '。' + r.note : ''}`;
   }
@@ -262,11 +374,13 @@ class Social {
     for (const [e, v] of emo) out.push((en ? EMO_WORD_EN : EMO_WORD)[e][v >= 8 ? 2 : v >= 5 ? 1 : 0]);
     const sep = en ? '; ' : '。';
     if (!relations) return out.join(sep);
-    const rels = Object.entries(this.relations).filter(([, r]) => r.met || r.talks || r.helpedMe || r.ignoredMe)
-      .sort((a, b) => Math.abs(b[1].affinity - 50) - Math.abs(a[1].affinity - 50)).slice(0, maxRelations);
+    // わだかまりのある相手は先に (何をされたかが必ず言葉に出る)
+    const gv = (r) => (this.grudgeCfg.enabled && r.grudge && r.grudge.v >= this.grudgeCfg.showFrom ? r.grudge.v : 0);
+    const rels = Object.entries(this.relations).filter(([, r]) => r.met || r.talks || r.helpedMe || r.ignoredMe || gv(r))
+      .sort((a, b) => (gv(b[1]) - gv(a[1])) || (Math.abs(b[1].affinity - 50) - Math.abs(a[1].affinity - 50))).slice(0, maxRelations);
     for (const [name] of rels) out.push(en ? `with ${name}: ${this.relationWord(name, { lang })}` : `${name}とは${this.relationWord(name)}`);
     return out.join(sep);
   }
 }
 
-module.exports = { Social, EMOTIONS, NEED_LABEL, AFFINITY_DEFAULTS };
+module.exports = { Social, EMOTIONS, NEED_LABEL, AFFINITY_DEFAULTS, GRUDGE_DEFAULTS, GRUDGE_JA, GRUDGE_EN };
