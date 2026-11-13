@@ -43,7 +43,7 @@ const DEFAULTS = {
   budget: {
     llm: { items: 14, must: 2, notes: 2, maxChars: 1300 },
     jev: { items: 8, must: 2, notes: 2, maxChars: 900 },
-    answer: { items: 5, must: 0, notes: 1, maxChars: 600, minA: 0.2 },
+    answer: { items: 5, must: 0, notes: 1, maxChars: 600, minA: 0.2, maxHop: 2 },
   },
   // 覚えている場所の一覧 (M 番号) を連想で選ぶか ('assoc') ・近い順か ('near')。nearMin = 近い順で必ず入れる数
   // placeProx: 連想の届かない場所は近いほど上に (得点 + placeProx × exp(−距離/placeScale))
@@ -224,7 +224,11 @@ function eventLinks(e, now, graph, C, version) {
   for (const p of persons) links.push({ id: `person:${p}`, w: C.edge.person, rel: e.action === 'wronged' ? 'by' : 'whom' });
   const items = parts.filter((p) => /^[a-z][a-z0-9_]+$/.test(p) && !/^(here|base|north|south|east|west|northeast|northwest|southeast|southwest|near|far|empty|ripe|unknown|M\d+)$/.test(p) && !/_near$|_far$/.test(p));
   links.push(...itemLinks(items, C));
-  for (const l of textLinks(e.msg, graph, C, version)) if (!links.some((x) => x.id === l.id)) links.push(l);
+  // 結果の文に足された「行動中に近くでほかの人が拾った・壊した物」(others.js) は、物にはつながず、その人を一緒にいた人としてつなぐ
+  const OTHERS_RE = /([A-Za-z0-9_]+)が[a-z0-9_]+を\d+個(?:壊した|拾った)。?/g;
+  const msg = String(e.msg || '');
+  for (const m of msg.matchAll(OTHERS_RE)) if (!links.some((x) => x.id === `person:${m[1]}`)) links.push({ id: `person:${m[1]}`, w: C.edge.with, rel: 'with' });
+  for (const l of textLinks(msg.replace(OTHERS_RE, ''), graph, C, version)) if (!links.some((x) => x.id === l.id)) links.push(l);
   if (ACTION_CAT[e.action]) links.push({ id: ACTION_CAT[e.action], w: C.edge.item, rel: 'what' });
   links.push(...withLinks(now, C, persons));
   return links;

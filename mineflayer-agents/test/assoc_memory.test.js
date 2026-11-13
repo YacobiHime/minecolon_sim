@@ -355,3 +355,32 @@ test('所有の知識は出来事としてグラフに入る (持ち主・物・
   m.setCues({ raw, social: { relations: {} } });
   assert.match(m.toPromptText(raw.self.pos), /持ち主: 〔Tatsuyaを見て〕crafting_table/);
 });
+
+test('集計 (tools/memory_stats.js): 手がかりの内訳・近くの人の記憶が渡った割合・空振り・「分からない」の割合', () => {
+  const { memoryStats } = require('../tools/memory_stats');
+  const step1 = { loop: 1, action: 'go_to', result: { ok: false, msg: '着いたがoak_logはもう無かった' }, memText: 'x'.repeat(100),
+    memSelection: { mode: 'associative', places: 6, event: 3, heard: 2, knowledge: 0, owned: 0, wronged: 1, note: 1, byCue: { person: 2, goal: 2, must: 2 }, hops: { 1: 4, '-': 2 }, near: { n: 2, recalled: 1 }, chars: 100,
+      jev: { mode: 'associative', event: 2, heard: 1, byCue: { person: 1, must: 2 }, hops: { 1: 1 }, near: { n: 2, recalled: 2 }, chars: 80 } } };
+  const step2 = { loop: 2, action: 'explore', result: { ok: true, msg: '進んだ' }, memText: 'y'.repeat(50), memSelection: { mode: 'legacy', places: 6, event: 5, heard: 3, knowledge: 1, byCue: { recency: 9 }, near: { n: 1, recalled: 0 }, chars: 50 } };
+  const all = [step1, step2, { event: 'answer', known: true, memories: [{ kind: 'event', hop: 1 }] }, { event: 'answer', known: false, memories: [] }];
+  const s = memoryStats(all);
+  assert.deepStrictEqual(s.modes, { associative: 1, legacy: 1 });
+  assert.deepStrictEqual(s.llm.nearPeople, { n: 3, recalled: 1, ratio: 0.333 });
+  assert.deepStrictEqual(s.jev.nearPeople, { n: 2, recalled: 2, ratio: 1 });
+  assert.strictEqual(s.llm.byCue.person, 2);
+  assert.strictEqual(s.misses.total, 1);
+  assert.strictEqual(s.answers.dontKnowRatio, 0.5);
+  assert.deepStrictEqual(s.answers.hops, { 1: 1 });
+  assert.strictEqual(s.memTextChars.max, 100);
+});
+
+test('オフライン再生 (tools/replay_memory.js): 観測の文から位置・目印・近くの人・聞こえた話を読む', () => {
+  const { parseObs } = require('../tools/replay_memory');
+  const raw = parseObs('自分: Aoi 位置(-275,64,59) 体力20/20\n見えるブロック: crafting_table 東1北1(2m), jungle_log 東1南2上9(9m), grass 南1(1m) 他4+\n近くの人・生き物・落ちている物: プレイヤーTadashi 西2(2m), zombie 東10(10m)\n今聞こえた話: Yusuke「怖いです。」 Tadashi「Aoi、作業台が要るぞ」', { pos: null, timeOfDay: 15000, day: 0 });
+  assert.deepStrictEqual(raw.self.pos, { x: -275, y: 64, z: 59 });
+  assert.deepStrictEqual(raw.blocks.find((b) => b.name === 'jungle_log').nearest, { x: -274, y: 73, z: 61 });
+  assert.ok(raw.blocks.find((b) => b.name === 'crafting_table').notable && !raw.blocks.find((b) => b.name === 'grass').notable);
+  assert.deepStrictEqual(raw.people.map((p) => p.name), ['Tadashi']);
+  assert.strictEqual(raw.entities.find((e) => e.name === 'zombie').kind, 'hostile');
+  assert.deepStrictEqual(raw.heard.map((h) => h.from), ['Yusuke', 'Tadashi']);
+});

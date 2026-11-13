@@ -703,19 +703,33 @@ class Memory {
       const a = assoc.areaOf(pl.pos);
       if (a && !cues.list.some((c) => c.node === a)) cues.list.push({ type: 'question', node: a, w: this.graph.cfg.cueWeights.question, label: pl.how === 'xyz' ? 'その座標' : 'その場所' });
     }
-    if (!cues.list.some((c) => c.type === 'question')) { this.lastAnswerSelection = { mode: 'associative', cues: 0, items: 0 }; return []; }
+    if (!cues.list.some((c) => c.type === 'question') && !/[a-z][a-z0-9_]{2,}/.test(String(question))) { this.lastAnswerSelection = { mode: 'associative', cues: 0, items: 0 }; return []; }
     const rec = assoc.recall(this, cues, { social: this.cueSocial });
     const C = this.graph.cfg;
     const budget = C.budget.answer;
     const minA = budget.minA ?? 0.05;
     // 質問の手がかりから届いたものだけ (聞いた人からだけ届いたもの・最新なだけのものは除く)
-    const fromQ = (x) => x.why && x.why.type === 'question' && x.A >= minA;
+    //   答えは近い連想だけ (maxHop 段まで。遠い連想は「知っている」とは言いにくい)
+    const maxHop = budget.maxHop ?? 2;
+    const fromQ = (x) => x.why && x.why.type === 'question' && x.A >= minA && (x.why.hop ?? 0) <= maxHop;
     // やったことは成功したものだけ (今までの答えと同じ)。されたこと・自分の発言は答えに使わない
     const sel = this.assocSelect('answer', [], { rec, filter: (e) => e.from !== '自分' && !(e.kind === 'event' && (e.action === 'wronged' || !e.ok)) });
     const seenText = new Set();
     const chosen = sel.chosen.filter(fromQ).filter((x) => { const k = `${x.ep.kind}|${x.ep.action || ''}|${x.ep.arg || ''}|${x.ep.text}`; if (seenText.has(k)) return false; seenText.add(k); return true; });
     const items = [];
-    const placeItems = rec.lms.filter((x) => x.why.type === 'question' && x.A >= minA).slice(0, 2);
+    // 物・人・場所の点にならない語 (west_near などの行動の引数) は、同じ引数で成功したやったことに直接当てる (今までの答えと同じ当て方)
+    const words = [...new Set(String(question).match(/[a-z][a-z0-9_]{2,}/g) || [])].filter((w) => !cues.list.some((c) => c.node === `item:${w}`));
+    for (const w of words) {
+      for (const ep of [...this.graph.eps].reverse()) {
+        if (chosen.length >= budget.items) break;
+        if (ep.kind !== 'event' || !ep.ok || String(ep.arg || '') !== w || chosen.some((x) => x.ep === ep)) continue;
+        const k = `${ep.kind}|${ep.action || ''}|${ep.arg || ''}|${ep.text}`;
+        if (seenText.has(k)) continue;
+        seenText.add(k);
+        chosen.push({ ep, why: { type: 'question', label: w, node: null, hop: 1 } });
+      }
+    }
+    const placeItems = rec.lms.filter((x) => fromQ(x)).slice(0, 2);
     const T = (ep) => {
       if (ep.kind === 'event') return `${ep.action}(${ep.arg})で${ep.ok ? '成功' : '失敗'}: ${ep.text}`;
       if (ep.kind === 'knowledge') return `${ep.from}に聞いた: ${ep.text}`;

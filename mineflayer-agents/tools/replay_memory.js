@@ -74,7 +74,7 @@ function replayAgent(file, { examples = 3 } = {}) {
   const mems = { legacy: mkMem('legacy', name), assoc: mkMem('assoc', name) };
   const stat = {};
   for (const k of Object.keys(mems)) stat[k] = { loops: 0, near: { n: 0, recalled: 0 }, nearJev: { n: 0, recalled: 0 }, byCue: {}, byCueJev: {}, hops: {}, chars: [], charsJev: [], notes: 0, answers: 0, answersKnown: 0 };
-  const ex = { person: [], goal: [], need: [], note: [], answer: [] };
+  const ex = { person: [], salient: [], wronged: [], goal: [], need: [], note: [], answer: [] };
   const pendingAsk = {};
   let lastRaw = null;
   let lastPlaces = { legacy: [], assoc: [] };
@@ -145,6 +145,18 @@ function replayAgent(file, { examples = 3 } = {}) {
     if (ex.person.length < examples && A.sel.near && A.sel.near.recalled > ((L.sel.near && L.sel.near.recalled) || 0)) {
       const who = near.find((n) => A.text.includes(n) && !L.text.split('\n').slice(1).join('\n').includes(n));
       if (who) ex.person.push({ loop: r.loop, name, near: who, affinity: rel[who] ? rel[who].affinity : 50, legacy: lineWith(L.text, who) || '(その人に関わる記憶は渡らない)', assoc: lineWith(A.text, who) });
+    }
+    // 好感が大きく動いた人 (|好感 − 50| ≥ 8) が近くにいるとき
+    const salient = near.filter((n) => rel[n] && Math.abs(rel[n].affinity - 50) >= 8);
+    if (ex.salient.length < examples && salient.length) {
+      const who = salient.find((n) => lineWith(A.text, n));
+      if (who) ex.salient.push({ loop: r.loop, name, near: who, affinity: rel[who].affinity, legacy: lineWith(L.text.split('\n').slice(1).join('\n'), who) || '(その人に関わる記憶は渡らない)', assoc: lineWith(A.text, who) });
+    }
+    // されたこと (取られた) が連想で渡ったとき
+    if (ex.wronged.length < examples && /されたこと: /.test(A.text)) {
+      const wl = lineWith(A.text, 'されたこと');
+      const what = (wl.match(/〕([^ ]+?を取られた)/) || [])[1];
+      if (what && !L.text.includes(what)) ex.wronged.push({ loop: r.loop, name, near, assoc: wl, legacyHas: false });
     }
     if (ex.goal.length < examples && A.places.some((p) => p.why && (p.why.type === 'goal' || p.why.type === 'next'))) {
       const p = A.places.find((q) => q.why && (q.why.type === 'goal' || q.why.type === 'next'));
