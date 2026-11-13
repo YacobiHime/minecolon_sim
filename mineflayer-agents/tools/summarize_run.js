@@ -15,6 +15,7 @@ const searchTool = require('./search_stats');
 const ageTool = require('./age_stats');
 const provTool = require('./provenance_stats');
 const conflictTool = require('./conflict_stats');
+const memTool = require('./memory_stats');
 
 function pct(arr, p) {
   if (!arr.length) return null;
@@ -108,7 +109,8 @@ function summarizeAgent(file, rows) {
     promptTokens: { p50: pct(ptok, 50), p95: pct(ptok, 95), max: maxOf(ptok) },
     promptChars: { p50: pct(pch, 50), max: maxOf(pch) },
     jevChoiceConfidence: { p50: pct(jevLoops.map((r) => r.jev.choice && r.jev.choice.confidence).filter((x) => x != null), 50) },
-    memItems: { p50: pct(loops.map((r) => r.memSelection && Object.values(r.memSelection).reduce((s, x) => s + x, 0)).filter((x) => x != null), 50) },
+    // 渡した記憶の数 (場所を含む。memSelection の数の欄だけ足す: 連想の内訳 byCue・near などの欄は足さない)
+    memItems: { p50: pct(loops.map((r) => r.memSelection && ['places', 'event', 'heard', 'knowledge', 'owned', 'wronged'].reduce((s, k) => s + (Number.isFinite(r.memSelection[k]) ? r.memSelection[k] : 0), 0)).filter((x) => x != null), 50) },
     forgotten: sum(loops.map((r) => r.forgotten)),
     explore: exploreStats(loops, start),
     build: buildStats(loops),
@@ -1026,6 +1028,8 @@ function main() {
     ? provTool.provenanceStats(all, { ledgerDir: isDir ? path.join(target, 'provenance') : null }) : null;
   // わだかまりと悪い関係の行動 (tools/conflict_stats.js)
   out.conflict = all.some((r) => r.event === 'grudge' || r.event === 'conflict_act' || (r.conflict && r.conflict.near)) ? conflictTool.conflictStats(all) : null;
+  // 記憶の引き出し (tools/memory_stats.js): 手がかりの種類・線の段数・近くの人の記憶が渡った割合・空振り・「分からない」の割合・記憶の部分の長さ
+  out.memory = memTool.memoryStats(all);
   // 年齢層ごと (persona.age・ageGroup。configs/survival_100.json)。年齢の無い記録では「年齢なし」の1層だけ
   out.ageGroups = ageTool.ageGroupStats(rowsByName, { survival: out.survival, clusters: out.clusters, needs: out.needs, spawnDistance: out.spawnDistance, relations: out.relations });
   out.load = { monitor: isDir ? scale.monitorStats(target) : null, twoBLatency: runJson ? runJson.twoBLatency || null : null,
@@ -1038,6 +1042,7 @@ function main() {
     console.log(`人数 ${out.agents} / 判断 ${out.decisions.count} 回 (1人 ${out.decisions.perAgent} 回、判断の時間 p50 ${out.decisions.decideMs.p50}ms・p95 ${out.decisions.decideMs.p95}ms、実行 ${out.decisions.wallMinutes} 分)`);
     console.log(`目標の達成 ${out.goal.reached}/${out.agents} 人 (夜までに ${out.goal.beforeNight})、小屋 ${hutEnd == null ? '不明' : Math.round(hutEnd * 100) + '%'}、食べ物 合計 ${foodEnd} 個`);
     console.log(`周りに聞いた ${out.ask.asked} 回 (返事 ${out.ask.replied}・返事なし ${out.ask.timeouts})・答えた ${out.ask.answered} (知っていた ${out.ask.answeredKnown})・教わったことを使った ${out.ask.used} / 使わなかった ${out.ask.notUsed}`);
+    for (const l of memTool.textLines(out.memory)) console.log(l);
     const nc = (k) => sum(agents.map((a) => (a.noChange ? a.noChange[k] : 0)));
     const acts = (n) => sum(agents.map((a) => (a.actions[n] ? a.actions[n].n : 0)));
     const actsOk = (n) => sum(agents.map((a) => (a.actions[n] ? a.actions[n].ok : 0)));
