@@ -208,11 +208,11 @@ test('失敗のメモ: 空振りした場所は、その場所を思い出した
   // 別の所では出ない
   let raw = step(m, { pos: { x: 0, y: 64, z: 0 } });
   m.setCues({ raw, social: { relations: {} } });
-  assert.ok(!/取りに来たら無かった/.test(m.toPromptText(raw.self.pos)));
+  assert.ok(!/取りに行ったら無かった/.test(m.toPromptText(raw.self.pos)));
   // その場所に来ると出る
   raw = step(m, { pos: { x: 302, y: 64, z: -198 } });
   m.setCues({ raw, social: { relations: {} } });
-  assert.match(m.toPromptText(raw.self.pos), /気をつけること: 〔ここで〕前にoak_logを取りに来たら無かった/);
+  assert.match(m.toPromptText(raw.self.pos), /気をつけること: ここで前にoak_logを取りに行ったら無かった/);
   assert.strictEqual(m.lastSelection.note, 1);
   // 自分で掘ってなくなったときはメモを付けない
   const m2 = mk();

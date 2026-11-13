@@ -129,7 +129,14 @@ function semanticEdges(id, version) {
       try { ix = index(version); } catch (_) { ix = null; }
       if (ix) {
         const rs = ix.recipes.get(n) || [];
-        for (const r of rs.filter((x) => (x.count || 1) < 9).slice(0, 3)) for (const ing of Object.keys(r.ings)) add(`item:${familyKey(ing)}`, 0.7, 'made_from');
+        // 材料は分類の点へ。ただし同じ木の種類・色の材料 (acacia_planks ← acacia_log) は、その物の点にも強めに
+        const pre = fam !== n ? n.slice(0, n.length - fam.length + 1) : null;
+        for (const r of rs.filter((x) => (x.count || 1) < 9).slice(0, 3)) {
+          for (const ing of Object.keys(r.ings)) {
+            if (pre && ing.startsWith(`${pre}_`) && familyKey(ing) !== ing) add(`item:${ing}`, 0.8, 'made_from');
+            add(`item:${familyKey(ing)}`, 0.7, 'made_from');
+          }
+        }
         for (const s of (ix.smelt.get(n) || []).slice(0, 3)) add(`item:${familyKey(s)}`, 0.6, 'made_from');
         for (const b of (ix.blocks.get(n) || []).filter((x) => x.block !== n && x.expect >= 0.5).slice(0, 3)) add(`item:${familyKey(b.block)}`, 0.6, 'dropped_by');
       }

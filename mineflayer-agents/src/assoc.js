@@ -31,7 +31,7 @@ const DEFAULTS = {
   // 広げ方: 段数・2段目からの減衰・扇の形 ('log' = 1/(1+ln fan)、'actr' = (S − ln fan)/S を 0 で止める)・ACT-R の S
   maxHops: 3, decay: 0.5, fan: 'log', S: 2, minAct: 0.002, aFloor: 0.05, cueFloor: 0.05,
   // 手がかりの重み (種類ごと)。人は関係の強さ (わだかまり・好感の離れ) で personSalience まで重くする
-  cueWeights: { place: 0.8, person: 1.0, item: 0.5, goal: 1.0, next: 0.8, need: 1.0, heard: 0.7, time: 0.4, question: 1.5, asker: 0.3 },
+  cueWeights: { place: 0.8, person: 1.0, item: 0.5, goal: 1.0, next: 0.8, need: 1.0, heard: 0.5, time: 0.4, question: 1.5, asker: 0.3 },
   personSalience: 0.5, personRadius: 24, maxItemCues: 6, maxHeardCues: 6,
   // 線の重み
   edge: { person: 1.0, with: 0.5, place: 1.0, item: 1.0, family: 0.8, time: 0.5, lmArea: 1.0, lmItem: 1.0, lmFrom: 0.6, areaAdj: 0.3, relation: 0.8 },
@@ -41,9 +41,9 @@ const DEFAULTS = {
   seedK: 3, expandMax: 3, hubFan: 25,
   // 使う先ごとの件数 (場所は別に M 番号の一覧から)。must = 必ず入れる最新のやったこと、notes = 失敗のメモの数、maxChars = 記憶の部分の文字数の上限
   budget: {
-    llm: { items: 14, must: 2, notes: 2, maxChars: 1600 },
-    jev: { items: 8, must: 2, notes: 2, maxChars: 1100 },
-    answer: { items: 5, must: 0, notes: 1, maxChars: 600, minA: 0.05 },
+    llm: { items: 14, must: 2, notes: 2, maxChars: 1300 },
+    jev: { items: 8, must: 2, notes: 2, maxChars: 900 },
+    answer: { items: 5, must: 0, notes: 1, maxChars: 600, minA: 0.2 },
   },
   // 覚えている場所の一覧 (M 番号) を連想で選ぶか ('assoc') ・近い順か ('near')。nearMin = 近い順で必ず入れる数
   // placeProx: 連想の届かない場所は近いほど上に (得点 + placeProx × exp(−距離/placeScale))

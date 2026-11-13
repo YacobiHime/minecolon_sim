@@ -198,7 +198,7 @@ class Memory {
       p.fails = (p.fails || 0) + 1;
       if (p.fails >= (this.limits.unreachableFails ?? 2)) {
         p.unreachableUntil = this.tick + (this.limits.unreachableTicks ?? 60); p.fails = 0; n += 1;
-        this.addNote(assoc.areaOf(p), 'unreachable', `${p.kind}の所へ行こうとしたが行けなかった`, `could not get to the ${p.kind} there`, 0.5);
+        this.addNote(assoc.areaOf(p), 'unreachable', `${p.kind}の所へ行こうとしたが行けなかった`, `could not get to the ${p.kind}`, 0.5);
       }
     }
     return n;
@@ -216,7 +216,7 @@ class Memory {
   forgetPlace(kind, pos, radius = CELL, why = 'gone') {
     this.places = this.places.filter((p) => !(p.kind === kind && dist3(p, pos) <= radius));
     // 空振りの失敗のメモ (覚えた場所に物が無かった)。禁止はせず、その場所を思い出したときだけ戻す
-    if (pos && why === 'gone') this.addNote(assoc.areaOf(pos), 'gone', `前に${kind}を取りに来たら無かった`, `the ${kind} you remembered there was gone`, 0.5);
+    if (pos && why === 'gone') this.addNote(assoc.areaOf(pos), 'gone', `前に${kind}を取りに行ったら無かった`, `the ${kind} you remembered was gone`, 0.5);
   }
 
   // 失敗のメモを点 (場所・人) に付ける (failureNotes のときだけ)
@@ -264,8 +264,8 @@ class Memory {
     this.linkLegacy(e, ep);
     // されたこと・死んだ: 人と場所に失敗のメモ
     const area = this.now && this.now.pos ? assoc.areaOf(this.now.pos) : null;
-    if (e.action === 'wronged' && e.arg) { this.addNote(`person:${e.arg}`, 'wronged', e.msg, null, e.imp ?? 0.8, ep.id); this.addNote(area, 'wronged', `ここで${e.msg}`, null, e.imp ?? 0.8, ep.id); }
-    if (e.action === 'death') this.addNote(area, 'death', `ここで${this.now && this.now.phase ? `${this.now.phase}に` : ''}死んだ`, 'you died here', 0.9, ep.id);
+    if (e.action === 'wronged' && e.arg) { this.addNote(`person:${e.arg}`, 'wronged', e.msg, null, e.imp ?? 0.8, ep.id); this.addNote(area, 'wronged', e.msg, null, e.imp ?? 0.8, ep.id); }
+    if (e.action === 'death') this.addNote(area, 'death', `${this.now && this.now.phase ? `${this.now.phase}に` : ''}死んだ`, 'you died', 0.9, ep.id);
     return ep;
   }
 
@@ -583,7 +583,8 @@ class Memory {
   agoJa(t) { const d = this.tick - t; return d <= 0 ? '今' : `${d}回前`; }
 
   epTextJa(ep, places) {
-    const emo = ep.emo && (ep.imp ?? 0) >= 0.5 && assoc.EMO_JA[ep.emo] ? `・${assoc.EMO_JA[ep.emo]}` : '';
+    // そのときの気持ち: 怖い・腹が立つ・悲しい (嫌な出来事を思い出すときの手がかり) で、大事な出来事だけ
+    const emo = ep.emo && (ep.imp ?? 0) >= 0.5 && ['fear', 'anger', 'sadness'].includes(ep.emo) ? `・${assoc.EMO_JA[ep.emo]}` : '';
     if (ep.kind === 'event' && ep.action === 'wronged') return `${ep.text} (${this.agoJa(ep.t)}${ep.at ? '・' + ep.at : ''}${emo})`;
     if (ep.kind === 'event') return this.relabelM(`${ep.action}${ep.arg ? '(' + ep.arg + ')' : ''}→${ep.ok ? '成功' : '失敗'}:${ep.text}${ep.n > 1 ? ` (${ep.n}回)` : ''}${emo ? ` (${emo.slice(1)})` : ''}`, ep, places);
     if (ep.kind === 'heard') return ep.from === '自分' ? `自分は${ep.global ? '全員に' : ''}「${ep.text}」と言った (${this.agoJa(ep.t)})` : `${ep.from}は${ep.global ? '全員に' : ''}「${ep.text}」と言っていた (${this.agoJa(ep.t)}${ep.at ? '・' + ep.at : ''})`;
@@ -597,6 +598,20 @@ class Memory {
     if (ep.kind === 'heard') return `${ep.from === '自分' ? 'you' : ep.from} said${ep.global ? ' to everyone' : ''}「${ep.text}」 (${agoEn(this.tick - ep.t)}${ep.at ? `, ${en.phaseEn(ep.at)}` : ''})`;
     if (ep.kind === 'knowledge') return `from ${ep.from}: 「${ep.text}」`;
     return ep.text;
+  }
+
+  // 失敗のメモの文: 場所に付いたメモは「ここで」か共通の呼び方 (出現地点から東に50mの辺りで) を前に付ける
+  noteText(x, lang = 'ja') {
+    const t = lang === 'en' ? (x.note.en || x.note.text) : x.note.text;
+    const n = x.note.n > 1 ? (lang === 'en' ? ` (${x.note.n} times)` : ` (${x.note.n}回)`) : '';
+    if (!String(x.host).startsWith('area:')) return `${t}${n}`;
+    const hereA = this.cues && this.cues.here ? assoc.areaOf(this.cues.here) : null;
+    if (x.host === hereA) return lang === 'en' ? `here: ${t}${n}` : `ここで${t}${n}`;
+    const [cx, cz] = x.host.slice(5).split(',').map(Number);
+    const c = { x: cx * 16 + 8, y: 64, z: cz * 16 + 8 };
+    const ref = this.origin ? places.commonRef(c, this.origin, { lang }) : null;
+    if (lang === 'en') return `${ref ? `around ${ref}` : 'over there'}: ${t}${n}`;
+    return `${ref ? `${ref}の辺りで` : 'あそこで'}${t}${n}`;
   }
 
   // 「なぜ思い出したか」を付ける (explain のとき。最新だから・必ず入れる分には付けない)
@@ -625,7 +640,7 @@ class Memory {
       if (kn.length) lines.push('教わったこと: ' + kn.join(' '));
       const ow = sec((e) => e.kind === 'owned');
       if (ow.length) lines.push('持ち主: ' + ow.join(' / '));
-      if (sel.notes.length) lines.push('気をつけること: ' + sel.notes.map((x) => this.withWhy(`${x.note.text}${x.note.n > 1 ? ` (${x.note.n}回)` : ''}`, x.why)).join(' / '));
+      if (sel.notes.length) lines.push('気をつけること: ' + sel.notes.map((x) => (x.why.type === 'place' && x.why.hop === 0 ? this.noteText(x) : this.withWhy(this.noteText(x), x.why))).join(' / '));
       const later = this.laterTexts(here, places);
       if (later.length) lines.push('あとでやること: ' + later.join(' / '));
       return lines.join('\n');
@@ -661,7 +676,7 @@ class Memory {
       if (kn.length) out.taught = kn.join(' ');
       const ow = sec((e) => e.kind === 'owned');
       if (ow.length) out.owners = ow;
-      if (sel.notes.length) out.caution = sel.notes.map((x) => this.withWhy(x.note.en || x.note.text, x.why, 'en'));
+      if (sel.notes.length) out.caution = sel.notes.map((x) => (x.why.type === 'place' && x.why.hop === 0 ? this.noteText(x, 'en') : this.withWhy(this.noteText(x, 'en'), x.why, 'en')));
       const later = this.laterTexts(here, places, 'en');
       if (later.length) out.later = later;
       return out;
@@ -683,6 +698,11 @@ class Memory {
   recallForAnswer(question, { from = null } = {}) {
     const known = [...new Set([...this.graph.persons, ...Object.keys((this.cueSocial && this.cueSocial.relations) || {})])].filter((n) => n !== this.me);
     const cues = assoc.cuesFromQuestion(question, { from, known, cfg: this.assocCfg });
+    // 質問の中の場所 (出現地点から南西に30m など) も手がかりに (その辺りの点)
+    for (const pl of this.origin ? places.parsePlaces(question, this.origin) : []) {
+      const a = assoc.areaOf(pl.pos);
+      if (a && !cues.list.some((c) => c.node === a)) cues.list.push({ type: 'question', node: a, w: this.graph.cfg.cueWeights.question, label: pl.how === 'xyz' ? 'その座標' : 'その場所' });
+    }
     if (!cues.list.some((c) => c.type === 'question')) { this.lastAnswerSelection = { mode: 'associative', cues: 0, items: 0 }; return []; }
     const rec = assoc.recall(this, cues, { social: this.cueSocial });
     const C = this.graph.cfg;
@@ -690,8 +710,10 @@ class Memory {
     const minA = budget.minA ?? 0.05;
     // 質問の手がかりから届いたものだけ (聞いた人からだけ届いたもの・最新なだけのものは除く)
     const fromQ = (x) => x.why && x.why.type === 'question' && x.A >= minA;
-    const sel = this.assocSelect('answer', [], { rec, filter: (e) => e.from !== '自分' && !(e.kind === 'event' && e.action === 'wronged') });
-    const chosen = sel.chosen.filter(fromQ);
+    // やったことは成功したものだけ (今までの答えと同じ)。されたこと・自分の発言は答えに使わない
+    const sel = this.assocSelect('answer', [], { rec, filter: (e) => e.from !== '自分' && !(e.kind === 'event' && (e.action === 'wronged' || !e.ok)) });
+    const seenText = new Set();
+    const chosen = sel.chosen.filter(fromQ).filter((x) => { const k = `${x.ep.kind}|${x.ep.action || ''}|${x.ep.arg || ''}|${x.ep.text}`; if (seenText.has(k)) return false; seenText.add(k); return true; });
     const items = [];
     const placeItems = rec.lms.filter((x) => x.why.type === 'question' && x.A >= minA).slice(0, 2);
     const T = (ep) => {
@@ -706,7 +728,7 @@ class Memory {
       items.push({ kind: 'place', text: `${p.kind}を${this.origin ? `${places.commonRef(p, this.origin)} ` : ''}(${p.x},${p.y},${p.z})あたりで${p.from ? `見たと${p.from}が言っていた` : '見た'}`, why: x.why.label, hop: x.why.hop });
     }
     const placeIds = placeItems.map((x) => assoc.lmId(x.p));
-    for (const nt of assoc.notesFor(this, rec, chosen, placeIds, budget, { viaChosen: false })) items.push({ kind: 'note', text: nt.note.text, why: nt.why.label, hop: nt.why.hop });
+    for (const nt of assoc.notesFor(this, rec, chosen, placeIds, budget, { viaChosen: false })) items.push({ kind: 'note', text: this.noteText(nt), why: nt.why.label, hop: nt.why.hop });
     const out = items.slice(0, Math.max(budget.items, 1) + 1);
     this.lastAnswerSelection = { mode: 'associative', cues: cues.list.length, items: out.length, byHop: out.reduce((m, x) => { const k = String(x.hop ?? '-'); m[k] = (m[k] || 0) + 1; return m; }, {}) };
     return out;

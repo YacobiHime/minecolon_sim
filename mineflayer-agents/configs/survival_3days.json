@@ -828,13 +828,13 @@
           "items": 14,
           "must": 2,
           "notes": 2,
-          "maxChars": 1600
+          "maxChars": 1300
         },
         "jev": {
           "items": 8,
           "must": 2,
           "notes": 2,
-          "maxChars": 1100
+          "maxChars": 900
         },
         "answer": {
           "items": 5,
