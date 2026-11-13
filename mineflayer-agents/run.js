@@ -17,6 +17,7 @@
 //   402 の残高不足が返ったら全員を止める。
 // 文を作る LLM の提供元 (src/llm_provider.js): --llm-provider local|luna (既定の提供元)、--llm-roles goal=luna,reflect=luna (役ごと)、
 //   --llm-model M・--llm-base-url URL (--llm-provider の提供元に)、--max-llm-usd X (費用の上限。全プロセスの合計)。
+// 設置物の来歴と所有 (src/provenance.js・src/ownership.js): --provenance on|off (所有の知識と行動の分離)、--ownership-penalty on|off、--ledger on|off。
 //   luna の API キーは環境変数 LUNA_API_KEY (無ければ OPENAI_API_KEY) か /root/.config/luna.env (表示・記録しない)。
 const fs = require('fs');
 const path = require('path');
@@ -147,6 +148,9 @@ async function main() {
   if (args['max-jev-tokens']) ov.usage = { maxJevInputTokens: Number(args['max-jev-tokens']) };
   if (args['jev-provider']) ov.decider = { ...(ov.decider || {}), jev: { provider: args['jev-provider'] } };
   if (args['random-talk']) ov.decider = { ...(ov.decider || {}), talkP: Number(args['random-talk']) };
+  // 比較実験の切り替え (cfg.provenance): --provenance on|off (所有の知識と行動の分離)、--ownership-penalty on|off (判断の重み + 関係の変化)、--ledger on|off (台帳)
+  const prov = provenanceOverrides(args);
+  if (prov) ov.provenance = prov;
   const llmOv = llmOverrides(args);
   if (llmOv) ov.llm = llmOv;
   // 並べ方の種: --seed か config の order.seed。どちらも無ければここで決め、子プロセスにも --seed で渡す (記録の start と run.json に残る)
@@ -257,6 +261,16 @@ async function main() {
   setTimeout(() => process.exit(0), 500);
 }
 
+// --provenance / --ownership-penalty / --ledger → config の provenance に重ねる分 (無ければ null)
+function provenanceOverrides(args) {
+  const o = {};
+  const onoff = (k) => { const v = String(args[k]).toLowerCase(); if (!['on', 'off', 'true', 'false'].includes(v)) throw new Error(`--${k} は on か off`); return v === 'on' || v === 'true'; };
+  if (args.provenance != null) o.actions = onoff('provenance');
+  if (args['ownership-penalty'] != null) o.penalty = onoff('ownership-penalty');
+  if (args.ledger != null) o.ledger = onoff('ledger');
+  return Object.keys(o).length ? o : null;
+}
+
 // --llm-provider / --llm-roles / --llm-model / --llm-base-url / --max-llm-usd → config の llm に重ねる分 (無ければ null)
 function llmOverrides(args) {
   const o = {};
@@ -280,4 +294,4 @@ function llmOverrides(args) {
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
 
-module.exports = { splitAgents, connectWithRetry, personaFor, parseArgs, llmOverrides };
+module.exports = { splitAgents, connectWithRetry, personaFor, parseArgs, llmOverrides, provenanceOverrides };

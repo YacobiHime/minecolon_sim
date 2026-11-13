@@ -29,7 +29,8 @@ const EMO_WORD_EN = {
 };
 // 関係のメモ (r.note) の英語
 const NOTE_EN = { 前に物をあげた: 'I gave them something before', 前に物をくれた: 'they gave me something before', 前にやり方を教えてくれた: 'they taught me how to do something before',
-  聞いたが知らなかった: 'I asked them but they did not know', 聞いたのに返事がなかった: 'I asked them but got no answer' };
+  聞いたが知らなかった: 'I asked them but they did not know', 聞いたのに返事がなかった: 'I asked them but got no answer',
+  前に物を取られた: 'they took something of mine before', 取った物を返してくれた: 'they made up for taking something of mine', 人の物を取ったと聞いた: 'I heard they took other people\'s things' };
 const { Needs, NEED_LABEL } = require('./needs');
 // ストレスの出どころ → どの感情に出やすいか
 const STRESS_SOURCE = {
@@ -213,6 +214,22 @@ class Social {
     const r = this.rel(by);
     if (answered) { r.iHelped += 1; this.needsModel.onHelpedOther(by, { tick, asked: true }); }
     this.moveAffinity(by, this.aff.events.asked * (0.5 + this.temperament.empathy));
+  }
+
+  // 所有の出来事 (ownership.js の socialImpact) を関係と感情に当てる。name が null なら感情だけ (誰の仕業か分からない)。
+  //   返り値: 当てたあとの { affinity, trust } (name が無ければ null)
+  applyOwnershipImpact(name, imp) {
+    if (!imp) return null;
+    for (const e of ['anger', 'sadness', 'joy']) if (imp[e]) this.bump(e, imp[e]);
+    if (!name) return null;
+    const r = this.rel(name);
+    if (imp.affinity) this.moveAffinity(name, imp.affinity);
+    if (imp.trust) r.trust = r2(clamp(r.trust + imp.trust, 0, 1));
+    const neg = (imp.affinity || 0) < 0 || (imp.trust || 0) < 0;
+    if (['witnessed', 'heard', 'told'].includes(imp.kind)) { r.tookFromMe = (r.tookFromMe || 0) + 1; r.note = '前に物を取られた'; }
+    else if (['returned', 'repaired', 'apology'].includes(imp.kind)) { r.amends = (r.amends || 0) + 1; if (r.note === '前に物を取られた') r.note = '取った物を返してくれた'; }
+    else if (neg && (imp.kind === 'rumor' || imp.kind === 'third')) { r.tookSeen = (r.tookSeen || 0) + 1; if (!r.note) r.note = '人の物を取ったと聞いた'; }
+    return { affinity: r.affinity, trust: r.trust };
   }
 
   // Jev の Score (0〜4: とても悪くなった〜とても良くなった) で好感を動かす。基の幅 = (score − 2) × scoreStep (既定 1.5、最大 ±3)

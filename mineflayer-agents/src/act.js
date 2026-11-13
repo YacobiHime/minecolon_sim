@@ -11,12 +11,13 @@ const { exploreTarget, dirJp } = require('./explore');
 const search = require('./search');
 const { moreHandlers, MORE_TIMEOUTS, noteContainer, furnaceItems, invDiff } = require('./act_more');
 const { penHandlers, PEN_TIMEOUTS } = require('./act_pen');
+const { ownHandlers, OWN_TIMEOUTS } = require('./act_own');
 const unstuck = require('./unstuck');
 
 const DIR_VEC = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
 const REPLACEABLE = new Set(['air', 'cave_air', 'snow', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush']);
 const DEFAULT_TIMEOUTS = { report_find: 45000, broadcast: 45000, propose: 60000, share_chest: 5000, collect: 60000, go_to: 40000, explore: 40000, search: 90000, craft: 30000, place: 25000 /* 置けなかったら別の所で置き直す (3回まで。1回 blockUpdate の時間切れ 5 秒) */, eat: 10000, say: 3000, look_around: 5000, wait: 12000, build: 60000, hunt: 40000, ask: 70000, pillar: 30000, pick_up: 25000,
-  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS };
+  attack: 40000, flee: 15000, smelt: 50000, sleep: 40000, equip: 5000, set_base: 2000, ...MORE_TIMEOUTS, ...PEN_TIMEOUTS, ...OWN_TIMEOUTS };
 const MAT_RANK = { netherite: 6, diamond: 5, iron: 4, stone: 3, golden: 2, wooden: 1 };
 const ARMOR_DEST = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
 
@@ -50,6 +51,15 @@ const DROPS = { stone: 'cobblestone', grass_block: 'dirt', coal_ore: 'coal', dee
   copper_ore: 'raw_copper', gold_ore: 'raw_gold', diamond_ore: 'diamond', redstone_ore: 'redstone', lapis_ore: 'lapis_lazuli', deepslate: 'cobbled_deepslate',
   carrots: 'carrot', potatoes: 'potato', beetroots: 'beetroot', melon: 'melon_slice', grass: 'wheat_seeds', short_grass: 'wheat_seeds', sweet_berry_bush: 'sweet_berries' };
 function dropName(_bot, name) { return DROPS[name] || name; }
+// 名前の違う落とし物のうち、そのブロックから落ちうる物 (collect の成功の判定)
+function relatedDrop(block, item) {
+  if (/_leaves$/.test(block)) return /_sapling$|^(stick|apple|mangrove_propagule)$/.test(item);
+  if (/^(short_grass|grass|tall_grass|fern|large_fern|wheat|beetroots)$/.test(block)) return /_seeds$|^wheat$|^beetroot$/.test(item);
+  if (block === 'gravel') return item === 'flint';
+  if (/_ore$/.test(block)) return true;
+  if (/^(carrots|potatoes)$/.test(block)) return /^(carrot|potato|poisonous_potato)$/.test(item);
+  return false;
+}
 
 function invMapAll(bot) { const m = {}; for (const i of bot.inventory.items()) m[i.name] = (m[i.name] || 0) + i.count; return m; }
 function invTotal(bot) { return bot.inventory.items().reduce((s, i) => s + i.count, 0); }
@@ -182,6 +192,8 @@ const handlers = {
         // 見えているもの、または今掘った所のすぐ隣 (同じ木の幹など) だけを狙う
         .filter((p) => (lastPos && p.distanceTo(lastPos) <= 2.5) || blockVisible(bot, p))
         .filter((p) => !hutKeys || !hutKeys.has(`${p.x},${p.y},${p.z}`))
+        // 置かれた物と認識している所 (自分・ほかの人・みんなの物) は collect で掘らない (take_placed / dismantle_own。cfg.provenance.actions)
+        .filter((p) => !ctx.ownRecognized || !ctx.ownRecognized(p, name))
         .filter((p) => p.y - feetY <= (ctx.maxReachUp ?? 4)) // 足場を積まないので、高すぎる所は狙わない
         .sort((a, b) => {
           const pa = Math.max(0, a.y - feetY - 3) * 4; const pb = Math.max(0, b.y - feetY - 3) * 4; // 高すぎる所は後回し
@@ -220,16 +232,23 @@ const handlers = {
         if (bad.size >= 3) break;
       }
     }
-    // 拾った数は掘った物だけで数える (pathfinder が足場に土などを使うと、持ち物の合計が減ることがある)
-    const got = invCount(bot, dropName(bot, name)) - beforeItem;
+    // 拾った数は掘った物だけで数える (pathfinder が足場に土などを使うと、持ち物の合計が減ることがある)。
+    //   行動中に死ぬと持ち物が無くなり差が負になる → 0 にして invLost を付ける (2026-11-10 の記録で負の数が出ていた)
+    const gotRaw = invCount(bot, dropName(bot, name)) - beforeItem;
+    const got = Math.max(0, gotRaw);
     const brokeTxt = broke.length ? ` (${broke.join('・')}が壊れた)` : '';
     if (dug === 0) return { ok: false, msg: `${lastErr || `${name}を掘れなかった`}${brokeTxt}`, ...(broke.length ? { broke } : {}) };
     // 名前の違う物が落ちることがある (草 → 種、小麦 → 小麦と種、にんじん → carrot)。増えた物を全部書く
     const gained = invDiff(beforeAll, invMapAll(bot)).filter((x) => x.d > 0);
     const other = gained.filter((x) => x.name !== dropName(bot, name));
     const otherTxt = other.length ? ` (${other.map((x) => `${x.name}+${x.d}`).join(', ')})` : '';
+    // 成功は「掘ったブロックから落ちる物を拾えたか」で決める。dig は、ほかの人が先に壊しても終わるので、掘った数だけでは決めない
+    //   (2026-11-10: 他人が先に壊した物も dug に数えて成功扱いになっていた)。名前の違う落とし物 (種・苗木・火打石など) は、そのブロックから落ちる物だけ数える
+    const related = other.filter((x) => relatedDrop(name, x.name));
+    const noPick = got === 0 && !related.length;
     return {
-      ok: got > 0 || other.length > 0,
+      ok: !noPick,
+      ...(noPick ? { notPicked: true } : {}), ...(gotRaw < 0 ? { invLost: true } : {}),
       msg: `${name}を${toolText(tools)}${dug}個掘って${got}個拾った${otherTxt} (${digTimeText(digMs)})${brokeTxt}${lastErr ? '(' + lastErr + ')' : ''}`,
       tools: [...new Set(tools.map((t) => t || 'hand'))], digMs, block: name, dug, ...(broke.length ? { broke } : {}),
     };
@@ -748,6 +767,8 @@ const handlers = {
 
 Object.assign(handlers, moreHandlers({ gotoGoal, haltPath, pathErr, invCount, pickUpNear }));
 Object.assign(handlers, penHandlers({ gotoGoal, haltPath, pathErr }));
+Object.assign(handlers, ownHandlers({ gotoGoal, haltPath, pathErr, invCount, pickUpNear, equipBestTool,
+  give: (b, c, x) => handlers.give(b, c, x), place: (b, c, x) => handlers.place(b, c, x) }));
 
 async function executeAction(bot, resolved, ctx) {
   const h = handlers[resolved.action];

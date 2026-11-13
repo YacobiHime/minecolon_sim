@@ -9,6 +9,7 @@ const kindEn = (k) => (k === '拠点' ? 'base' : /^共有のチェスト /.test(
 const { BUILD_MATERIAL } = require('./hut');
 const { exploreChoices } = require('./explore');
 const { moreActions, visibleContainers } = require('./actions_more');
+const { ownershipActions, naturalPositions } = require('./ownership_actions');
 
 const HUNTABLE = new Set(['cow', 'pig', 'sheep', 'chicken', 'rabbit']);
 const MAX_PILLAR = 4; // 足場は 4 段まで
@@ -64,10 +65,13 @@ function listActions(raw, ctx = {}) {
   // collect: 見えていて、今の道具で掘れて、手の届く高さ (足場を積まない) にあるブロック
   // collectExclude: 候補にしないブロック (survival_3days では地面そのもの: dirt・grass_block など。耕す・植えるはその場の土に use_on でできる)
   const collEx = ctx.collectExclude || null;
+  // 所有を考える設定 (cfg.provenance.actions。ctx.own) では、置かれた物と認識している位置 (自分・ほかの人・みんなの物、見た目で人の置いた物) を
+  //   collect から外す (take_placed / dismantle_own になる)。認識していない物 (天然と見ている物) は collect に残る
+  const own = ctx.own || null;
   const coll = raw.blocks
     .filter((b) => b.diggable && !blocked.has(`collect:${b.name}`) && !(collEx && collEx.test(b.name)))
     // 作物 (育ち具合の分かる物。observe の ripe) は、育ちきった所だけ。育ちきった物が無ければ候補に出さない
-    .map((b) => ({ b, reach: (b.positions && b.positions.length ? b.positions : [b.nearest]).filter((p) => p.y - Math.floor(here.y) <= maxReachUp && !(b.ripe != null && p.ripe === false)) }))
+    .map((b) => ({ b, reach: (own ? naturalPositions(b, own) : (b.positions && b.positions.length ? b.positions : [b.nearest])).filter((p) => p.y - Math.floor(here.y) <= maxReachUp && !(b.ripe != null && p.ripe === false)) }))
     .filter((x) => !(x.b.ripe != null && !(x.b.ripe > 0)))
     .filter((x) => x.reach.length)
     .sort((x, y) => (y.b.notable - x.b.notable) || (x.reach[0].d - y.reach[0].d))
@@ -246,6 +250,14 @@ function listActions(raw, ctx = {}) {
 
   // 右クリックで使う・GUI の出し入れ・協力 (actions_more.js)。設定の act.enable に入れたものだけ
   out.push(...moreActions(raw, { ...ctx, blocked }, on));
+
+  // 所有を考えた行動 (ownership_actions.js): take_placed・dismantle_own・ask_permission・make_amends・repair_or_relocate_public
+  if (own) {
+    const oa = ownershipActions(raw, { ...ctx, blocked });
+    out.push(...oa.actions);
+    out.ownWeights = oa.weights; // 判断の重み (cfg.provenance.reweight のとき agent が ctx.choiceWeights に掛ける)
+    out.ownInfos = oa.infos;
+  }
 
   // 手元でできること (craft / build / place / eat) を先に並べる (小さいモデルは先頭の候補に引っぱられやすい)
   const first = ['craft', 'build', 'place', 'eat', 'hunt', 'ask', 'pick_up', 'pillar', 'flee', 'attack', 'smelt', 'sleep', 'equip', 'set_base'];

@@ -546,3 +546,38 @@ LUNA_API_KEY=dummy node mineflayer-agents/run.js ... --llm-provider luna --llm-b
 - 確率の差 (choice の分布の全変動距離): 同じ経路の 2 回で平均 0.054 (OpenRouter)・0.050 (TypeSafe)、経路をまたいで平均 0.050。
   noul の差の平均は同じ経路 0.029・経路をまたいで 0.024、score の差は 0.028・0.035。**経路の差は呼ぶたびの揺れと同じ程度** (OpenRouter で別の較正にはなっていない)。
 - 本文 34,267 バイト (> 32,000) の場面: OpenRouter 406ms (同じ場面の 11,267 バイトで 381ms)、TypeSafe 直 260ms (191ms)。この 1 場面では遅さはほとんど見えなかった。
+
+---
+
+# 設置物の来歴と、取得の理由 (`cfg.provenance`、2026-11-11)
+
+引き継ぎ `HANDOFF_2026-11-10_100_AGENT_OWNERSHIP.md` の「推奨する修正仕様」1〜6。他人の物を取らせないのではなく、取ったときの理由が
+利己心・必要性・許可・誤認などとして観察・検証できるようにする (物理的な取得を社会的な出来事にする)。
+
+| 部品 | 中身 |
+| --- | --- |
+| `src/provenance.js` | 台帳 (評価用の ground truth)。設置・破壊・置換・共有にした のたびに dimension+座標で1件。`runs/<id>/provenance/<名前>.jsonl` に各人が追記し、同じプロセスの人は1つの台帳を共有、ほかのプロセスの分は `sync()` (既定 2 秒ごと) で読み足す。`bot.dig`・`placeBlock`・`activateBlock` を包むので、pathfinder の掘り・足場も入る |
+| `src/ownership.js` | 部分的な知識 (`OwnKnowledge`: 自分で置いた・見た・聞いた・共有にされた物だけ)、代わりの手段・機能損害・社会的な損、理由 (`decideReason`)、判断の重み、許可の答え、関係の変化 (`socialImpact`)、発話の行 |
+| `src/ownership_actions.js` / `src/act_own.js` | 行動の候補と実行: `collect` (天然と見ている物だけ)・`dismantle_own`・`take_placed`・`ask_permission`・`make_amends` (説明・返す・戻す)・`repair_or_relocate_public` |
+| `src/ownership_agent.js` | agent とのつなぎ (台帳への記録・知識の更新・意図の記録・目撃・後で気づいた・伝聞・許可のやりとり・噂・planner への見方) |
+| `tools/provenance_stats.js` | 集計 (`summarize_run.js` の `provenance` と `--text` の行) |
+| `tools/replay_provenance.js` | 台帳の無い前の記録から推定して集計に通す (読むだけ) |
+
+- **設定**: `ledger` (既定 on。観察だけで行動は変えない)、`actions` (知識と行動の分離。既定 off、survival_3days/100 は on)、`penalty` (判断の重み + 関係の変化。既定 off、survival は on。
+  `reweight`・`social` で片方だけ切れる)、`countPlaced` (物のゴールで自分の置いた機能している物を「持っている」に数える。既定 on、actions が on のとき)。
+  比較実験: `run.js --provenance on|off --ownership-penalty on|off [--ledger on|off]`。
+- **見た目で人工物と分かる物** (`ARTIFACT`: 松明・作業台・ベッド・板材・柵など) は、所有者を知らなくても置かれた物と認識し、`take_placed` (所有者不明) になる。
+  丸石・土・原木のように天然と同じ見た目の物は、知らなければ collect に残り、台帳と突き合わせて `mistaken_as_natural` と記録される。台帳に無い人工物 (村の物など) は**みんなの物 (public)** (2026-11-11 ユーザー決定。外界の物なので)。
+  エージェントは、村人を見かけた所 (`village.radius` 32 以内) の所有者を知らない人工物を「村の物」(public、`take_placed:…@village`) と認識する。
+  評価の記録では `truth.ownership = { kind: 'public', world: true }`。天然と同じ見た目の村の家の原木・丸石 (隣に台帳に無い人工物がある) は collect のままで、掘ると public の物の `mistaken_as_natural` になる。
+- **理由** (行動の前に決める。LLM に説明させない): `repair_or_relocate_public` → public_repair / 行動の対象でない掘り (pathfinder・unstuck・別の物を掘る途中) → accidental /
+  collect → mistaken_as_natural (provenance off なら unmodeled) / dismantle_own → own_relocation / 許可あり → permission_granted / 所有者不明 → unknown_ownership /
+  その物が満たす欲求 (松明・壁 → 安心、ベッド → 眠気、作物・かまど → 空腹) が `emergencyNeed` (0.8) 以上で代わりの手段が無い → emergency_need / それ以外 → selfish_acquisition。
+- **記録**: `event: intent` (理由・欲求・性格・許可・代わり・損害・社会的な損・重みの内訳・台帳の本当の持ち主・本当の代わり)、`take`、`ownership_ask`/`ownership_permission`、
+  `ownership_amends`、`ownership_social` (好感・信頼の変化と前後)、`ownership_loss`、`ownership_rumor`、`ownership_heard`、`place_forgotten`。console に1行
+  (`Yua take_placed(torch owned by Miho) reason=… need=… alternatives=… harm=… permission=…`)。
+- **発話の行** (近くの声 hearRadius の中だけ): `【許可? id 物 x,y,z 持ち主】`・`【許可 id yes|no】`・`【説明 物 x,y,z 持ち主 理由】`・`【返却 物 数 持ち主】`・`【補修 …】`・`【噂 取った人 物 持ち主 回数】`。
+  頭の印は機械が読み、後ろの文は確定した記録から talker (LLM) が作る (`speech: template` で型どおりの文)。聞いた人は印を除いた文だけを近くの声として聞く。
+- **planner**: 置かれた物と認識している物は collect の入手元にせず、手間 (`COST.placed` = 4) を足した「取る」入手元 (`where: 'placed'`) にする。置かれた作業台・かまどは「使える設備」としては数える。
+- 前からの不具合も直した: collect は拾えたかで成功を決める (他人が先に壊した物を成功にしない・死んで負の数にしない)、自分で掘った物の場所を記憶から消す、
+  others.js の「誰が壊したか」を腕を振ったか・はっきり一番近いかでも見分ける。
