@@ -11,6 +11,39 @@
 
 const EMOTIONS = ['joy', 'sadness', 'anger', 'fear', 'disgust', 'surprise'];
 const EMO_BASE = { joy: 3, sadness: 1, anger: 0, fear: 1, disgust: 0, surprise: 0 };
+
+// ■ 感情の時間の扱い (social.emotions。2026-11-13 ユーザー決定「感情の戻り方は案A: 感情ごとに半減期を変える。基準値も文献の値に。
+//   出来事の上げ幅と言葉のしきい値を人の occupancy (Trampe 2015) に合わせる」)。比較実験のため旧モデルも残す。
+//   model: 'uniform' (旧): 毎判断のはじめに基準値 EMO_BASE との差を decay (0.85) 倍。上げ幅はコードの値のまま。言葉は 3 以上 (喜びは 4 以上)、5・8 で段階。
+//          'perEmotion' (新): 実際に進んだ tick (dt) で e = base + (e − base)·0.5^(dt / 半減期)。判断の間隔 (LLM の速さで変わる) に依存しない。
+//     半減期 halfLife (tick、1時間 = 1000 tick。ゲームの1日 = 人の1日): 持続 D を、ピーク (Brans 2014 の強さ × 10/7) から言葉のしきい値までの
+//       半減の回数で割った値 (param_grounding の mapping.json の emotion.decay)。
+//       喜び 17500 (持続 35h、Verduyn & Lavrijsen 2015, Motiv. Emot. 39, 119-127 の Fig. 1)・悲しみ 10080 (17.8h)・怒り 2160 (2.5h)・恐れ 670 (58分)・
+//       嫌悪 560 (30分) (この4つは Brans & Verduyn 2014, PLoS ONE 9, e92410 の Table 1 の対数持続の幾何平均)・驚き 1640 (2h、Verduyn 2015)。
+//     基準値 base: EMA の平均 (0〜100) ÷ 10 (Kuppens, Allen, & Sheeber 2010, Psychol. Sci. 21, 984-991 の Table 1): 喜び 5.9 (happy 58.6)・悲しみ 0.9 (sad 8.6)・
+//       怒り 0.7 (angry 6.6)・恐れ 0.7 (anxious 7.4)。嫌悪 0.7 は測定が無く怒りの値を借りた [仮]。驚き 0 (測定が無い)。
+//     人ごとの差 (persona.emotions、gen_personas.js が作る): halfLifeMul (全感情の半減期に掛ける) と baseShift (基準値に足す)。
+//     言葉: 「感じている」= 集団の基準値 base + above (2) 以上。上の段 (中・強い) は、残りの幅 (10 − しきい値) を旧の 3/5/8 と同じ割合 (2/7・5/7) で切る。
+//       人の基準値ではなく集団の基準値から測るので、神経症傾向の高い人 (負の感情の基準値が高い) ほど負の感情を言葉に出しやすい。
+//       言葉に出すのはしきい値を超えた分の大きい順に2つ (旧は値の大きい順)。
+//     上げ幅 gain: どの出来事でも、感情 e を動かす量に gain[e] を掛ける (成功・失敗・会った・殴られた・ストレスからの分すべて。bump を通るもの)。
+//       Trampe, Quoidbach, & Taquet 2015 (PLoS ONE 10, e0145450, Table 2) の「今その感情を感じている時間の割合」
+//       (喜び 35%・悲しみ 20%・嫌悪 11%・怒り 10%・恐れ 5%) に、言葉に出る判断の割合が合うように tools/calibrate_emotions.js で決めた
+//       (100人の記録 runs/2026-11-11T03-43-35 の出来事の列を新しい式でオフライン再生)。驚きは割合の測定が無いので 1 (旧と同じ上げ幅)。
+//     ストレスから感情へ (stressToEmotions): 旧は毎判断の量。新は 1 tick あたりにして dt を掛ける (旧の1判断 = 平均 perDecisionTicks 180 tick として割る)。
+const EMOTION_DEFAULTS = {
+  model: 'uniform',
+  decay: 0.85, // uniform: 1判断ごとに基準値との差がこの割合に縮む
+  halfLife: { joy: 17500, sadness: 10080, anger: 2160, fear: 670, disgust: 560, surprise: 1640 },
+  base: { joy: 5.9, sadness: 0.9, anger: 0.7, fear: 0.7, disgust: 0.7, surprise: 0 },
+  gain: { joy: 1, sadness: 1, anger: 1, fear: 1, disgust: 1, surprise: 1 },
+  above: 2, // 言葉に出るしきい値 = 集団の base + above
+  perDecisionTicks: 180, // 旧の「1判断ごと」の量を tick あたりに直すときの判断の間隔 (runs/2026-11-11T03-43-35 の平均)
+  maxDt: 6000, // 1回で進める tick の上限 (needs と同じ)
+  halfLifeMul: 1, // 人ごと
+  baseShift: {}, // 人ごと { joy, sadness, anger, fear, disgust }
+};
+const LEVEL_FRAC = [2 / 7, 5 / 7]; // 旧の 3/5/8: (5−3)/(10−3)・(8−3)/(10−3)
 const EMO_WORD = {
   joy: ['少しうれしい', 'うれしい', 'とてもうれしい'],
   sadness: ['少し落ち込んでいる', '落ち込んでいる', 'とても落ち込んでいる'],
@@ -31,7 +64,7 @@ const EMO_WORD_EN = {
 const NOTE_EN = { 前に物をあげた: 'I gave them something before', 前に物をくれた: 'they gave me something before', 前にやり方を教えてくれた: 'they taught me how to do something before',
   聞いたが知らなかった: 'I asked them but they did not know', 聞いたのに返事がなかった: 'I asked them but got no answer',
   前に物を取られた: 'they took something of mine before', 取った物を返してくれた: 'they made up for taking something of mine', 人の物を取ったと聞いた: 'I heard they took other people\'s things' };
-const { Needs, NEED_LABEL } = require('./needs');
+const { Needs, NEED_LABEL, merge } = require('./needs');
 // ストレスの出どころ → どの感情に出やすいか
 const STRESS_SOURCE = {
   anger: ['hunger', 'sleep', 'greed', 'recognition'],
@@ -57,7 +90,9 @@ const AFFINITY_DEFAULTS = { scoreStep: 1.5, room: 50, roomScale: true, events: {
 //   きっかけごとの大きさ add (わだかまりに足す分) と aff (好感の基の幅。既にほかで好感を動かしているきっかけは 0)。
 //   数値はモデルに見せない。関係の言葉に「何をされたか。まだ許していない」を出す (relationWord)。
 const GRUDGE_DEFAULTS = {
-  enabled: false, halfLife: 150, ceilDrop: 15, clearBelow: 0.03, showFrom: 0.1,
+  // decayUnit: 'decisions' (旧: halfLife 判断で半分) | 'ticks' (2026-11-13: 感情を tick にそろえたので、わだかまりも実際に進んだ tick で薄れる。
+  //   halfLifeTicks 27000 = 旧の 150 判断 × 判断の間隔の平均 180 tick (runs/2026-11-11T03-43-35)。効き方は旧と平均で同じ)
+  enabled: false, halfLife: 150, decayUnit: 'decisions', halfLifeTicks: 27000, ceilDrop: 15, clearBelow: 0.03, showFrom: 0.1,
   kinds: {
     took_witnessed: { add: 0.4, aff: 0 }, took_heard: { add: 0.25, aff: 0 }, took_told: { add: 0.2, aff: 0 }, // 自分の物を取られた (好感は ownership の socialImpact)
     ignored: { add: 0.1, aff: 0 }, // 聞いた・頼んだのに返事がなかった (好感は onIgnored)
@@ -80,6 +115,21 @@ const GRUDGE_EN = { took_witnessed: (i) => `they took my ${i || 'thing'}`, took_
   denied: (i) => `they refused when I asked to use their ${i || 'thing'}`, hit: () => 'they hit me', killed: () => 'they killed me', bed_taken: () => 'they were in the bed I went to sleep in', snatched: (i) => `they picked up the ${i || 'thing'} I dug`,
   call_ignored: () => 'they did not come when I called', breach: () => 'they broke an agreement', complained: () => 'they complained at me' };
 
+// 言葉のしきい値 [感じている, 中, 強い]。c が null なら旧 (3/5/8、喜びは 4)。c は perEmotion の設定 (base・above)
+function emoLevels(e, c = null) {
+  if (!c) return e === 'joy' ? [4, 5, 8] : [3, 5, 8];
+  const show = Math.min(9.5, (c.base[e] || 0) + c.above);
+  return [show, show + (10 - show) * LEVEL_FRAC[0], show + (10 - show) * LEVEL_FRAC[1]];
+}
+// 言葉に出す感情 (Social.shownEmotions と tools/calibrate_emotions.js で共通)。levels(e) = [感じている, 中, 強い]。
+//   byExcess: しきい値を超えた分の大きい順 (perEmotion)。false なら値の大きい順 (旧)
+function shownEmotions(emotions, levels, byExcess = false) {
+  return EMOTIONS.map((e) => { const L = levels(e); const v = emotions[e]; return [e, v, L, v - L[0]]; })
+    .filter(([, v, L]) => v >= L[0])
+    .sort((a, b) => (byExcess ? b[3] - a[3] : b[1] - a[1])).slice(0, 2)
+    .map(([e, v, L]) => [e, v >= L[2] ? 2 : v >= L[1] ? 1 : 0]);
+}
+
 class Social {
   constructor(opts = {}) {
     const t = opts.temperament || {};
@@ -91,7 +141,12 @@ class Social {
     this.aff = { ...AFFINITY_DEFAULTS, ...af, events: { ...AFFINITY_DEFAULTS.events, ...(af.events || {}) } };
     const g = opts.grudge || {};
     this.grudgeCfg = { ...GRUDGE_DEFAULTS, ...g, kinds: { ...GRUDGE_DEFAULTS.kinds, ...(g.kinds || {}) }, ease: { ...GRUDGE_DEFAULTS.ease, ...(g.ease || {}) }, good: { ...GRUDGE_DEFAULTS.good, ...(g.good || {}) } };
-    this.decay = opts.decay ?? 0.85; // 1ループごとに基準値との差がこの割合に縮む
+    const ec = opts.emotions || {};
+    this.emoCfg = { ...EMOTION_DEFAULTS, ...ec };
+    for (const k of ['halfLife', 'base', 'gain', 'baseShift']) this.emoCfg[k] = { ...EMOTION_DEFAULTS[k], ...(ec[k] || {}) };
+    this.decay = opts.decay ?? ec.decay ?? 0.85; // uniform: 1ループごとに基準値との差がこの割合に縮む
+    this.emoBase = this.perEmotion() ? Object.fromEntries(EMOTIONS.map((e) => [e, r2(clamp(this.emoCfg.base[e] + (this.emoCfg.baseShift[e] || 0), 0, 10))])) : { ...EMO_BASE };
+    this.emotions = { ...this.emoBase };
     this.lastTalkTick = 0;
   }
 
@@ -174,10 +229,12 @@ class Social {
     this.eased.push(out); // agent が記録に書いて空にする
     return out;
   }
-  // 1判断ごとに薄れる
-  decayGrudges() {
+  // 薄れる。decayUnit 'decisions': 1判断ぶん (dt を渡さずに呼ぶ)。'ticks': dt (tick) ぶん (dt を渡して呼ぶ)。単位の合わない呼び出しは何もしない
+  decayGrudges(dt = null) {
     if (!this.grudgeCfg.enabled) return;
-    const f = Math.pow(0.5, 1 / Math.max(1, this.grudgeCfg.halfLife));
+    const byTicks = this.grudgeCfg.decayUnit === 'ticks';
+    if (byTicks !== (dt != null)) return;
+    const f = byTicks ? Math.pow(0.5, clamp(Number(dt) || 0, 0, 6000) / Math.max(1, this.grudgeCfg.halfLifeTicks)) : Math.pow(0.5, 1 / Math.max(1, this.grudgeCfg.halfLife));
     for (const r of Object.values(this.relations)) {
       if (!r.grudge) continue;
       r.grudge.v = Math.round(r.grudge.v * f * 10000) / 10000;
@@ -200,13 +257,31 @@ class Social {
     return out;
   }
 
-  bump(emo, d) { this.emotions[emo] = r2(clamp(this.emotions[emo] + d, 0, 10)); }
+  perEmotion() { return this.emoCfg.model === 'perEmotion'; }
+  // 感情を d だけ動かす。perEmotion では感情ごとの上げ幅 gain を掛ける
+  bump(emo, d) {
+    const g = this.perEmotion() ? (this.emoCfg.gain[emo] ?? 1) : 1;
+    this.emotions[emo] = r2(clamp(this.emotions[emo] + d * g, 0, 10));
+  }
+  // 基準値へ戻る。uniform: 1判断ぶん (decay 倍)。perEmotion: dt (tick) ぶん、感情ごとの半減期で
+  decayEmotions(dt = 0) {
+    if (!this.perEmotion()) { for (const e of EMOTIONS) this.emotions[e] = r2(EMO_BASE[e] + (this.emotions[e] - EMO_BASE[e]) * this.decay); return; }
+    const c = this.emoCfg;
+    const t = clamp(Number(dt) || 0, 0, c.maxDt);
+    for (const e of EMOTIONS) {
+      const h = (c.halfLife[e] || 1) * (c.halfLifeMul || 1);
+      const b = this.emoBase[e];
+      this.emotions[e] = r2(b + (this.emotions[e] - b) * Math.pow(0.5, t / h));
+    }
+  }
+  // 言葉に出すしきい値 [感じている, 中, 強い] (感情ごと)
+  emoLevels(e) { return emoLevels(e, this.perEmotion() ? this.emoCfg : null); }
 
   // 1ループに1回: 感情は基準値へ戻り、欲求・ストレスは時間と周りの様子で変わり、ストレスが感情に出る。
   //   sense: agent.js が bot から作る { time, light, shelter, atHome, unfamiliar, newCell } (無ければ raw から分かる分だけ)
   tick({ tick = 0, raw = null, sense = {} } = {}) {
-    for (const e of EMOTIONS) this.emotions[e] = r2(EMO_BASE[e] + (this.emotions[e] - EMO_BASE[e]) * this.decay);
-    this.decayGrudges();
+    const per = this.perEmotion();
+    if (!per) { this.decayEmotions(); this.decayGrudges(); }
     const s = { ...sense };
     if (raw && raw.self) {
       if (s.timeOfDay == null) s.timeOfDay = raw.self.timeOfDay;
@@ -226,26 +301,29 @@ class Social {
       if (s.day == null && raw.self.day != null) s.day = raw.self.day;
     }
     s.bestAffinity = Math.max(50, ...Object.values(this.relations).map((r) => r.affinity));
-    this.needsModel.update(s);
-    this.stressToEmotions();
+    const { dt } = this.needsModel.update(s);
+    // perEmotion: 進んだ tick で戻る・薄れる (needs の dt と同じ)。わだかまりは decayUnit が 'ticks' なら tick で (uniform でも)
+    if (per) { this.decayEmotions(dt); this.decayGrudges(dt); this.stressToEmotions(dt); } else { this.decayGrudges(dt); this.stressToEmotions(); }
   }
 
   // ストレス → 感情 (性格でどれが強く出るか変わる)
-  stressToEmotions() {
+  //   dt: perEmotion のとき進んだ tick (量は 1判断 = perDecisionTicks として tick あたりにする)。uniform は1判断ぶん
+  stressToEmotions(dt = null) {
     const n = this.needsModel;
     const st = n.cfg.stress;
     const S = n.stress;
     const t = this.temperament;
+    const f = this.perEmotion() && dt != null ? clamp(Number(dt) || 0, 0, this.emoCfg.maxDt) / this.emoCfg.perDecisionTicks : 1;
     if (S > st.from) {
       const tilt = { anger: 1.3 - t.obedience * 0.8 + t.greed * 0.2, sadness: 0.4 + t.empathy * 0.4 + t.sociability * 0.4, fear: 1.3 - t.bravery };
       const tot = Object.values(n.inflow).reduce((a, b) => a + b, 0);
       for (const [emo, src] of Object.entries(STRESS_SOURCE)) {
         const share = tot > 0 ? src.reduce((a, k) => a + (n.inflow[k] || 0), 0) / tot : 1 / 3;
-        this.bump(emo, S * st.gain * tilt[emo] * (0.3 + share));
+        this.bump(emo, S * st.gain * tilt[emo] * (0.3 + share) * f);
       }
     }
     // 今の不安そのものも恐れに
-    if (n.v.safety > 0.5) this.bump('fear', (n.v.safety - 0.5) * (1.3 - t.bravery));
+    if (n.v.safety > 0.5) this.bump('fear', (n.v.safety - 0.5) * (1.3 - t.bravery) * f);
   }
 
   // 行動の結果 (ルール)
@@ -364,14 +442,14 @@ class Social {
     return `${how}${r.note ? '。' + r.note : ''}`;
   }
 
+  // 言葉に出す感情 (上位2つ) [[感情, 段 0|1|2], ...]
+  shownEmotions() { return shownEmotions(this.emotions, (e) => this.emoLevels(e), this.perEmotion()); }
+
   // 2B と Jev に渡す短い言葉。数値は渡さない。体と心の状態 (needs.js) は毎回必ず入れる。lang: 'en' は Jev 用 (同じ値から作る)
   words({ maxRelations = 3, relations = true, lang = 'ja' } = {}) {
     const en = lang === 'en';
     const out = [this.needsModel.words({ lang })];
-    const emo = EMOTIONS.map((e) => [e, this.emotions[e]])
-      .filter(([e, v]) => v >= 3 && !(e === 'joy' && v < 4))
-      .sort((a, b) => b[1] - a[1]).slice(0, 2);
-    for (const [e, v] of emo) out.push((en ? EMO_WORD_EN : EMO_WORD)[e][v >= 8 ? 2 : v >= 5 ? 1 : 0]);
+    for (const [e, lv] of this.shownEmotions()) out.push((en ? EMO_WORD_EN : EMO_WORD)[e][lv]);
     const sep = en ? '; ' : '。';
     if (!relations) return out.join(sep);
     // わだかまりのある相手は先に (何をされたかが必ず言葉に出る)
@@ -383,4 +461,7 @@ class Social {
   }
 }
 
-module.exports = { Social, EMOTIONS, NEED_LABEL, AFFINITY_DEFAULTS, GRUDGE_DEFAULTS, GRUDGE_JA, GRUDGE_EN };
+// 人ごとの感情の設定: cfg.social.emotions (全員) に persona.emotions (人ごと: halfLifeMul・baseShift) を重ねる
+function emotionsConfig(cfg = {}, persona = {}) { return merge(merge({}, (cfg.social && cfg.social.emotions) || {}), (persona && persona.emotions) || {}); }
+
+module.exports = { Social, emotionsConfig, EMOTIONS, EMO_BASE, EMOTION_DEFAULTS, emoLevels, shownEmotions, NEED_LABEL, AFFINITY_DEFAULTS, GRUDGE_DEFAULTS, GRUDGE_JA, GRUDGE_EN };
