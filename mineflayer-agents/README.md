@@ -126,6 +126,19 @@ node mineflayer-agents/run.js --config mineflayer-agents/configs/first_setting.j
 node mineflayer-agents/tools/summarize_run.js mineflayer-agents/runs/<時刻>/ --text
 ```
 
+### 100人の実験を1コマンドで (`tools/exp_start.sh`・`tools/exp_stop.sh`)
+
+準備〜開始と停止〜集計をそれぞれ1つにしたもの (手順は手で打つときと同じ。サーバーは `MC_DIR`、既定 `/root/mc-server-fabric`)。
+`exp_start.sh` は接続者・ボットを確かめ、内容と推定の費用を見せて y/N を聞いてから、pristine のコピー・起動・出現地点・朝・run.js の起動まで行い、
+記録のフォルダに `exp_start.json` (引数・ワールド・コミット) を残す。`exp_stop.sh` は SIGINT で止めて check_scale_run・summarize_run・conflict_stats を通し、要点を出す。
+
+```bash
+bash mineflayer-agents/tools/exp_start.sh --dry-run                       # 打つコマンドを見るだけ
+bash mineflayer-agents/tools/exp_start.sh                                 # 100人30分・すべて on・新しいワールド world_survival3d_<次の番号>
+bash mineflayer-agents/tools/exp_start.sh --grudge off --conflict off --aggression off --reuse world_survival3d_19
+bash mineflayer-agents/tools/exp_stop.sh [--stop-server]                  # 止めて集計 (いちばん新しい runs/<時刻>)
+```
+
 ### Jev の提供元 (openrouter / typesafe) と API キー
 
 Jev は **OpenRouter 経由** (既定、2026-11-06 ユーザー決定) か **TypeSafe 直** で呼ぶ。どちらも System One API (`{model, state, questions}`) で、答えの形は同じ。

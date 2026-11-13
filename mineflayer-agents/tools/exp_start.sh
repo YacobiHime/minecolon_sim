@@ -262,7 +262,7 @@ STAMP=$(date +%m%d-%H%M%S)
 LOG="$LOG_DIR/live-run-$STAMP.log"
 LAUNCH="cd $(q "$A") && exec $(q "$NODE_BOT" "${RUN_ARGS[@]}") > $(q "$LOG") 2>&1 < /dev/null"
 if [ "$DRY" = 1 ]; then
-  echo "[dry-run] setsid -f bash -c $(q "$LAUNCH")"
+  echo "[dry-run] setsid -f bash -c \"$LAUNCH\""
   echo "[dry-run] (起動後、プロセスと $RUNS_DIR/ の新しいフォルダを確かめ、exp_start.json を書く)"
   echo
   echo "dry-run なので何も変えていない。"
@@ -272,7 +272,7 @@ fi
 mkdir -p "$RUNS_DIR"
 BEFORE=$(ls -1 "$RUNS_DIR" 2>/dev/null | sort || true)
 STARTED_AT=$(date -Is)
-echo "+ setsid -f bash -c $(q "$LAUNCH")"
+echo "+ setsid -f bash -c \"$LAUNCH\""
 setsid -f bash -c "$LAUNCH"
 RUN_DIR=""; waited=0
 while [ "$waited" -lt "$LAUNCH_WAIT" ]; do
