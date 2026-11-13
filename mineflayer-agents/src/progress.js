@@ -6,6 +6,8 @@
 // steps: [{ text, doneWhen: [cond, ...] }]   cond のどれか1つが成り立てば済み
 //   cond = { inventory: { "<正規表現>": 個数 } }   持ち物に、名前が一致するものが合計で個数以上
 //        | { see: "<ブロック名>" }                今見えている
+//        | { hut: 割合 }                          拠点の小屋が割合以上できている (拠点が近くに見えているときだけ判定)
+//        | { food: 個数 }                         食べ物を個数以上持っている
 
 function invCount(inventory, pattern) {
   const re = new RegExp(pattern);
@@ -15,11 +17,19 @@ function invCount(inventory, pattern) {
 function condMet(cond, raw) {
   if (cond.inventory) return Object.entries(cond.inventory).every(([p, n]) => invCount(raw.inventory, p) >= n);
   if (cond.see) return raw.blocks.some((b) => b.name === cond.see);
+  if (cond.hut != null) return !!(raw.hut && raw.hut.ratio != null && raw.hut.ratio >= cond.hut);
+  if (cond.food != null) return (raw.foodCount || 0) >= cond.food;
   return false;
 }
 
 function stepStatus(steps, raw) {
   return (steps || []).map((s) => ({ text: s.text, done: (s.doneWhen || []).some((c) => condMet(c, raw)) }));
+}
+
+// 済んだ手順の割合 (欲求の「達成」に使う)
+function progressRatio(steps, raw) {
+  const st = stepStatus(steps, raw);
+  return st.length ? st.filter((s) => s.done).length / st.length : null;
 }
 
 function progressText(steps, raw) {
@@ -29,4 +39,4 @@ function progressText(steps, raw) {
   return st.map((s, i) => `(${i + 1})${s.text}${s.done ? '…済' : i === next ? '…← 次はこれ' : ''}`).join(' ');
 }
 
-module.exports = { stepStatus, progressText, condMet };
+module.exports = { stepStatus, progressText, progressRatio, condMet };
