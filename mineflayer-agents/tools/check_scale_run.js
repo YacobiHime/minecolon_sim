@@ -62,6 +62,7 @@ function evaluate(dir, opts = {}) {
     cpuMaxPct: max(monitors.map((x) => Number(x.cpuPct))),
     rssMaxPerProcMb: max(monitors.map((x) => Number(x.rssMb))),
     monitorFiles: monitorFiles.length,
+    missingParts: (run.missingParts || []).map((m) => m.proc),
   };
   const checks = [
     ['agents', stats.agents === expectedAgents, `${stats.agents}/${expectedAgents}`],
@@ -71,6 +72,8 @@ function evaluate(dir, opts = {}) {
     ['Jev errors', stats.jevErrors <= maxApiErrors, `${stats.jevErrors} <= ${maxApiErrors}`],
     ['LLM errors', stats.llmErrors <= maxApiErrors, `${stats.llmErrors} <= ${maxApiErrors}`],
     ['monitor files', stats.monitorFiles === stats.procs, `${stats.monitorFiles}/${stats.procs}`],
+    // 子プロセスがすべて run-part を書けたか (書けなかった子の results は記録から拾ったもの。使用量は欠ける)
+    ['run parts', !stats.missingParts.length, stats.missingParts.length ? `欠けた子 ${stats.missingParts.join(',')}` : 'すべて'],
     ['event-loop p99 max', stats.loopLagP99MaxMs != null && stats.loopLagP99MaxMs <= maxLoopLagMs,
       `${stats.loopLagP99MaxMs}ms <= ${maxLoopLagMs}ms`],
   ].map(([name, ok, detail]) => ({ name, ok, detail }));

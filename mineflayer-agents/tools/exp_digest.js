@@ -55,6 +55,10 @@ function digest(dir) {
     const llm = num(run.usage.llm && run.usage.llm.costUsd);
     if (jev != null || llm != null) out.costUsd = { jev, llm, total: (jev || 0) + (llm || 0) };
   }
+  if (run && run.partial) {
+    const e = (run.usage && run.usage.missingEstimate) || null;
+    out.missing = { procs: (run.missingParts || []).map((m) => m.proc), jevUsdEstimate: e && e.jev ? num(e.jev.costUsd) : null };
+  }
   out.args = exp ? exp.args : null;
   out.world = exp && exp.world ? exp.world.name : null;
   return out;
@@ -77,6 +81,7 @@ function lines(d) {
     L.push(`わだかまり    ${f(c.grudges)} 回 (${f(c.grudgePairs)} 組)・殴った ${f(c.hits)} 回 (${f(c.hitters)} 人・${f(c.blows)} 発)・殺した ${f(c.kills)}`);
   } else L.push('わだかまり    - (conflict.json なし)');
   L.push(`費用          ${d.costUsd ? `$${d.costUsd.total.toFixed(2)} (Jev ${usd(d.costUsd.jev)}・LLM ${usd(d.costUsd.llm)})` : '記録なし (run.json に費用が無い)'}`);
+  if (d.missing) L.push(`注意          run-part が欠けた子 ${d.missing.procs.join(',')} の使用量は費用に入っていない (記録から見積もった Jev ${usd(d.missing.jevUsdEstimate)}。LLM の分は不明)`);
   return L;
 }
 
