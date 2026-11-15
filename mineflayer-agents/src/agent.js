@@ -14,7 +14,7 @@ const { executeAction } = require('./act');
 const { Memory } = require('./memory');
 const { Recorder } = require('./recorder');
 const { progressText, stepStatus } = require('./progress');
-const { Social } = require('./social');
+const { Social, emotionsConfig } = require('./social');
 const { senseShelter, effectiveLight, needsConfig } = require('./needs');
 const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
@@ -284,7 +284,7 @@ class Agent {
     this.talker = talker;
     this.help = helpOf(cfg);
     this.memory = Memory.load(cfg.memory.file, { limits: cfg.memory.limits });
-    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona), affinity: (cfg.social && cfg.social.affinity) || {} });
+    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona), affinity: (cfg.social && cfg.social.affinity) || {}, emotions: emotionsConfig(cfg, cfg.persona) });
     // 分業 (division.js): 慣れ・集団の必要 (刺激)・反応しきい値。cfg.division.enabled: true で使う
     this.division = cfg.division && cfg.division.enabled
       ? Division.fromJSON(this.memory.extra.division, { cfg: cfg.division, temperament: cfg.persona.temperament || {}, drives: (needsConfig(cfg, cfg.persona).drives) || {}, me: cfg.persona.name })
