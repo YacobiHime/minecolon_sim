@@ -51,6 +51,19 @@ function citeCounts(dir) {
   return out;
 }
 
+// events.jsonl の mental (心のモデルの出来事) から: 取り決めを破った/守ったと分かった数 (文字の版は村長の報告 report、Minecraft の中の版は見た漁 judged)
+function judgedCounts(dir) {
+  const f = path.join(dir, 'events.jsonl');
+  const out = { breach: 0, kept: 0 };
+  if (!fs.existsSync(f)) return out;
+  for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    if (!line || !line.includes('"type":"mental"')) continue;
+    const e = JSON.parse(line);
+    for (const x of Object.values(e.events || {})) for (const j of [...(x.judged || []), ...(x.report || [])]) out[j.kind] = (out[j.kind] || 0) + 1;
+  }
+  return out;
+}
+
 function examples(dir, n) {
   const f = path.join(dir, 'events.jsonl');
   if (!fs.existsSync(f)) return [];
@@ -124,6 +137,9 @@ function main() {
       const cc = {};
       for (const r of rs) for (const [k, v] of Object.entries(citeCounts(r.dir))) { const o = (cc[k] = cc[k] || { calls: 0, citing: 0, personality: 0 }); o.calls += v.calls; o.citing += v.citing; o.personality += v.personality; }
       row.mental.citingByKind = cc;
+      const jc = { breach: 0, kept: 0 };
+      for (const r of rs) for (const [k, v] of Object.entries(judgedCounts(r.dir))) jc[k] = (jc[k] || 0) + v;
+      row.mental.judged = jc;
       if (nEx) row.examples = rs.flatMap((r) => examples(r.dir, nEx)).slice(0, nEx * 2);
     }
     rows.push(row);
