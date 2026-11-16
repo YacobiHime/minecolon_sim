@@ -79,7 +79,19 @@ function questionTerms(question) {
 
 // 聞かれた側: 自分の記憶 (やったこと・場所・教わったこと) と、知っていること (goal.hints) から、質問に関係するものを選ぶ。
 // 何も見つからなければ空 (→「分からない」と答える)
-function relevantMemories(memory, question, { hints = [], max = 5 } = {}) {
+function relevantMemories(memory, question, { hints = [], max = 5, from = null } = {}) {
+  // 連想 (memory.retrieval: 'associative'): 質問の中の人・物・場所・欲求の言葉を手がかりに、記憶のグラフをたどる。知っていること (hints) は今までどおり語で当てて足す
+  if (memory.retrieval === 'associative' && typeof memory.recallForAnswer === 'function') {
+    const items = memory.recallForAnswer(question, { from });
+    const terms = questionTerms(question);
+    const names = terms.filter((t) => !['craft', 'collect', 'build', 'place', 'hunt', 'go_to', 'eat'].includes(t));
+    const acts = terms.filter((t) => ['craft', 'collect', 'build', 'place', 'hunt', 'go_to', 'eat'].includes(t));
+    for (const h of hints) {
+      if (items.length >= max) break;
+      if (names.some((n) => h.includes(n)) || (acts.includes('build') && /小屋|build/.test(h)) || (acts.includes('hunt') && /hunt|肉/.test(h))) items.push({ kind: 'hint', text: h });
+    }
+    return items.slice(0, max);
+  }
   const terms = questionTerms(question);
   const items = [];
   if (!terms.length) return items;

@@ -177,7 +177,7 @@ class OwnershipCtl {
     try {
       const type = bot && bot.registry && bot.registry.blocksByName[i.name];
       const left = type && typeof bot.findBlocks === 'function' ? bot.findBlocks({ matching: type.id, maxDistance: 8, count: 2, point: new Vec3(i.pos.x, i.pos.y, i.pos.z) }).filter((p) => !samePos(p, i.pos)) : [];
-      if (!left.length) { m.forgetPlace(i.name, i.pos, 12); this.write({ event: 'place_forgotten', kind: i.name, pos: i.pos, why: 'dug_by_me' }); }
+      if (!left.length) { m.forgetPlace(i.name, i.pos, 12, 'dug_by_me'); this.write({ event: 'place_forgotten', kind: i.name, pos: i.pos, why: 'dug_by_me' }); }
     } catch (_) { /* ignore */ }
   }
 
