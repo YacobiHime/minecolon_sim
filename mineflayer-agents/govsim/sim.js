@@ -40,6 +40,27 @@ class Stats {
   reask(kind) { this.reasked[kind] = (this.reasked[kind] || 0) + 1; }
 }
 
+// LLM に聞く関数を作る。parse が ok でなければ REASK を足して1回だけ聞き直す。2回ともだめなら ok: false (embodied.js も使う)
+function makeAsk({ llm, log, stats }) {
+  return async function ask({ agent, role, kind, month, prompt, parse, maxTokens, extra = {} }) {
+    let last = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const p = attempt === 0 ? prompt : prompt + (REASK[kind] || '');
+      if (attempt > 0) stats.reask(kind);
+      let r = null; let err = null;
+      stats.llmCalls += 1; stats.byRole[role] = (stats.byRole[role] || 0) + 1;
+      try { r = await llm({ role, prompt: p, maxTokens, agent, kind }); } catch (e) { err = String(e && e.message ? e.message : e).slice(0, 300); stats.llmErrors += 1; }
+      const parsed = r ? parse(r.text) : { ok: false, error: 'llm_error' };
+      log({ type: 'llm', month, agent, role, kind, attempt, prompt: p, text: r ? r.text : null, finishReason: r ? r.finishReason : null, error: err, parsed: { ...parsed }, ...extra });
+      if (r && r.finishReason === 'length') stats.truncated[kind] = (stats.truncated[kind] || 0) + 1;
+      last = { ...parsed, text: r ? r.text : null };
+      if (parsed.ok) return { ...parsed, text: r.text, attempts: attempt + 1 };
+    }
+    stats.fail(kind);
+    return { ...last, ok: false, attempts: 2 };
+  };
+}
+
 async function runSim(o) {
   const variant = o.variant || 'default';
   if (!VARIANTS.includes(variant)) throw new Error(`variant は ${VARIANTS.join('|')}`);
@@ -81,24 +102,7 @@ async function runSim(o) {
   log({ type: 'start', variant, agents: names, personas: mentalOn ? personas.map((p) => ({ name: p.name, age: p.age, sex: p.sex, temperament: p.temperament, personality_en: p.personality_en })) : undefined,
     env: envCfg, mental: mentalOn, language, outsider, f0 });
 
-  // LLM に聞く。parse が ok でなければ REASK を足して1回だけ聞き直す。2回ともだめなら ok: false
-  async function ask({ agent, role, kind, month, prompt, parse, maxTokens, extra = {} }) {
-    let last = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const p = attempt === 0 ? prompt : prompt + (REASK[kind] || '');
-      if (attempt > 0) stats.reask(kind);
-      let r = null; let err = null;
-      stats.llmCalls += 1; stats.byRole[role] = (stats.byRole[role] || 0) + 1;
-      try { r = await llm({ role, prompt: p, maxTokens, agent, kind }); } catch (e) { err = String(e && e.message ? e.message : e).slice(0, 300); stats.llmErrors += 1; }
-      const parsed = r ? parse(r.text) : { ok: false, error: 'llm_error' };
-      log({ type: 'llm', month, agent, role, kind, attempt, prompt: p, text: r ? r.text : null, finishReason: r ? r.finishReason : null, error: err, parsed: { ...parsed }, ...extra });
-      if (r && r.finishReason === 'length') stats.truncated[kind] = (stats.truncated[kind] || 0) + 1;
-      last = { ...parsed, text: r ? r.text : null };
-      if (parsed.ok) return { ...parsed, text: r.text, attempts: attempt + 1 };
-    }
-    stats.fail(kind);
-    return { ...last, ok: false, attempts: 2 };
-  }
+  const ask = makeAsk({ llm, log, stats });
 
   let agreement = null; // 最新の取り決め (mental on の「破った・守った」の判定に使う)
   const agreements = [];
@@ -214,4 +218,4 @@ function mentalStats(rows) {
   return { harvestDecisions: calls, decisionsCitingMentalTerms: citing, citedTerms: terms, shownPhrases: shown };
 }
 
-module.exports = { runSim, VARIANTS, GOVSIM_NAMES, monthStart, reflectionDay, discussionDay, citedTerms, MENTAL_TERMS };
+module.exports = { runSim, VARIANTS, GOVSIM_NAMES, monthStart, reflectionDay, discussionDay, citedTerms, MENTAL_TERMS, makeAsk, Stats, mentalStats, REASK };

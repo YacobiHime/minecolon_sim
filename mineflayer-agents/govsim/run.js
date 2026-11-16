@@ -35,12 +35,8 @@ function parseArgs(argv) {
 
 function onoff(v, def) { if (v == null) return def; return v === true || v === 'on' || v === 'true' || v === '1'; }
 
-async function main() {
-  const a = parseArgs(process.argv.slice(2));
-  const variant = a.variant || 'default';
-  if (!VARIANTS.includes(variant)) throw new Error(`--variant は ${VARIANTS.join('|')}`);
-  const mental = onoff(a.mental, false);
-  const seed = Number(a.seed ?? 1);
+// LLM の呼び出しを作る (embodied.js も使う)。a: parseArgs の結果。API キーは表示も記録もしない
+function makeLlm(a) {
   const provider = a['llm-provider'] || 'luna';
   const maxUsd = a['max-llm-usd'] != null ? Number(a['max-llm-usd']) : 5;
   const temperature = a.temperature != null ? Number(a.temperature) : 0;
@@ -62,6 +58,22 @@ async function main() {
     const r = await d.complete([{ role: 'user', content: prompt }], null, { maxTokens, temperature });
     return { text: r.text, finishReason: r.finishReason, costUsd: r.costUsd };
   };
+  // 実行の終わりに summary.llm に入れるもの
+  const info = () => {
+    const usage = LLM_USAGE.summary();
+    const firstDecider = Object.values(deciders)[0];
+    return { provider, model: firstDecider ? firstDecider.model : null, temperature, reasoningEffort: firstDecider ? firstDecider.reasoningEffort : null, usage, costUsd: usage.costUsd, exceeded: usage.exceeded };
+  };
+  return { llm, provider, info };
+}
+
+async function main() {
+  const a = parseArgs(process.argv.slice(2));
+  const variant = a.variant || 'default';
+  if (!VARIANTS.includes(variant)) throw new Error(`--variant は ${VARIANTS.join('|')}`);
+  const mental = onoff(a.mental, false);
+  const seed = Number(a.seed ?? 1);
+  const { llm, provider, info: llmInfo } = makeLlm(a);
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const out = a.out || path.join(__dirname, '..', 'runs', 'govsim', `${stamp}_${provider}_${variant}_${mental ? 'on' : 'off'}_s${seed}`);
@@ -82,9 +94,8 @@ async function main() {
     ev.end();
     throw e;
   }
-  const usage = LLM_USAGE.summary();
-  const firstDecider = Object.values(deciders)[0];
-  summary.llm = { provider, model: firstDecider ? firstDecider.model : null, temperature, reasoningEffort: firstDecider ? firstDecider.reasoningEffort : null, usage, costUsd: usage.costUsd, exceeded: usage.exceeded };
+  summary.llm = llmInfo();
+  const usage = summary.llm.usage;
   summary.wallSec = Math.round((Date.now() - t0) / 1000);
   summary.out = out;
   fs.writeFileSync(path.join(out, 'summary.json'), JSON.stringify(summary, null, 2));
@@ -98,4 +109,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(redact(String(e && e.message ? e.message : e))); process.exit(1); });
 }
 
-module.exports = { parseArgs };
+module.exports = { parseArgs, onoff, makeLlm };
