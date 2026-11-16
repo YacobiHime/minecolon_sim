@@ -10,7 +10,7 @@
 //   - 人数と量を N・capacity から作る (N=5・100 なら元と同じ文)
 //   - 元は assistant の出だしに "Response: " を入れて続きを書かせる (pathfinder)。ここは Chat API なので、形式を書いて全部を書かせ、あとで読む
 //   - goals を足すとき、元は空白なしでつないでいた。ここは空白を1つ入れる
-//   - mental on のときだけ、性格 (personality) を system に、体と心と人間関係の言葉を記憶のあとに足す (README の govsim の節)
+//   - mental on のときだけ、性格 (personality) を system に、体と心と人間関係の言葉を記憶のあとに足す (写し方は govsim/mental.js)
 
 const NUM_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 const numWord = (n) => NUM_WORDS[n] || String(n);

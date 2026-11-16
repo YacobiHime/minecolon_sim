@@ -1,6 +1,6 @@
 'use strict';
 // GovSim の漁場の1回の実行 (月の流れ・話し合い・取り決め・振り返り・変種)。LLM は引数の関数で受け取る (テストでは偽物を渡す)。
-// 流れは GovSim (MIT) の persona_v3 と concurrent_env / perturbation_env に合わせた。詳しくは govsim/README.md
+// 流れは GovSim (MIT) の persona_v3 と concurrent_env / perturbation_env に合わせた。使い方は govsim/run.js、心のモデルの写し方は govsim/mental.js の先頭
 const { FisheryEnv, scaleConfig, sustainableShare } = require('./env');
 const { computeMetrics } = require('./metrics');
 const { GovMemory, DAY } = require('./memory');
@@ -35,7 +35,7 @@ function citedTerms(mental, text) {
 }
 
 class Stats {
-  constructor() { this.parseFail = {}; this.reasked = {}; this.llmErrors = 0; this.llmCalls = 0; this.byRole = {}; }
+  constructor() { this.parseFail = {}; this.reasked = {}; this.truncated = {}; this.llmErrors = 0; this.llmCalls = 0; this.byRole = {}; }
   fail(kind) { this.parseFail[kind] = (this.parseFail[kind] || 0) + 1; }
   reask(kind) { this.reasked[kind] = (this.reasked[kind] || 0) + 1; }
 }
@@ -91,7 +91,8 @@ async function runSim(o) {
       stats.llmCalls += 1; stats.byRole[role] = (stats.byRole[role] || 0) + 1;
       try { r = await llm({ role, prompt: p, maxTokens, agent, kind }); } catch (e) { err = String(e && e.message ? e.message : e).slice(0, 300); stats.llmErrors += 1; }
       const parsed = r ? parse(r.text) : { ok: false, error: 'llm_error' };
-      log({ type: 'llm', month, agent, role, kind, attempt, prompt: p, text: r ? r.text : null, error: err, parsed: { ...parsed }, ...extra });
+      log({ type: 'llm', month, agent, role, kind, attempt, prompt: p, text: r ? r.text : null, finishReason: r ? r.finishReason : null, error: err, parsed: { ...parsed }, ...extra });
+      if (r && r.finishReason === 'length') stats.truncated[kind] = (stats.truncated[kind] || 0) + 1;
       last = { ...parsed, text: r ? r.text : null };
       if (parsed.ok) return { ...parsed, text: r.text, attempts: attempt + 1 };
     }
@@ -122,7 +123,7 @@ async function runSim(o) {
       const snap = a.mental ? a.mental.snapshot() : undefined;
       if (env.pool <= 0) return { a, wanted: 0, ok: true, mental };
       const prompt = P.harvestPrompt({ sys: a.sys, date: t0, name: a.name, memories: a.memory.retrieve(t0, 10), interval: [0, env.pool], mental });
-      const r = await ask({ agent: a.name, role: 'act', kind: 'harvest', month: m, prompt, parse: parseHarvest, maxTokens: o.maxTokensHarvest ?? 1000, extra: mental ? { mental, mentalState: snap } : {} });
+      const r = await ask({ agent: a.name, role: 'act', kind: 'harvest', month: m, prompt, parse: parseHarvest, maxTokens: o.maxTokensHarvest ?? 2500, extra: mental ? { mental, mentalState: snap } : {} });
       return { a, wanted: r.ok ? r.value : 0, ok: r.ok, mental, reasoning: r.text, cited: citedTerms(mental, r.text) };
     }));
     const wanted = Object.fromEntries(harvestRes.map((x) => [x.a.name, x.wanted]));
@@ -144,7 +145,7 @@ async function runSim(o) {
       while (true) {
         const mental = speaker.mental ? speaker.mental.words() : '';
         const prompt = P.utterancePrompt({ sys: speaker.sys, date: tDisc, name: speaker.name, memories: speaker.memory.retrieve(tDisc, 5), participants, conversation, mental });
-        const r = await ask({ agent: speaker.name, role: 'talk', kind: 'utterance', month: m, prompt, parse: (t) => parseUtterance(t, participants), maxTokens: o.maxTokensUtterance ?? 400, extra: mental ? { mental } : {} });
+        const r = await ask({ agent: speaker.name, role: 'talk', kind: 'utterance', month: m, prompt, parse: (t) => parseUtterance(t, participants), maxTokens: o.maxTokensUtterance ?? 800, extra: mental ? { mental } : {} });
         const utter = r.utterance || '';
         conversation.push([speaker.name, utter]);
         if (speaker.mental) speaker.mental.onSpoke();
@@ -155,7 +156,7 @@ async function runSim(o) {
       }
       const s = await ask({ agent: 'framework', role: 'framework', kind: 'summary', month: m, prompt: P.summaryPrompt(conversation), parse: (t) => ({ ok: true, value: firstSentence(t) }), maxTokens: 200 });
       summary = s.ok ? s.value : '';
-      const l = await ask({ agent: 'framework', role: 'framework', kind: 'limit', month: m, prompt: P.limitPrompt(conversation), parse: parseLimit, maxTokens: o.maxTokensLimit ?? 800 });
+      const l = await ask({ agent: 'framework', role: 'framework', kind: 'limit', month: m, prompt: P.limitPrompt(conversation), parse: parseLimit, maxTokens: o.maxTokensLimit ?? 1500 });
       limit = l.ok ? l.value : null;
       if (limit != null) { agreement = limit; agreements.push({ month: m, limit }); }
       log({ type: 'conversation', month: m, conversation, summary, limit });
@@ -190,7 +191,7 @@ async function runSim(o) {
   const summary = {
     variant, mental: mentalOn, seed: o.seed ?? 1, agents: names, months, allocation: envCfg.allocation, env: envCfg, metrics,
     monthsRun: env.history.length, agreements, months_detail: monthRows,
-    parseFailures: stats.parseFail, reasked: stats.reasked, llmCalls: stats.llmCalls, llmErrors: stats.llmErrors, callsByRole: stats.byRole,
+    parseFailures: stats.parseFail, reasked: stats.reasked, truncated: stats.truncated, llmCalls: stats.llmCalls, llmErrors: stats.llmErrors, callsByRole: stats.byRole,
     failurePolicy: 'parse 失敗は REASK を足して1回だけ聞き直す。それでもだめなら: 収穫 = 0 トン (GovSim と同じ値)、発言 = 読めた分の文・話し合いは終える (GovSim の既定 yes)・次の話し手が読めなければ最初の人 (GovSim の既定)、取り決め = なし。どれも parseFailures に数える',
   };
   if (mentalOn) summary.mentalContribution = mentalStats(monthRows);
