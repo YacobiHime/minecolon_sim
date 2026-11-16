@@ -4,8 +4,8 @@
 //   FisherBot     : 1人の bot (mineflayer + pathfinder)。歩く・池を見て数える・魚を取る・食べる・チャット・心のモデルの材料 (sense)
 //   MinecraftWorld: 場所 (池・集まる所・家) を作り、上の2つを embodied_sim.js の world の約束にまとめる
 //
-// 場所 (原点 O = (x0, y0, z0)、y0 = 立つ高さ。1つの実行 = 1つの場所。--site で 200 ブロックずつずらすと同時に動かせる):
-//   平らな地面 x0−12..x0+12、z0−10..z0+36 (草。上は y0+12 まで空気)
+// 場所 (原点 O = (x0, y0, z0)、y0 = 立つ高さ。1つの実行 = 1つの場所。--site でずらすと同時に動かせる):
+//   平らな地面 x0−12..x0+12、z0−10..z0+36 (草。上は y0+12 まで空気)。原点は出現地点 + (24 + 60 × (site % 3), 80 × floor(site / 3))
 //   池: 水 7×7×2 (x0−3..x0+3、z0−3..z0+3、y0−2..y0−1)。周りは地面。魚 (cod) はタグ gs_<site> 付き・消えない・落とし物なし
 //   池の縁: 池の中心から 4 マスの四角の1周 (ここに立って取る。手が届くのは 5 ブロックまで)
 //   集まる所 (話し合い): (x0, z0+22)。家: z0+30 に 4 マスおき。池から 16 ブロックより遠い (見分けられる距離の外)
@@ -32,8 +32,15 @@ class ServerConsole {
     try { fs.writeSync(fd, `${cmd}\n`); } finally { fs.closeSync(fd); }
   }
 
+  // 送る (pipe が一杯 EAGAIN なら少し待って送り直す)
+  async sendRetry(cmd) {
+    for (let i = 0; ; i++) {
+      try { this.sendNow(cmd); return; } catch (e) { if (i >= 20 || !['EAGAIN', 'EWOULDBLOCK'].includes(e.code)) throw e; await sleep(100); }
+    }
+  }
+
   async send(cmd, gapMs = 60) {
-    this.queue = this.queue.then(async () => { this.sendNow(cmd); await sleep(gapMs); });
+    this.queue = this.queue.then(async () => { await this.sendRetry(cmd); await sleep(gapMs); });
     return this.queue;
   }
 
@@ -54,7 +61,7 @@ class ServerConsole {
     let off;
     this.queue = this.queue.then(async () => {
       off = this.size();
-      for (const c of [].concat(cmds)) { this.sendNow(c); await sleep(30); }
+      for (const c of [].concat(cmds)) { await this.sendRetry(c); await sleep(30); }
     });
     await this.queue;
     const t0 = Date.now();
@@ -121,6 +128,7 @@ class FisherBot {
     this.group = group; // 同じ実行の人の username → name (チャットはこの人たちのものだけ聞く。同時に動かしたほかの場所の声は捨てる)
     this.heard = []; // { from (name), text, t (Date.now()) }
     this.bot = null;
+    this.dead = new Set(); // 死んだ魚 (死ぬ動きのあいだ 1 秒ほど bot.entities に残るので、もう一度狙わない)
   }
 
   async connect() {
@@ -134,6 +142,7 @@ class FisherBot {
       if (!from) return;
       this.heard.push({ from, text: String(message), t: Date.now() });
     });
+    bot.on('entityDead', (e) => { if (e && e.name === 'cod') this.dead.add(e.id); });
     bot.on('kicked', (r) => this.log({ type: 'bot_kicked', who: this.name, reason: String(JSON.stringify(r)).slice(0, 300) }));
     bot.on('error', (e) => this.log({ type: 'bot_error', who: this.name, error: String(e && e.message).slice(0, 200) }));
     bot.on('end', (r) => { this.ended = true; this.log({ type: 'bot_end', who: this.name, reason: String(r) }); });
@@ -174,7 +183,7 @@ class FisherBot {
 
   // 池の中に見えている魚 (cod)。見通しのあるものだけ
   visibleFish(layout) {
-    return Object.values(this.bot.entities).filter((e) => e && e.name === 'cod' && e.position && layout.inPond(e.position) && this.canSee(e.position.offset(0, 0.2, 0)));
+    return Object.values(this.bot.entities).filter((e) => e && e.name === 'cod' && !this.dead.has(e.id) && e.position && layout.inPond(e.position) && this.canSee(e.position.offset(0, 0.2, 0)));
   }
 
   // 1匹取る。claims: 同じ魚を2人で狙わないための印 (同じプロセスの中の取り決めではなく、誰の手柄かを1つに決めるため)。
@@ -188,18 +197,18 @@ class FisherBot {
     claims.add(target.id);
     try {
       for (let tries = 0; tries < 4 && Date.now() < deadlineMs; tries++) {
-        if (!this.bot.entities[target.id]) return { ok: false, reason: 'gone' };
+        if (!this.bot.entities[target.id] || this.dead.has(target.id)) return { ok: false, reason: 'gone' };
         if (d3(this.pos(), target.position) > 4.5) {
           await this.goto(layout.nearestRim(target.position), 0, Math.max(1000, Math.min(10000, deadlineMs - Date.now())));
         }
-        if (!this.bot.entities[target.id]) return { ok: false, reason: 'gone' };
+        if (!this.bot.entities[target.id] || this.dead.has(target.id)) return { ok: false, reason: 'gone' };
         if (d3(this.pos(), target.position) > 5.2) continue;
         const fishPos = target.position.clone();
         try { await this.bot.lookAt(target.position.offset(0, 0.2, 0), true); } catch (_) { /* ignore */ }
         const dead = new Promise((resolve) => {
           const onDead = (e) => { if (e.id === target.id) { cleanup(); resolve(true); } };
-          const cleanup = () => { this.bot.removeListener('entityDead', onDead); this.bot.removeListener('entityGone', onDead); };
-          this.bot.on('entityDead', onDead); this.bot.on('entityGone', onDead);
+          const cleanup = () => { this.bot.removeListener('entityDead', onDead); };
+          this.bot.on('entityDead', onDead);
           setTimeout(() => { cleanup(); resolve(false); }, 1200);
         });
         this.bot.attack(target);
@@ -299,8 +308,9 @@ class MinecraftWorld {
     for (const b of Object.values(this.bots)) { await b.connect(); await sleep(800); }
     const first = this.bots[this.names[0]];
     const spawn = first.bot.spawnPoint || first.pos();
-    const ox = this.origin ? this.origin.x : Math.floor(spawn.x) + 24 + this.site * 200;
-    const oz = this.origin ? this.origin.z : Math.floor(spawn.z);
+    // 場所: 出現地点から東に 24、場所の番号ごとに 3 列 (x に 60 ずつ) × 行 (z に 80 ずつ)。同時に動かしても見分けられる距離 (16) より十分に離れる
+    const ox = this.origin ? this.origin.x : Math.floor(spawn.x) + 24 + (this.site % 3) * 60;
+    const oz = this.origin ? this.origin.z : Math.floor(spawn.z) + Math.floor(this.site / 3) * 80;
     await C.send(`forceload add ${ox - 12} ${oz - 10} ${ox + 12} ${oz + 36}`, 2000);
     await C.send(`spreadplayers ${ox} ${oz} 0 1 false ${first.username}`, 2500);
     await sleep(1500);
@@ -312,7 +322,9 @@ class MinecraftWorld {
     await C.send(`kill @e[type=item,x=${ox - 12},y=${y0 - 6},z=${oz - 10},dx=25,dy=20,dz=47]`, 300);
     for (const n of this.names) {
       const u = this.userOf[n]; const h = this.layout.homes[this.names.indexOf(n)];
-      for (const c of [`tp ${u} ${h.x} ${h.y} ${h.z}`, `clear ${u}`, `effect clear ${u}`, `gamemode survival ${u}`, `give ${u} iron_sword 1`, `effect give ${u} minecraft:saturation 2 10 true`]) await C.send(c, 150);
+      // kill: 生き返ると満腹度 20・隠し満腹度 5・体力 20 (前の実行の体の状態を持ち越さない)。そのあと家に連れて行き、剣だけ持たせる
+      for (const c of [`kill ${u}`]) await C.send(c, 600);
+      for (const c of [`tp ${u} ${h.x} ${h.y} ${h.z}`, `clear ${u}`, `effect clear ${u}`, `gamemode survival ${u}`, `give ${u} iron_sword 1`]) await C.send(c, 150);
     }
     await sleep(2500);
     for (const b of Object.values(this.bots)) await b.holdSword();
@@ -328,7 +340,7 @@ class MinecraftWorld {
   async summonFish(n, rng = Math.random) {
     const L = this.layout;
     for (let i = 0; i < n; i++) {
-      const x = L.x0 - L.pondHalf + rng() * (2 * L.pondHalf + 1); const z = L.z0 - L.pondHalf + rng() * (2 * L.pondHalf + 1);
+      const x = L.x0 - L.pondHalf + 0.4 + rng() * (2 * L.pondHalf + 0.2); const z = L.z0 - L.pondHalf + 0.4 + rng() * (2 * L.pondHalf + 0.2);
       await this.console.send(`summon cod ${x.toFixed(2)} ${L.y0 - 1.5} ${z.toFixed(2)} {Tags:["${this.tag}"],PersistenceRequired:1b,DeathLootTable:"minecraft:empty"}`, 40);
     }
   }
@@ -383,7 +395,14 @@ class MinecraftWorld {
   async goToLake(name, deadlineMs) { return this.bots[name].goto(this.rimSpot(name), 0, Math.max(1000, Math.min(30000, deadlineMs - Date.now()))); }
   async goHome(name) { return this.bots[name].goto(this.home(name), 0, 30000); }
   async goMeeting(name) { return this.bots[name].goto(this.meetSpot(name), 1, 30000); }
-  lookAtLake(name) { return this.bots[name].visibleFish(this.layout).length; }
+  lookAtLake(name) {
+    const b = this.bots[name];
+    const vis = b.visibleFish(this.layout).length;
+    const tracked = Object.values(b.bot.entities).filter((e) => e && e.name === 'cod' && !b.dead.has(e.id) && e.position && this.layout.inPond(e.position)).length;
+    const anyCod = Object.values(b.bot.entities).filter((e) => e && e.name === 'cod' && !b.dead.has(e.id)).length;
+    this.log({ type: 'look', who: name, visible: vis, trackedInPond: tracked, trackedCod: anyCod, pos: this.position(name) });
+    return vis;
+  }
   async catchOne(name, claims, deadlineMs) { return this.bots[name].catchOne(this.layout, claims, deadlineMs); }
   async eat(name) { return this.bots[name].eat(); }
   chat(name, text) { return this.bots[name].chat(text); }

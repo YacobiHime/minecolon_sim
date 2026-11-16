@@ -116,6 +116,7 @@ async function runEmbodied(o) {
     env: envCfg, tonsPerFish: k, mental: mentalOn, language, mayorReport, f0, clock: { t0: startAt, monthTicks, harvest: clock.harvest, discussion: clock.discussion }, staggerFrac });
 
   await world.setFish(ledger.capFish);
+  log({ type: 'fish_set', want: ledger.capFish, counted: await world.countFish() });
   let agreement = null;
   const agreements = [];
   const monthRows = [];
@@ -164,7 +165,7 @@ async function runEmbodied(o) {
             continue;
           }
           const w = world.witnesses(a.name, names);
-          ledger.recordCatch(a.name, { fishId: c.fishId, t: world.now(), witnesses: w });
+          if (!ledger.recordCatch(a.name, { fishId: c.fishId, t: world.now(), witnesses: w })) { log({ type: 'catch_dup', month: m, who: a.name, fishId: c.fishId }); misses += 1; continue; }
           for (const x of w) byName[x].know.sawCatch(m, a.name);
           log({ type: 'catch', month: m, who: a.name, fishId: c.fishId, tick: world.now(), witnesses: w, pos: world.position(a.name) });
           got += 1;
