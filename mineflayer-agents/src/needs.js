@@ -25,6 +25,20 @@ const LABEL_TO_NEED = Object.fromEntries(Object.entries(NEED_LABEL).map(([k, v])
 const NIGHT = (t) => t >= 13000 && t < 23000;
 const KANJI = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
 
+// ■ 眠気の2過程モデル (sleep.model: 'processS'。2026-11-13 ユーザー決定「今の『夜は2.5倍』は根拠がないので外し、妥当性のあるモデルに」)
+//   Process S (恒常性の睡眠圧): 起きている間 S = μ − (μ − S0)·exp(−t/τw)、眠っている間 S = S0·exp(−t/τs)。
+//   眠くなる (眠りに入る) のは S が上の閾値 H+(t) = H0+ + a·cos(2π(時刻 − 頂点)/24h) に達したとき (Process C: 概日の揺れ)。
+//   値: τw = 18.2h (18200 tick)・τs = 4.2h (4200)・H0+ 0.67・H0− 0.17・a 0.12・μ 1。Daan, Beersma, & Borbély 1984, Am. J. Physiol. 246, R161-R183。
+//     原典は有料で開けず、2つの二次文献で同じ値を確かめた: Skeldon & Dijk 2025, npj Biol. Timing Sleep 2, 24 (Fig. 1b の図説)、
+//     Hagenauer & Lee 2013, Horm. Behav. 64, 270-279 (Fig. 2 の図説「τi = 18.18 h」「τd = 4.2 h」「平均 0.17・0.67」「A = 0.12」)。
+//   頂点 circPeak 10500 (16時半): 7時に起きた若い大人 (τw 18.2h) が 23時に眠くなる (推奨の睡眠 8h、Hirshkowitz ら 2015) ように置いた [弱: Daan 1984 の位相は確かめられず]。
+//   ゲームの時刻は tod 0 = 朝6時 (1時間 = 1000 tick。ゲームの1日 = 人の1日。2026-11-13 ユーザー決定)。
+//   ほかの部品 (ストレス・言葉・gate) が使う v.sleep (0〜1 の「足りなさ」) は、S を「起きた直後 H0− で 0、眠りに入る H+(t) で threshold」に写す:
+//     v.sleep = threshold × (S − H0−) / (H+(t) − H0−)。だから threshold を超える (ストレスになる) のは S が H+(t) を超えたとき (眠いのに寝ていない)。
+//   人ごとの差: tauW (gen_personas.js が年齢と対数正規で決める)。threshold の 0.55 からのずれ (Roenneberg 2004 の年齢の夜型・朝型) は H0+ のずれとして使う。
+//   ベッド: 寝ていた時間 (前の観測から起きた時刻まで) だけ S = max(H0−, S·exp(−寝ていた時間/τs))。短く寝ただけなら眠気が残る (睡眠負債は1夜で戻らない。Banks ら 2010)。
+//     寝ていた時間が分からず夜も明けなかったときは partialTicks (1000 = 1h) 寝たとする [仮]。
+
 // 既定値 (全員同じ)。fullAfter は 0 から 1 (いちばんつらい) まで増えるのにかかる tick (増える速さ = 1/fullAfter。rate で直接も書ける)
 const NEEDS_DEFAULTS = {
   start: { hunger: 0.2, sleep: 0.1, safety: 0.1, connection: 0.2, recognition: 0.2, curiosity: 0.3, greed: 0.2, care: 0.2 },
@@ -35,7 +49,10 @@ const NEEDS_DEFAULTS = {
   hunger: { source: 'food', satZero: 0.1, sensitivity: 1, fullAfter: 7000, threshold: 0.5, perFoodPoint: 0.1, minEat: 0.1 },
   // 眠気: 起きている間ずっと増え、夜は nightMult 倍。ベッドで夜を越すと bedTo まで、途中で起きたら bedPartial だけ減る。
   //       床で休む (restActions の行動) と rest だけ減る (survival_3days は restActions が空で、ベッドだけ。2026-11-07)。寝ないで夜を越すと翌日まで残る (自然には減らない)
-  sleep: { fullAfter: 30000, nightMult: 2.5, threshold: 0.55, bedTo: 0, bedPartial: 0.35, bedHunger: 0.15, rest: 0.03, restActions: ['wait', 'look_around'] },
+  //   model: 'linear' (上の旧モデル) | 'processS' (睡眠の2過程モデル。下の SLEEP_PROCESS_S。2026-11-13 ユーザー決定。比較実験のため旧も残す)
+  sleep: { model: 'linear', fullAfter: 30000, nightMult: 2.5, threshold: 0.55, bedTo: 0, bedPartial: 0.35, bedHunger: 0.15, rest: 0.03, restActions: ['wait', 'look_around'],
+    // processS の係数 (model: 'processS' のときだけ使う。出典は SLEEP_PROCESS_S の説明)
+    tauW: 18200, tauS: 4200, mu: 1, H0plus: 0.67, H0minus: 0.17, circAmp: 0.12, circPeak: 10500, refThreshold: 0.55, partialTicks: 1000 },
   // 不安: 下の要素の和を目標に、上がるときは up、下がるときは down の割合で近づく。
   //       気質の bravery が低いほど、上げる要素が大きく効く (×(1 + braveryScale×(0.5−bravery)×2))
   safety: {
@@ -61,7 +78,17 @@ const NEEDS_DEFAULTS = {
   // ストレス: dS = k × Σ 重み × 超えた分 × (1 + (満たされない時間 / T)^power) × dt/1000。
   //   (1 + …) は maxMul (上の欲求は maxMulHigher) で頭打ち。満たされない欲求が無ければ recover × dt/1000 ずつ抜ける。
   //   満たされた欲求の「満たされない時間」は unmetDecay 倍の速さで戻る
+  //   model: 'linear' (上の旧モデル: 満たされない欲求が無いときだけ recover で直線に抜ける) |
+  //          'exp' (2026-11-13 ユーザー決定。係数は exp の中の値で上書きする (人ごとの k も exp.k。旧の k と別に持つので、linear に戻すと旧の値で動く)):
+  //            いつも半減期 exp.halfLife (tick) の指数で抜け、満たされない分が足される: S ← S·0.5^(dt/halfLife) + dS。
+  //            halfLife 11500 = 前日の負の感情の係数 .235 から 24h·ln0.5/ln0.235 = 11.5h (Mroczek & Almeida 2004, J. Pers. 72, 355-378, Table 2)。
+  //            抜け方がいつも効くので、満たされない欲求が続いてもストレスは頭打ちになる (睡眠不足の効果は約60hで頭打ち。Palmer ら 2024, Psychol. Bull. 150, 440-463)。
+  //            power 0.5: 長く満たされないほど速くたまる形は残すが、2乗で加速する測定は無い (Palmer 2024 は上に凸) ので1より下げた [仮。ユーザー決定「power を2から下げる」]。
+  //            k: tools/calibrate_emotions.js で、ストレスが言葉に出る (0.2 以上) 日の割合を、日々のストレッサーのある日の割合 38% (ストレスの無い日 62%。
+  //               Mroczek & Almeida 2004 Table 1 の DISE) に合わせた値。人ごとに × max(0.2, 1 + 0.51·zN) (gen_personas.js)
   stress: {
+    model: 'linear',
+    exp: { halfLife: 11500, k: 0.00785, power: 0.5 },
     k: 0.012, T: 6000, power: 2, maxMul: 6, maxMulHigher: 2, recover: 0.03, unmetDecay: 2,
     weights: { hunger: 1, sleep: 1.2, safety: 1.5, connection: 0.4, recognition: 0.25, curiosity: 0.2, greed: 0.2, care: 0.2 },
     // 感情への出方: ストレスが from を超えると、毎判断 S × gain × 性格の傾き × (0.3 + 出どころの割合) だけ怒り・悲しみ・恐れを上げる
@@ -139,6 +166,8 @@ class Needs {
     this.drives = { curiosity: d.curiosity ?? 0.5, greed: d.greed ?? this.temperament.greed, care: d.care ?? this.temperament.empathy };
     this.v = { ...NEEDS_DEFAULTS.start, ...(this.cfg.start || {}) };
     this.stress = 0;
+    this.S = this.cfg.sleep.H0minus; // Process S (sleep.model: 'processS' のとき。起きた直後の値から)
+    this.sleptUntil = null; // processS: 最後に寝て起きた通しの時刻 (そこまでは起きていた時間に数えない)
     this.unmet = Object.fromEntries(NEEDS.map((k) => [k, 0])); // 満たされない時間 (tick)
     this.inflow = Object.fromEntries(NEEDS.map((k) => [k, 0])); // 直近のストレスの出どころ
     this.shock = { death: 0, hurt: 0 };
@@ -162,7 +191,7 @@ class Needs {
     const n = new Needs(opts);
     if (d && isObj(d) && isObj(d.v)) {
       for (const k of ['v', 'unmet', 'shock', 'counts']) if (isObj(d[k])) Object.assign(n[k], d[k]);
-      for (const k of ['stress', 'lastTime', 'lastAte', 'missedNights', 'sleptThisNight', 'wasNight', 'food', 'saturation']) if (d[k] !== undefined) n[k] = d[k];
+      for (const k of ['stress', 'lastTime', 'lastAte', 'missedNights', 'sleptThisNight', 'wasNight', 'food', 'saturation', 'S', 'sleptUntil']) if (d[k] !== undefined) n[k] = d[k];
       if (isObj(d.ant)) n.ant = Anticipation.fromJSON(d.ant, { cfg: n.cfg.anticipate, temperament: n.temperament });
     }
     return n;
@@ -170,10 +199,27 @@ class Needs {
 
   toJSON() {
     return { v: this.v, stress: this.stress, unmet: this.unmet, shock: this.shock, counts: this.counts, lastTime: this.lastTime, lastAte: this.lastAte,
-      missedNights: this.missedNights, sleptThisNight: this.sleptThisNight, wasNight: this.wasNight, food: this.food, saturation: this.saturation, ant: this.ant.toJSON() };
+      missedNights: this.missedNights, sleptThisNight: this.sleptThisNight, wasNight: this.wasNight, food: this.food, saturation: this.saturation,
+      ...(this.processS() ? { S: this.S, sleptUntil: this.sleptUntil } : {}), ant: this.ant.toJSON() };
   }
 
   threshold(k) { return this.cfg[k].threshold; }
+
+  // ---- 眠気の2過程モデル (sleep.model: 'processS') ----
+  processS() { return this.cfg.sleep.model === 'processS'; }
+  // 上の閾値 H+(t) (眠りに入る S)。tod はゲームの時刻 (0 = 朝6時)
+  upperThreshold(tod) {
+    const c = this.cfg.sleep;
+    const shift = (c.threshold ?? c.refThreshold) - c.refThreshold; // 人ごとの夜型・朝型 (gen_personas の threshold のずれ)
+    return c.H0plus + shift + c.circAmp * Math.cos((2 * Math.PI * (tod - c.circPeak)) / 24000);
+  }
+  // S → v.sleep (0〜1。threshold で眠りに入る)
+  sleepFromS(S, tod) {
+    const c = this.cfg.sleep;
+    return clamp((c.threshold * (S - c.H0minus)) / Math.max(1e-6, this.upperThreshold(tod) - c.H0minus));
+  }
+  // 起きている間 dt (tick) だけ S を上げる
+  riseS(dt) { const c = this.cfg.sleep; this.S = c.mu - (c.mu - this.S) * Math.exp(-Math.max(0, dt) / c.tauW); }
 
   // 上の欲求の重み (基本の欲求が満たされていないほど小さい)
   gate() {
@@ -220,7 +266,13 @@ class Needs {
       this.saturation = Number.isFinite(s.saturation) ? s.saturation : null;
       v.hunger = hungerFromFood(this.food, this.saturation, c.hunger);
     } else v.hunger = clamp(v.hunger + rateOf(c.hunger) * dt);
-    v.sleep = clamp(v.sleep + rateOf(c.sleep) * (night ? c.sleep.nightMult : 1) * dt);
+    if (this.processS()) {
+      // 寝て起きた時刻 (sleptUntil) より前は寝ていたので上げない
+      const awake = Number.isFinite(s.time) && Number.isFinite(this.sleptUntil) ? clamp(s.time - this.sleptUntil, 0, dt) : dt;
+      if (Number.isFinite(s.time) && Number.isFinite(this.sleptUntil) && s.time >= this.sleptUntil) this.sleptUntil = null;
+      this.riseS(awake);
+      v.sleep = this.sleepFromS(this.S, tod);
+    } else v.sleep = clamp(v.sleep + rateOf(c.sleep) * (night ? c.sleep.nightMult : 1) * dt);
     // ダメージ
     let hurtNow = 0;
     if (Number.isFinite(s.health)) {
@@ -281,8 +333,19 @@ class Needs {
       possession: c.recognition.possession * clamp((s.invKinds || 0) / c.recognition.possessionKinds),
     };
     // ストレス
-    const e = this.effective();
-    const st = c.stress;
+    const { dS } = this.accumulateStress(this.effective(), dt);
+    for (const k of NEEDS) v[k] = r3(v[k]);
+    // 先のつらさ (anticipate.js)
+    this.ant.update({ ...s, timeOfDay: tod }, { hurt: hurtNow, hunger: v.hunger });
+    return { dt, dS };
+  }
+
+  // ストレスの係数 (model: 'exp' なら exp の中の値で上書き)
+  stressParams() { const st = this.cfg.stress; return st.model === 'exp' ? { ...st, ...(st.exp || {}) } : st; }
+  // ストレスを dt (tick) 進める。e: 効いている欲求の強さ (effective())。unmet・inflow・stress を書き換える。返り値 { dS }
+  //   (update から呼ぶ。tools/calibrate_emotions.js も記録の欲求からこれでストレスを作り直す)
+  accumulateStress(e, dt) {
+    const st = this.stressParams();
     let dS = 0;
     let anyUnmet = false;
     for (const k of NEEDS) {
@@ -299,12 +362,10 @@ class Needs {
         this.inflow[k] = 0;
       }
     }
-    this.stress = clamp(anyUnmet ? this.stress + dS : this.stress - st.recover * (dt / 1000));
-    for (const k of NEEDS) v[k] = r3(v[k]);
+    if (st.model === 'exp') this.stress = clamp(halve(this.stress, dt, st.halfLife) + dS); // いつも指数で抜け、満たされない分が足される
+    else this.stress = clamp(anyUnmet ? this.stress + dS : this.stress - st.recover * (dt / 1000));
     this.stress = r3(this.stress);
-    // 先のつらさ (anticipate.js)
-    this.ant.update({ ...s, timeOfDay: tod }, { hurt: hurtNow, hunger: v.hunger });
-    return { dt, dS };
+    return { dS };
   }
 
   // ---- 出来事 ----
@@ -320,10 +381,24 @@ class Needs {
     this.counts.ate += 1;
   }
 
-  // ベッドで寝た。nightSkipped: 夜を越した
-  onSleep({ nightSkipped = false } = {}) {
+  // ベッドで寝た。nightSkipped: 夜を越した。timeOfDay: 起きた時刻 (分かれば。processS で寝ていた時間を出す)
+  onSleep({ nightSkipped = false, timeOfDay = null } = {}) {
     const c = this.cfg.sleep;
-    this.v.sleep = r3(nightSkipped ? Math.min(this.v.sleep, c.bedTo) : clamp(this.v.sleep - c.bedPartial));
+    if (this.processS()) {
+      // 寝ていた時間 = 前の観測 (lastTime) から起きた時刻まで。起きた時刻が前の観測の時刻より前なら次の日
+      const last = Number.isFinite(this.lastTime) ? this.lastTime : null;
+      let slept = c.partialTicks; let wake = null;
+      if (last != null) {
+        const lastTod = ((last % 24000) + 24000) % 24000;
+        const dayBase = last - lastTod;
+        if (Number.isFinite(timeOfDay)) { const t = ((timeOfDay % 24000) + 24000) % 24000; wake = dayBase + t + (t < lastTod ? 24000 : 0); } else if (nightSkipped) wake = dayBase + 24000;
+        if (wake != null) slept = wake - last;
+      }
+      this.S = Math.max(c.H0minus, this.S * Math.exp(-Math.max(0, slept) / c.tauS));
+      this.sleptUntil = wake;
+      const tod = Number.isFinite(timeOfDay) ? timeOfDay : nightSkipped ? 0 : (last != null ? last : 0);
+      this.v.sleep = r3(this.sleepFromS(this.S, tod));
+    } else this.v.sleep = r3(nightSkipped ? Math.min(this.v.sleep, c.bedTo) : clamp(this.v.sleep - c.bedPartial));
     // 寝て夜を飛ばしても、そのあいだにお腹は空く (ゲームの通しの時間は進まないので、ここで足す)
     //  (満腹度で決めているときは足さない。マイクラでは寝て飛ばした夜に満腹度は減らない)
     if (nightSkipped && !this.foodBased()) this.v.hunger = r3(clamp(this.v.hunger + c.bedHunger));
@@ -332,7 +407,11 @@ class Needs {
     this.counts.slept += 1;
   }
 
-  onRest() { this.v.sleep = r3(clamp(this.v.sleep - this.cfg.sleep.rest)); this.counts.rested += 1; }
+  onRest() {
+    // processS: v.sleep が rest だけ下がる分の S を下げる (床で休む。survival_3days/100 は restActions が空で使わない)
+    if (this.processS()) { const c = this.cfg.sleep; this.S = Math.max(c.H0minus, this.S - (c.rest * (c.H0plus - c.H0minus)) / Math.max(1e-6, c.threshold)); this.v.sleep = r3(clamp(this.v.sleep - c.rest)); } else this.v.sleep = r3(clamp(this.v.sleep - this.cfg.sleep.rest));
+    this.counts.rested += 1;
+  }
 
   onDeath() {
     this.shock.death = clamp(this.shock.death + this.cfg.safety.deathShock);
@@ -377,7 +456,7 @@ class Needs {
   onAction(action, arg, result = {}, { tick = 0 } = {}) {
     if (!result || !result.ok) return;
     if (action === 'eat') this.onEat(String(arg || '').split(':')[0] || 'bread');
-    else if (action === 'sleep' && result.sleep && result.sleep.slept) this.onSleep({ nightSkipped: !!result.sleep.nightSkipped });
+    else if (action === 'sleep' && result.sleep && result.sleep.slept) this.onSleep({ nightSkipped: !!result.sleep.nightSkipped, timeOfDay: Number.isFinite(result.sleep.timeOfDay) ? result.sleep.timeOfDay : null });
     else if (this.cfg.sleep.restActions.includes(action)) this.onRest();
     if (action === 'craft') this.onMade('craft');
     if (action === 'place') this.onMade('place');
@@ -484,7 +563,7 @@ class Needs {
   later(o = {}) { return this.ant.later(o); }
 
   // 数値 (記録用)。ant: 先のつらさ (night・food と、夜までの tick・見込み・備え・経験・食べ物の回数)
-  values() { const e = this.effective(); return { ...this.v, eff: Object.fromEntries(NEEDS.map((k) => [k, r3(e[k])])), stress: this.stress, missedNights: this.missedNights, ant: this.ant.values() }; }
+  values() { const e = this.effective(); return { ...this.v, eff: Object.fromEntries(NEEDS.map((k) => [k, r3(e[k])])), stress: this.stress, missedNights: this.missedNights, ...(this.processS() ? { S: r3(this.S) } : {}), ant: this.ant.values() }; }
 }
 
 // 人ごとの設定: cfg.needs (全員) に persona.needs (人ごと) を重ねる

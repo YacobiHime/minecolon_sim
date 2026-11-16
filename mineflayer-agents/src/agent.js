@@ -14,7 +14,7 @@ const { executeAction } = require('./act');
 const { Memory } = require('./memory');
 const { Recorder } = require('./recorder');
 const { progressText, stepStatus } = require('./progress');
-const { Social } = require('./social');
+const { Social, emotionsConfig } = require('./social');
 const { senseShelter, effectiveLight, needsConfig } = require('./needs');
 const { hutSlots, hutStatus } = require('./hut');
 const ask = require('./ask');
@@ -286,7 +286,7 @@ class Agent {
     // 記憶の選び方・忘れ方 (cfg.memory の retrieval・store・failureNotes・relevance・assoc・dual。memory.js / assoc.js)
     const mc = cfg.memory;
     this.memory = Memory.load(mc.file, { limits: mc.limits, retrieval: mc.retrieval, store: mc.store, failureNotes: mc.failureNotes, relevance: mc.relevance, assoc: mc.assoc, dual: mc.dual, me: cfg.persona.name, version: cfg.server && cfg.server.version });
-    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona), affinity: (cfg.social && cfg.social.affinity) || {} });
+    this.social = Social.fromJSON(this.memory.extra.social, { temperament: cfg.persona.temperament, needs: needsConfig(cfg, cfg.persona), affinity: (cfg.social && cfg.social.affinity) || {}, emotions: emotionsConfig(cfg, cfg.persona) });
     // 分業 (division.js): 慣れ・集団の必要 (刺激)・反応しきい値。cfg.division.enabled: true で使う
     this.division = cfg.division && cfg.division.enabled
       ? Division.fromJSON(this.memory.extra.division, { cfg: cfg.division, temperament: cfg.persona.temperament || {}, drives: (needsConfig(cfg, cfg.persona).drives) || {}, me: cfg.persona.name })
@@ -793,6 +793,8 @@ class Agent {
     const s = this.cfg.server;
     this.bot = mineflayer.createBot({ host: s.host, port: s.port, username: this.cfg.persona.name, version: s.version, auth: 'offline' });
     const bot = this.bot;
+    // 接続の見張り (run.js が付ける src/netdiag.js。接続の再試行・入り直しの bot も)
+    if (this.onBot) { try { this.onBot(bot); } catch (_) { /* ignore */ } }
     bot.loadPlugin(pathfinder);
     bot.on('chat', (username, message) => this.onChat(username, message));
     // 死んだら: 死因はサーバーの死亡メッセージ (translate が death.〜) から拾う。リスポーンは mineflayer が自動で行う

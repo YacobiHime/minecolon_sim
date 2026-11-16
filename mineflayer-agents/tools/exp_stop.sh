@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 実験の停止と集計を1つのコマンドで (手順は /root/experiment_runbook.md の 3〜5 と同じ)。
-#   ボットに SIGINT → 止まるのを待つ → check_scale_run・summarize_run・conflict_stats → 要点の表示
+#   ボットに SIGINT (自然に終わりかけていれば送らずに待つ) → 止まるのを待つ → run.json が無ければ run-part から作る
+#   (tools/merge_run_parts.js) → check_scale_run・summarize_run・conflict_stats → 要点の表示
 #   → (--stop-server なら) サーバーを止める
 # 使い方: bash tools/exp_stop.sh --help
 #
@@ -18,7 +19,7 @@ RUNS_DIR="${EXP_RUNS_DIR:-$A/runs}"
 PAT_BOT='node .*run[.]js'
 PAT_SERVER='^[^ ]*java .*fabric-server-launc[h]'
 
-RUN=""; STOP_SERVER=0; FORCE=0; TIMEOUT=180
+RUN=""; STOP_SERVER=0; FORCE=0; TIMEOUT=180; NOW=0
 
 usage() {
   cat <<'EOF'
@@ -28,7 +29,9 @@ usage() {
   --run DIR       記録のフォルダ (既定 runs/ のいちばん新しいフォルダ)
   --stop-server   サーバーも止める (既定は止めない。接続者がいれば止めない)
   --force         接続者がいてもサーバーを止める
-  --timeout 秒    SIGINT のあと止まるのを待つ秒数 (既定 180。過ぎたら SIGTERM)
+  --timeout 秒    SIGINT のあと止まるのを待つ秒数 (既定 180。過ぎたら SIGTERM)。
+                  自然に終わりかけている (予定の時間を過ぎた・子が終わり始めた) ときは SIGINT を送らずこの秒数まで待つ
+  --now           終わりかけでも待たずに SIGINT を送る
   --help          この説明
 
 出力 (記録のフォルダの中): check.txt・summary.txt・conflict.json・digest.txt
@@ -48,6 +51,7 @@ while [ $# -gt 0 ]; do
     --run) need_val "$@"; RUN="$2"; shift 2;;
     --stop-server) STOP_SERVER=1; shift;;
     --force) FORCE=1; shift;;
+    --now) NOW=1; shift;;
     --timeout) need_val "$@"; TIMEOUT="$2"; shift 2;;
     --help|-h) usage; exit 0;;
     *) usage >&2; die "知らない引数: $1";;
@@ -78,10 +82,10 @@ RUN="$(cd "$RUN" && pwd)"
 echo "記録のフォルダ: $RUN"
 
 # ---- 1. ボットを止める ----
-BOTS=$(procs_of "$PAT_BOT")
-if [ -n "$BOTS" ]; then
-  PARENTS=$(echo "$BOTS" | grep -v -- ' --child ' | awk '{print $1}' || true)
-  [ -n "$PARENTS" ] || PARENTS=$(echo "$BOTS" | awk '{print $1}')
+send_int_and_wait() {
+  local PARENTS LEFT
+  PARENTS=$(procs_of "$PAT_BOT" | grep -v -- ' --child ' | awk '{print $1}' || true)
+  [ -n "$PARENTS" ] || PARENTS=$(pids_of "$PAT_BOT")
   echo "ボットに止める合図 (SIGINT) を送る: PID $(echo "$PARENTS" | tr '\n' ' ')"
   for p in $PARENTS; do kill -INT "$p" 2>/dev/null || true; done
   echo "止まるのを待つ (最長 ${TIMEOUT} 秒)..."
@@ -97,10 +101,28 @@ if [ -n "$BOTS" ]; then
       procs_of "$PAT_BOT" >&2
     fi
   fi
+}
+BOTS=$(procs_of "$PAT_BOT")
+if [ -n "$BOTS" ]; then
+  # 自然に終わりかけている (予定の時間を過ぎた・子が run-part を書き始めた) ときは SIGINT を送らず待つ
+  # (2026-11-13: 終わりかけに SIGINT を送り、終わった子への送信で親が落ちて run.json ができなかった)
+  PROG=""
+  [ "$NOW" = 1 ] || PROG=$(node "$A/tools/run_progress.js" "$RUN" 2>/dev/null || true)
+  if echo "$PROG" | grep -q '"finishing":true'; then
+    WHY=$(echo "$PROG" | sed -nE 's/.*"reason":"([^"]*)".*/\1/p')
+    echo "実験は自然に終わりかけている (${WHY})。SIGINT を送らず、終わるのを待つ (最長 ${TIMEOUT} 秒。すぐ止めるなら --now)"
+    if wait_gone "$TIMEOUT"; then echo "ボットは自分で終わった"
+    else echo "${TIMEOUT} 秒で終わらなかった"; send_int_and_wait; fi
+  else
+    send_int_and_wait
+  fi
 else
   echo "ボットはもう止まっている。集計へ"
 fi
-[ -f "$RUN/run.json" ] || echo "注意: $RUN/run.json が無い (run.js が最後まで書けなかったかもしれない)" >&2
+if [ ! -f "$RUN/run.json" ]; then
+  echo "注意: $RUN/run.json が無い (run.js が最後まで書けなかった)。残っている run-part から作り直す" >&2
+  node "$A/tools/merge_run_parts.js" "$RUN" || echo "注意: run.json を作り直せなかった" >&2
+fi
 
 # ---- 2. 集計 ----
 AGENTS=$(node -e '
