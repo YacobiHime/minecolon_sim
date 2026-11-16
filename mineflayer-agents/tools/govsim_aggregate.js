@@ -33,6 +33,24 @@ function load(file) {
   return { file, dir: path.dirname(file), s, wantedMean: mean(wanted), caughtMean: mean(caught) };
 }
 
+// events.jsonl から: mental on で、プロンプトに出た心の言葉を LLM の答えが挙げた数 (収穫・発言・振り返り) と、性格の言葉を挙げた数
+function citeCounts(dir) {
+  const f = path.join(dir, 'events.jsonl');
+  const out = {};
+  if (!fs.existsSync(f)) return out;
+  const { citedTerms } = require('../govsim/sim');
+  for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    if (!line) continue;
+    const e = JSON.parse(line);
+    if (e.type !== 'llm' || !e.mental || !e.text || e.attempt) continue;
+    const o = (out[e.kind] = out[e.kind] || { calls: 0, citing: 0, personality: 0 });
+    o.calls += 1;
+    if (citedTerms(e.mental, e.text).length) o.citing += 1;
+    if (/personalit|my nature|reserved|disciplined|dependable|quarrelsome|critical nature|anxious nature|calm and emotionally/i.test(e.text)) o.personality += 1;
+  }
+  return out;
+}
+
 function examples(dir, n) {
   const f = path.join(dir, 'events.jsonl');
   if (!fs.existsSync(f)) return [];
@@ -91,6 +109,9 @@ function main() {
       row.mental = { harvestDecisions: dec, citingMentalTerms: cit, citingShare: dec ? +(cit / dec).toFixed(3) : null,
         citedTerms: Object.fromEntries(Object.entries(terms).sort((a, b) => b[1] - a[1])),
         shownPhrasesTop: Object.fromEntries(Object.entries(shown).sort((a, b) => b[1] - a[1]).slice(0, 15)) };
+      const cc = {};
+      for (const r of rs) for (const [k, v] of Object.entries(citeCounts(r.dir))) { const o = (cc[k] = cc[k] || { calls: 0, citing: 0, personality: 0 }); o.calls += v.calls; o.citing += v.citing; o.personality += v.personality; }
+      row.mental.citingByKind = cc;
       if (nEx) row.examples = rs.flatMap((r) => examples(r.dir, nEx)).slice(0, nEx * 2);
     }
     rows.push(row);
