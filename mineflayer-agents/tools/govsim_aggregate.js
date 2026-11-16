@@ -51,6 +51,19 @@ function citeCounts(dir) {
   return out;
 }
 
+// events.jsonl の mental (心のモデルの出来事) から: 取り決めを破った/守ったと分かった数 (文字の版は村長の報告 report、Minecraft の中の版は見た漁 judged)
+function judgedCounts(dir) {
+  const f = path.join(dir, 'events.jsonl');
+  const out = { breach: 0, kept: 0 };
+  if (!fs.existsSync(f)) return out;
+  for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    if (!line || !line.includes('"type":"mental"')) continue;
+    const e = JSON.parse(line);
+    for (const x of Object.values(e.events || {})) for (const j of [...(x.judged || []), ...(x.report || [])]) out[j.kind] = (out[j.kind] || 0) + 1;
+  }
+  return out;
+}
+
 function examples(dir, n) {
   const f = path.join(dir, 'events.jsonl');
   if (!fs.existsSync(f)) return [];
@@ -80,7 +93,9 @@ function main() {
   const groups = {};
   for (const r of runs) {
     const llm = r.s.llm || {};
-    const key = `${llm.provider || '?'}/${llm.model || '?'} | ${r.s.variant} | mental ${r.s.mental ? 'on' : 'off'}`;
+    // mode: 文字の版 (summary に mode が無い) は text、Minecraft の中の版は embodied (村長の報告ありは embodied+mayor)
+    const mode = r.s.mode === 'embodied' ? (r.s.embodied && r.s.embodied.mayorReport ? 'embodied+mayor' : 'embodied') : 'text';
+    const key = `${llm.provider || '?'}/${llm.model || '?'} | ${mode} | ${r.s.variant} | mental ${r.s.mental ? 'on' : 'off'}`;
     (groups[key] = groups[key] || []).push(r);
   }
   const rows = [];
@@ -100,6 +115,16 @@ function main() {
       llmCalls: rs.reduce((a, r) => a + (r.s.llmCalls || 0), 0), llmErrors: rs.reduce((a, r) => a + (r.s.llmErrors || 0), 0),
       costUsd: rs.reduce((a, r) => a + ((r.s.llm && r.s.llm.costUsd) || 0), 0).toFixed(4),
     };
+    // Minecraft の中の版: 池を見た割合・他人の漁を見た割合・欲しい量より取れなかった数 など (embodied_sim.js の infoStats を足し合わせる)
+    const inf = rs.map((r) => r.s.embodied && r.s.embodied.information).filter(Boolean);
+    if (inf.length) {
+      const S = (f) => inf.reduce((x, i) => x + (i[f] || 0), 0);
+      row.embodied = {
+        agentMonths: S('agentMonths'), lookedShare: fmt(inf.map((i) => i.lookedShare)), meanAbsCountError: fmt(inf.map((i) => i.meanAbsCountError)),
+        catches: S('catches'), witnessedShare: fmt(inf.map((i) => i.witnessedShare)), wantedTotal: S('wantedTotal'), caughtTotal: S('caughtTotal'),
+        caughtLessThanWanted: S('caughtLessThanWanted'), caughtMoreThanWanted: S('caughtMoreThanWanted'), lateAgentMonths: S('lateAgentMonths'), unattributedFish: S('unattributedFish'),
+      };
+    }
     const mc = rs.map((r) => r.s.mentalContribution).filter(Boolean);
     if (mc.length) {
       const dec = mc.reduce((a, m) => a + m.harvestDecisions, 0);
@@ -112,14 +137,18 @@ function main() {
       const cc = {};
       for (const r of rs) for (const [k, v] of Object.entries(citeCounts(r.dir))) { const o = (cc[k] = cc[k] || { calls: 0, citing: 0, personality: 0 }); o.calls += v.calls; o.citing += v.citing; o.personality += v.personality; }
       row.mental.citingByKind = cc;
+      const jc = { breach: 0, kept: 0 };
+      for (const r of rs) for (const [k, v] of Object.entries(judgedCounts(r.dir))) jc[k] = (jc[k] || 0) + v;
+      row.mental.judged = jc;
       if (nEx) row.examples = rs.flatMap((r) => examples(r.dir, nEx)).slice(0, nEx * 2);
     }
     rows.push(row);
   }
-  const cols = ['group', 'runs', 'survivalMonths', 'survivalRate', 'collapsed', 'gain', 'efficiency', 'equality', 'overUsage', 'wantedPerAgentMonth', 'agreements', 'parseFailures', 'llmCalls', 'costUsd'];
+  const cols = ['group', 'runs', 'survivalMonths', 'survivalRate', 'collapsed', 'gain', 'efficiency', 'equality', 'overUsage', 'wantedPerAgentMonth', 'caughtPerAgentMonth', 'agreements', 'parseFailures', 'llmCalls', 'costUsd'];
   console.log(`| ${cols.join(' | ')} |`);
   console.log(`|${cols.map(() => '---').join('|')}|`);
   for (const r of rows) console.log(`| ${cols.map((c) => r[c]).join(' | ')} |`);
+  for (const r of rows.filter((x) => x.embodied)) console.log(`\n## ${r.group}: 体があることで知ったこと\n${JSON.stringify(r.embodied)}`);
   for (const r of rows.filter((x) => x.mental)) {
     console.log(`\n## ${r.group}: 心の言葉`);
     console.log(JSON.stringify(r.mental, null, 1));
