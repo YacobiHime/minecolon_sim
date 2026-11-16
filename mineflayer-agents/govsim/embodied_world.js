@@ -220,8 +220,9 @@ class FisherBot {
 
   countItem(name) { return this.bot.inventory.items().filter((i) => i.name === name).reduce((s, i) => s + i.count, 0); }
 
+  // 道具は鉄の斧 (剣は振ると周りの魚にも当たり (なぎ払い)、誰のものでもなく死ぬ魚が出た。斧はなぎ払わず、1回で cod を倒せる)
   async holdSword() {
-    const sw = this.bot.inventory.items().find((i) => i.name === 'iron_sword');
+    const sw = this.bot.inventory.items().find((i) => i.name === 'iron_axe');
     if (sw) { try { await this.bot.equip(sw, 'hand'); } catch (_) { /* ignore */ } }
   }
 
@@ -322,9 +323,9 @@ class MinecraftWorld {
     await C.send(`kill @e[type=item,x=${ox - 12},y=${y0 - 6},z=${oz - 10},dx=25,dy=20,dz=47]`, 300);
     for (const n of this.names) {
       const u = this.userOf[n]; const h = this.layout.homes[this.names.indexOf(n)];
-      // kill: 生き返ると満腹度 20・隠し満腹度 5・体力 20 (前の実行の体の状態を持ち越さない)。そのあと家に連れて行き、剣だけ持たせる
+      // kill: 生き返ると満腹度 20・隠し満腹度 5・体力 20 (前の実行の体の状態を持ち越さない)。そのあと家に連れて行き、斧だけ持たせる
       for (const c of [`kill ${u}`]) await C.send(c, 600);
-      for (const c of [`tp ${u} ${h.x} ${h.y} ${h.z}`, `clear ${u}`, `effect clear ${u}`, `gamemode survival ${u}`, `give ${u} iron_sword 1`]) await C.send(c, 150);
+      for (const c of [`tp ${u} ${h.x} ${h.y} ${h.z}`, `clear ${u}`, `effect clear ${u}`, `gamemode survival ${u}`, `give ${u} iron_axe 1`]) await C.send(c, 150);
     }
     await sleep(2500);
     for (const b of Object.values(this.bots)) await b.holdSword();
