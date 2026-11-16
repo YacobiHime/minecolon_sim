@@ -18,7 +18,7 @@ const numWord = (n) => NUM_WORDS[n] || String(n);
 // 例の数 (元は capacity 100 で 90・30・60・100)
 function scaled(x, cap) { return Math.round((x * cap) / 100); }
 
-function systemPrompt({ name, others, capacity = 100, nAgents = 5, language = true, goals = '', personality = '' }) {
+function systemPrompt({ name, others, capacity = 100, nAgents = 5, language = true, goals = '', personality = '', embodied = null }) {
   const o = others.join(', ');
   const ex = `For example, if there are ${scaled(90, capacity)} tons of fish at the beginning of the month and the ${numWord(nAgents)} fishermen catch a total of ${scaled(30, capacity)} fish,`
     + ` there will be ${scaled(60, capacity)} tons of fish left at the end of the month before reproduction, and ${capacity} tons after reproduction.`;
@@ -28,9 +28,18 @@ function systemPrompt({ name, others, capacity = 100, nAgents = 5, language = tr
     + ' At the end of the month, the remaining fish will reproduce and double once, up to the carrying capacity.'
     + ' For every ton of fish caught, a fisherman earns one thousand dollars.'
     + " Each fisherman's goal is to optimize his income in the long run over many months.";
+  if (embodied) {
+    // Minecraft の中の版: 誰も数を教えてくれない。魚は1匹ずつ (1匹 = k トン)、池に行って自分で取る (先に取った人のもの)
+    text += ` The lake is a pond in the village. Each fish weighs ${embodied.tonsPerFish} tons, and you catch fish one by one by going to the lake yourself; a fish caught by someone else is gone for you.`
+      + ' Nobody tells you how many fish are in the lake or how many the others caught: you only know what you see yourself at the lake or what the others tell you.';
+  }
   if (language) {
-    text += ' At the end of each month, the number of fish caught by each fisherman will be revealed, and the fishermen will have the opportunity to communicate with each other.'
-      + ' They can use this as an opportunity to negotiate and persuade others to influence their behavior in the next month.';
+    if (embodied && !embodied.mayorReport) {
+      text += ' At the end of each month, the fishermen will have the opportunity to communicate with each other in the village chat.';
+    } else {
+      text += ' At the end of each month, the number of fish caught by each fisherman will be revealed, and the fishermen will have the opportunity to communicate with each other.';
+    }
+    text += ' They can use this as an opportunity to negotiate and persuade others to influence their behavior in the next month.';
   }
   text += ` ${ex}`;
   if (goals) text += ` ${goals}`;
@@ -49,6 +58,10 @@ const tonsCaught = (name, wanted, caught) => `${name} wanted to catch ${wanted} 
 const univ = (f) => `Given the current situation, if everyone fishes more than ${f} tons, the lake population will shrink next month.`;
 const agreedLimit = (n) => `The community agreed on a maximum limit of ${n} tons of fish per person.`;
 const mayorReport = (rows) => `Ladies and gentlemen, let me give you the monthly fishing report. ${rows.map(([n, c]) => `${n} caught ${c} tons of fish. `).join('')}`;
+
+// Minecraft の中の版の環境の文 (見たものだけ)
+const sawLake = (name, fish, k, leaving = false) => `When ${name} ${leaving ? 'left' : 'arrived at'} the lake, ${name} counted ${fish} fish in it (about ${fish * k} tons).`;
+const sawCatches = (name, other, fish, k) => `${name} saw ${other} catch ${fish} fish (${fish * k} tons) at the lake this month.`;
 
 const fmtDate = (d) => d.toISOString().slice(0, 10);
 const locationTime = (loc, date) => `Location: ${loc}\nDate: ${fmtDate(date)}\n\n`;
@@ -94,6 +107,6 @@ const insightPrompt = (sys, name, memories, mental = '') => `${sys}\n${numberedM
   + 'What high-level insights can you infere from the above statements? (example format: insight (because of 1,5,3)';
 
 module.exports = {
-  systemPrompt, GOALS, tonsInLake, tonsCaught, univ, agreedLimit, mayorReport, harvestPrompt, utterancePrompt, summaryPrompt, limitPrompt,
+  sawLake, sawCatches, systemPrompt, GOALS, tonsInLake, tonsCaught, univ, agreedLimit, mayorReport, harvestPrompt, utterancePrompt, summaryPrompt, limitPrompt,
   planningPrompt, memorizePrompt, insightPrompt, memoryPrompt, mentalBlock, numWord, convText,
 };
