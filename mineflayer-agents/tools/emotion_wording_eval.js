@@ -355,6 +355,39 @@ const SHOW = { joy: 4, sadness: 3, anger: 3, fear: 3, disgust: 3, surprise: 3 };
 // 感情ごとに見る行動の分類 (傾きを表に出すもの)
 const FOCUS = { anger: ['confront', 'fight', 'avoid', 'approach'], fear: ['avoid', 'fight', 'approach', 'talk'], joy: ['approach', 'talk', 'work'], sadness: ['approach', 'talk', 'work'] };
 
+// 決まった乱数 (mulberry32)
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// 場面ごとに引き直す bootstrap の ρ の 95% 区間
+function rhoCI(rows, B = 300, seed = 1) {
+  const sits = [...new Set(rows.map((r) => r.sit))]; const by = new Map(sits.map((x) => [x, rows.filter((r) => r.sit === x)]));
+  const R = rng(seed); const xs = [];
+  for (let b = 0; b < B; b++) {
+    const rr = []; for (let i = 0; i < sits.length; i++) rr.push(...by.get(sits[Math.floor(R() * sits.length)]));
+    const r = spearman(rr.map((q) => q.v), rr.map((q) => q.judged)); if (r != null) xs.push(r);
+  }
+  xs.sort((a, b) => a - b);
+  return xs.length ? [xs[Math.floor(0.025 * xs.length)], xs[Math.floor(0.975 * xs.length)]] : null;
+}
+// 値 0〜2 と 8〜10 の行動の分布の違い (全変動距離、場面ごとの平均)。perm: 低い・高いの札を場面の中で入れ替えた偶然の大きさ (回数)
+function tvLowHigh(ok, { perm = 0, seed = 1 } = {}) {
+  const dist = (xs) => { const d = {}; for (const r of xs) { const a = `${r.action}:${r.arg}`; d[a] = (d[a] || 0) + 1 / xs.length; } return d; };
+  const tv = (L, H) => { const dl = dist(L); const dh = dist(H); return 0.5 * [...new Set([...Object.keys(dl), ...Object.keys(dh)])].reduce((s, a) => s + Math.abs((dl[a] || 0) - (dh[a] || 0)), 0); };
+  const sits = [...new Set(ok.map((r) => r.sit))];
+  const obs = []; const nul = [];
+  const R = rng(seed);
+  for (const sit of sits) {
+    const L = ok.filter((r) => r.sit === sit && r.v <= 2); const H = ok.filter((r) => r.sit === sit && r.v >= 8);
+    if (!L.length || !H.length) continue;
+    obs.push(tv(L, H));
+    if (perm) {
+      const all = [...L, ...H]; let acc = 0;
+      for (let p = 0; p < perm; p++) { const sh = all.map((r) => [R(), r]).sort((a, b) => a[0] - b[0]).map((x) => x[1]); acc += tv(sh.slice(0, L.length), sh.slice(L.length)); }
+      nul.push(acc / perm);
+    }
+  }
+  return { tv: mean(obs), tvNull: perm ? mean(nul) : null };
+}
+
 function analyze(rows, judged, { modes, emos } = {}) {
   const J = new Map(judged.map((j) => [j.key, j.judged]));
   for (const r of rows) r.judged = J.get(r.key) ?? null;
@@ -377,7 +410,7 @@ function analyze(rows, judged, { modes, emos } = {}) {
       }
       const lo = mean(jr.filter((r) => r.v === SHOW[emo]).map((r) => r.judged)); const hi = mean(jr.filter((r) => r.v === 10).map((r) => r.judged));
       const base = mean(jr.filter((r) => r.v < SHOW[emo]).map((r) => r.judged));
-      sum.grade[k] = { rho: spearman(jr.map((r) => r.v), jr.map((r) => r.judged)), rhoAbove: spearman(above.map((r) => r.v), above.map((r) => r.judged)),
+      sum.grade[k] = { rho: spearman(jr.map((r) => r.v), jr.map((r) => r.judged)), rhoCI: rhoCI(jr), rhoAbove: spearman(above.map((r) => r.v), above.map((r) => r.judged)),
         violations: pairs ? viol / pairs : null, below: base, atShow: lo, at10: hi, n: jr.length };
       // 2. ばらつき (しきい値以上の値の出力)
       const texts = R.filter((r) => r.v >= SHOW[emo]).map((r) => (task === 'act' ? `${r.think || ''} ${r.say || ''}` : r.say || '')).filter((t) => t.trim());
@@ -404,16 +437,8 @@ function analyze(rows, judged, { modes, emos } = {}) {
           const p0 = mean(ok.filter((r) => r.v <= 2).map((r) => (r.cat2 === c ? 1 : 0))); const p10 = mean(ok.filter((r) => r.v >= 8).map((r) => (r.cat2 === c ? 1 : 0)));
           b[c] = { slope: fit ? fit.slope : null, se: fit ? fit.se : null, pLow: p0, pHigh: p10 };
         }
-        // 行動の分布の違い (値 0〜2 と 8〜10 の全変動距離。場面ごとに出して平均)
-        const tvs = [];
-        for (const sit of new Set(ok.map((r) => r.sit))) {
-          const dist = (xs) => { const d = {}; for (const r of xs) { const a = `${r.action}:${r.arg}`; d[a] = (d[a] || 0) + 1 / xs.length; } return d; };
-          const L = ok.filter((r) => r.sit === sit && r.v <= 2); const H = ok.filter((r) => r.sit === sit && r.v >= 8);
-          if (!L.length || !H.length) continue;
-          const dl = dist(L); const dh = dist(H);
-          tvs.push(0.5 * [...new Set([...Object.keys(dl), ...Object.keys(dh)])].reduce((s, a) => s + Math.abs((dl[a] || 0) - (dh[a] || 0)), 0));
-        }
-        sum.behaviour[k] = { cats: b, tv: mean(tvs), n: ok.length };
+        const t = tvLowHigh(ok, { perm: 200 });
+        sum.behaviour[k] = { cats: b, tv: t.tv, tvNull: t.tvNull, n: ok.length };
       }
     }
   }
@@ -434,19 +459,19 @@ function report(sum, rows, { modes, emos }) {
   L.push(`出力 ${rows.length} 件。値 0〜10 は1つの感情だけを動かした値 (ほかの感情は記録のその時の値、驚きは 0)。しきい値 (喜び 4・ほか 3) より下はどの作り方でも感情の言葉が出ない。`, '');
   for (const task of ['act', 'talk']) {
     L.push(`## ${task === 'act' ? '行動を選ぶプロンプト (考え + 発言を採点)' : '発言のプロンプト (発言を採点)'}`, '');
-    L.push('### 段階のつき方 (採点者の読み取った強さ 0〜9)', '', '| 感情 | 作り方 | ρ (全部) | ρ (しきい値以上) | 下がった所 | しきい値より下 | しきい値 | 10 |', '|---|---|---|---|---|---|---|---|');
-    for (const emo of emos) for (const mode of modes) { const g = sum.grade[`${task}|${emo}|${mode}`]; if (g) L.push(`| ${EMO_JA[emo]} | ${mode} | ${f2(g.rho)} | ${f2(g.rhoAbove)} | ${pct(g.violations)} | ${f2(g.below)} | ${f2(g.atShow)} | ${f2(g.at10)} |`); }
+    L.push('### 段階のつき方 (採点者の読み取った強さ 0〜9)', '', '| 感情 | 作り方 | ρ (全部) [95%区間] | ρ (しきい値以上) | 下がった所 | しきい値より下 | しきい値 | 10 |', '|---|---|---|---|---|---|---|---|');
+    for (const emo of emos) for (const mode of modes) { const g = sum.grade[`${task}|${emo}|${mode}`]; if (g) L.push(`| ${EMO_JA[emo]} | ${mode} | ${f2(g.rho)} [${g.rhoCI ? g.rhoCI.map(f2).join(', ') : '-'}] | ${f2(g.rhoAbove)} | ${pct(g.violations)} | ${f2(g.below)} | ${f2(g.atShow)} | ${f2(g.at10)} |`); }
     L.push('', '### 言い方のばらつき (しきい値以上)', '', '| 感情 | 作り方 | distinct-2 | ほぼ同じ文 (違う人どうし) | 感情語が出る割合 | いちばん多い語 | その割合 |', '|---|---|---|---|---|---|---|');
     for (const emo of emos) for (const mode of modes) { const d = sum.diversity[`${task}|${emo}|${mode}`]; if (d) L.push(`| ${EMO_JA[emo]} | ${mode} | ${f2(d.distinct2)} | ${pct(d.nearDup)} | ${pct(d.mention)} | ${d.topWord || '-'} | ${pct(d.topShare)} |`); }
     L.push('');
   }
-  L.push('## 行動への効き方 (行動を選ぶプロンプト)', '', '傾き = 場面ごとの切片つきロジスティック回帰の、値 1 あたりの対数オッズ。( ) は値 0〜2 → 8〜10 の割合。TV = 値 0〜2 と 8〜10 の行動の分布の違い (全変動距離、場面ごとの平均)。', '');
+  L.push('## 行動への効き方 (行動を選ぶプロンプト)', '', '傾き = 場面ごとの切片つきロジスティック回帰の、値 1 あたりの対数オッズ。( ) は値 0〜2 → 8〜10 の割合。TV = 値 0〜2 と 8〜10 の行動の分布の違い (全変動距離、場面ごとの平均)。偶然 = 低い・高いの札を場面の中で入れ替えたときの TV (200 回の平均)。TV − 偶然 が感情の言葉の効いた分。', '');
   for (const emo of emos) {
     const cs = FOCUS[emo] || CATS;
-    L.push(`### ${EMO_JA[emo]}`, '', `| 作り方 | TV | ${cs.join(' | ')} |`, `|---|---|${cs.map(() => '---').join('|')}|`);
+    L.push(`### ${EMO_JA[emo]}`, '', `| 作り方 | TV | 偶然 | ${cs.join(' | ')} |`, `|---|---|---|${cs.map(() => '---').join('|')}|`);
     for (const mode of modes) {
       const b = sum.behaviour[`act|${emo}|${mode}`]; if (!b) continue;
-      L.push(`| ${mode} | ${f2(b.tv)} | ${cs.map((c) => { const x = b.cats[c]; return x ? `${f2(x.slope)}±${f2(x.se)} (${pct(x.pLow)}→${pct(x.pHigh)})` : '-'; }).join(' | ')} |`);
+      L.push(`| ${mode} | ${f2(b.tv)} | ${f2(b.tvNull)} | ${cs.map((c) => { const x = b.cats[c]; return x ? `${f2(x.slope)}±${f2(x.se)} (${pct(x.pLow)}→${pct(x.pHigh)})` : '-'; }).join(' | ')} |`);
     }
     L.push('');
   }
@@ -483,4 +508,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => { console.error(redact(e.message)); process.exit(1); });
 
-module.exports = { loadSituations, socialFor, socialTextFor, buildActions, actCtx, talkCtx, actionCat, peopleOf, spearman, rank, distinct2, jaccard, lexWord, logisticFE, digitExpectation, analyze, report, judgeMessages, MODE_CFG, LEX, CATS };
+module.exports = { rhoCI, tvLowHigh, loadSituations, socialFor, socialTextFor, buildActions, actCtx, talkCtx, actionCat, peopleOf, spearman, rank, distinct2, jaccard, lexWord, logisticFE, digitExpectation, analyze, report, judgeMessages, MODE_CFG, LEX, CATS };
