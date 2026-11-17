@@ -1,0 +1,1469 @@
+[
+ {
+  "id": "toru_snatched",
+  "cat": "grudge",
+  "src": "runs/2026-11-13T05-33-43/Toru-2026-11-13T05-33-43.jsonl loop 13",
+  "persona": {
+   "name": "Toru",
+   "personality": "64歳の男性。とてもだらしなく、うっかりしている。どちらかといえば冷静で、気分が安定している。",
+   "speech": "大人の落ち着いた話し方。知らない人には丁寧語。",
+   "temperament": {
+    "bravery": 0.74,
+    "empathy": 0.48,
+    "obedience": 0.25,
+    "greed": 0.4,
+    "sociability": 0.56
+   }
+  },
+  "obs": "自分: Toru 位置(-332,72,66) 体力20/20 満腹20/20 時間:昼 1日目\n持ち物: stickx1\n見えるブロック: grass_block ここ(1m) 他4+, grass 西1北1(2m) 他4+, vine 東5南5上3(8m) 他4+, jungle_leaves 東4南5上6(9m) 他3+, tall_grass 西10北8(13m) 他2+, oak_leaves 西8南7上8(13m)\n近くの人・生き物・落ちている物: プレイヤーDaiki 南1(1m), プレイヤーHayate 東1南1(1m), プレイヤーNoriko 東2南2(3m), プレイヤーEmiko 東2南3(4m), プレイヤーMiyoko 南4(4m), プレイヤーArata 南4(4m)\n今聞こえた話: Sho「西を探してみるね。原木見つけたら教えて！」 Hideki「Yumaさん、原木を少し分けてください。」 Koichi「近くに原木あるんだな。案内してくれ、頼むぞ。」 Yuma「Hideki、木を切るの手伝ってくれる？」 Etsuko「原木探しなら、わたしも西へ行くよ。」",
+  "memText": "覚えている場所: M1=聞いた場所(Masaruが言っていた所) 東3南7(7m)・出現地点のすぐ近く, M2=聞いた場所(Satoshiが言っていた所) 東11北1(11m)・出現地点のすぐ近く, M3=聞いた場所(Michikoが言っていた所) 東12北1(12m)・出現地点のすぐ近く, M4=聞いた場所(Eitaが言っていた所) 西16南7上4(17m)・出現地点から西に30m, M5=聞いた場所(Tomokoが言っていた所) 西18北1(18m)・出現地点から西に30m, M6=聞いた場所(Aoiが言っていた所) 西33南12上4(35m)・出現地点から西に50m\nやったこと: go_to(M1)→成功:jungle_logの所に着いた / go_to(M1)→成功:jungle_logの所に着いた / wronged(Chinatsu)→失敗:Chinatsuに自分が掘ったoak_saplingを先に拾われた / follow(Airi)→成功:Airiに31秒ついて行った (5m動いた、今2m離れている) / go_to(M1)→失敗:着いたがjungle_logはもう無かった / use_on(hand>oak_leaves)→成功:素手をoak_leavesに使った: oak_leavesがairになった / use_on(hand>oak_leaves)→失敗:素手をoak_leaves(-335,73,66 2.4m)に使ったが何も起きなかった\n聞いた話: Misakiは「Aoiさん、一緒に西を探しませんか？」と言っていた (1回前) Eikoは「Harutoさん、原木探しをご一緒してもよろしいですか。」と言っていた (1回前) Yamatoは「西30mの原木、まだあるかな？」と言っていた (1回前) Kentaは「近くの原木を探しに西へ行きます。一緒にどうですか？」と言っていた (1回前) Yuiは「西で原木を探すよ！Mizuki、一緒に行こう？」と言っていた (1回前) Kyokoは「作業台を拾うよ。原木は自分で探す」と言っていた (1回前) Mioは「西の原木、今度こそ一緒に取ろう！」と言っていた (1回前)",
+  "progress": "ゴール: crafting_table 1 (道具を作って食料を確保する準備をする) / 道筋: oak_sapling 1 ← oak_leaves(見える)、oak_log 1 ← oak_sapling 1 を植える (grass_block の上・明るい所・上に空き) → 育つ (約15分) → 切る、oak_planks 4 ← oak_log 1、crafting_table 1 ← oak_planks 4 / 次: oak_leaves から oak_sapling を手に入れる",
+  "body": "お腹は空いていない。眠くない。落ち着いている。食べ物を持っていない。食べ物が手に入る所を知らない。この先の食べ物が心配。誰かの役に立ちたい。誰かに頼られたい",
+  "logEmotions": {
+   "joy": 9.55,
+   "sadness": 1,
+   "anger": 1.38,
+   "fear": 1,
+   "disgust": 0,
+   "surprise": 8.5
+  },
+  "logWords": "お腹は空いていない。眠くない。落ち着いている。食べ物を持っていない。食べ物が手に入る所を知らない。この先の食べ物が心配。誰かの役に立ちたい。誰かに頼られたい。とてもうれしい。とても驚いている。Chinatsuとは知り合い。自分が掘ったoak_saplingを先に拾われた。まだ許していない。Tadashiとは知り合い。前に物をくれた。Setsukoとは知り合い。畑のことはまだ不慣れ",
+  "logChoice": [
+   "explore",
+   "southwest_near"
+  ],
+  "relations": [
+   {
+    "name": "Chinatsu",
+    "affinity": 47,
+    "grudge": {
+     "kind": "snatched",
+     "item": "oak_sapling",
+     "v": 0.2
+    }
+   },
+   {
+    "name": "Tadashi",
+    "affinity": 56,
+    "note": "前に物をくれた"
+   },
+   {
+    "name": "Setsuko",
+    "affinity": 50
+   }
+  ],
+  "causes": {
+   "anger": {
+    "kind": "snatched",
+    "who": "Chinatsu",
+    "item": "oak_sapling",
+    "ago": 3
+   },
+   "joy": {
+    "kind": "received",
+    "who": "Tadashi",
+    "item": "stick",
+    "ago": 4
+   },
+   "sadness": {
+    "kind": "ignored",
+    "who": "Setsuko",
+    "ago": 6
+   },
+   "fear": null
+  },
+  "actions": {
+   "collect": [
+    {
+     "id": "grass",
+     "label": "grass"
+    },
+    {
+     "id": "oak_leaves",
+     "label": "oak_leaves"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "Daiki",
+     "label": "Daiki 南1(1m)"
+    },
+    {
+     "id": "Chinatsu",
+     "label": "Chinatsu 東3南4(5m)"
+    },
+    {
+     "id": "oak_leaves",
+     "label": "oak_leaves 西8南7上8(13m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "follow": [
+    {
+     "id": "Daiki",
+     "label": "Daiki"
+    },
+    {
+     "id": "Hayate",
+     "label": "Hayate"
+    },
+    {
+     "id": "Chinatsu",
+     "label": "Chinatsu"
+    }
+   ],
+   "give": [
+    {
+     "id": "Daiki:stick",
+     "label": "Daiki に stick"
+    }
+   ],
+   "call": [
+    {
+     "id": "Daiki",
+     "label": "Daiki"
+    },
+    {
+     "id": "Hayate",
+     "label": "Hayate"
+    }
+   ],
+   "avoid_person": [
+    {
+     "id": "Chinatsu",
+     "label": "Chinatsu 東3南4 (自分が掘ったoak_saplingを先に拾われた)"
+    }
+   ],
+   "complain": [
+    {
+     "id": "Chinatsu",
+     "label": "Chinatsu 東3南4 (自分が掘ったoak_saplingを先に拾われた)"
+    }
+   ],
+   "hit_person": [
+    {
+     "id": "Chinatsu",
+     "label": "Chinatsu 東3南4 (自分が掘ったoak_saplingを先に拾われた)"
+    }
+   ],
+   "say": true,
+   "broadcast": true
+  }
+ },
+ {
+  "id": "hikaru_night",
+  "cat": "grudge",
+  "src": "runs/2026-11-13T04-18-31/Hikaru-2026-11-13T04-18-31.jsonl loop 77",
+  "persona": {
+   "name": "Hikaru",
+   "personality": "21歳の男性。とてもひかえめで、おとなしい。とてもだらしなく、うっかりしている。どちらかといえば他人に不満をもち、もめごとを起こしやすい。",
+   "speech": "くだけた話し方で、知らない人には軽い丁寧語。口数が少なく、短く話す。",
+   "temperament": {
+    "bravery": 0.06,
+    "empathy": 0.22,
+    "obedience": 0.06,
+    "greed": 0.82,
+    "sociability": 0.03
+   }
+  },
+  "obs": "自分: Hikaru 位置(-338,88,90) 体力20/20 満腹11/20 時間:夜 1日目\n持ち物: なし\n見えるブロック: oak_sapling ここ(1m), dirt ここ(1m), grass_block 南1(1m) 他4+, oak_leaves 北1(2m) 他1+, grass 南2(2m) 他4+, vine 西1南12上2(12m) 他3+, jungle_leaves 西9北12下2(16m) 他4+\n近くの人・生き物・落ちている物: プレイヤーMoe 西1(1m), プレイヤーHimari 西1(1m), プレイヤーShun 西3北2(3m), プレイヤーNoriko 西3北2(3m)\n今聞こえた話: Sho「夜明けまでそばにいてくれる？怖くてさ。」 Yuna「Rie、教えてくれてありがと！助かったよ」 Mai「Naomiさん、夜明けまでそばにいてください。怖くて眠いです。」 Rie「Yunaさん、夜明けまで一緒にいますね。」 Mio「Akemi、夜明けまで一緒にいて。怖いよ…」\n拠点 (西13北17下14(26m)) 前に見たとき: acacia_planks 4、crafting_table 1、暗い、囲まれていない",
+  "memText": "覚えている場所: M1=聞いた場所(Moeが言っていた所) 西8南4(9m)・出現地点から南西に40m, M2=jungle_log 西9北14下2(17m)・出現地点から西に30m, M3=聞いた場所(Yudaiが言っていた所) 西17南2(17m)・出現地点から南西に40m, M4=聞いた場所(Tomokoが言っていた所) 西8北14下8(19m)・出現地点から南西に30m, M5=聞いた場所(Airiが言っていた所) 東8北17下15(24m)・出現地点のすぐ近く, M6=聞いた場所(Kaitoが言っていた所) 東9北18下15(25m)・出現地点のすぐ近く\nやったこと: go_to(Moe)→成功:Moeの所に着いた / set_base(here)→成功:ここ(-351,74,72)を拠点にした / wronged(Himari)→失敗:Himariに自分が掘ったjungle_planksを先に拾われた / take_placed(jungle_planks@unknown)→成功:誰かが置いたjungle_planksを掘って0個拾った / collect(oak_leaves)→失敗:oak_leavesを素手で3個掘って0個拾った (掘るのに2秒)。Takuyaがoak_leavesを3個壊した / call(Takuya)→成功:「Takuya、来て (-338,89,83)」と呼んだ / go_to(Takuya)→成功:Takuyaの所に着いた\n聞いた話: Naomiは「Maiさん、夜明けまでそばにいてください。怖くて…」と言っていた (1回前) Akemiは「夜明けまで、そばにいてください。」と言っていた (1回前) Akemiは「Mioさん、夜明けまでそばにいてください。」と言っていた (1回前) Akemiは「Natsukiさん、答え: 分からないです。作業台は出現地点から西に30〜40mあたりで見ました。」と言っていた (1回前) Itsukiは「Natsuki、夜明けまで一緒にいてよ。怖いんだ」と言っていた (1回前) Mihoは「Sotaさん、夜明けまでそばにいてください。怖くて…」と言っていた (1回前) Tadashiは「Rin、来て (-295,71,77)」と言っていた (1回前)\nあとでやること: 西9北7下8(14m)にオークの苗木を1本植えた (約7分前。見に行ったら無くなっていた) / 西8北7下8(14m)にオークの苗木を1本植えた (約7分前。見に行ったら無くなっていた)",
+  "progress": "ゴール: 拠点へ行く (遠くへ行かずに拠点へ戻り、夜を安全に過ごせるか確かめたい。) / 次: 拠点へ行く (西13北17下14(26m))",
+  "body": "お腹が空いた。ここに来てから何も食べていない。眠くてたまらない。周りが暗いし、夜なのに外にいるので落ち着かない。今は夜。夜明けまであと4分ほど。ここで過ごす初めての夜。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜明けまでが怖い。食べ物を持っていない。食べ物が手に入る所を知らない。この先の食べ物が心配",
+  "logEmotions": {
+   "joy": 6.11,
+   "sadness": 1,
+   "anger": 0.36,
+   "fear": 1.4,
+   "disgust": 0,
+   "surprise": 1.88
+  },
+  "logWords": "お腹が空いた。ここに来てから何も食べていない。眠くてたまらない。周りが暗いし、夜なのに外にいるので落ち着かない。今は夜。夜明けまであと4分ほど。ここで過ごす初めての夜。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜明けまでが怖い。食べ物を持っていない。食べ物が手に入る所を知らない。この先の食べ物が心配。うれしい。Makotoとは少し苦手。oak_saplingを取られた。まだ許していない。Himariとは感じが良い。自分が掘ったjungle_planksを先に拾われた。まだ許していない。Airiとは知り合い。自分が掘ったoak_saplingを先に拾われた。まだ許していない。知らない所を見て回ることは少し慣れてきた。人と関わることは少し慣れてきた。木を切ることはまだ不慣れ",
+  "logChoice": [
+   "go_to",
+   "M4"
+  ],
+  "relations": [
+   {
+    "name": "Himari",
+    "affinity": 60,
+    "grudge": {
+     "kind": "snatched",
+     "item": "jungle_planks",
+     "v": 0.18
+    }
+   },
+   {
+    "name": "Makoto",
+    "affinity": 38,
+    "grudge": {
+     "kind": "took_witnessed",
+     "item": "oak_sapling",
+     "v": 0.32
+    }
+   },
+   {
+    "name": "Moe",
+    "affinity": 50
+   }
+  ],
+  "causes": {
+   "anger": {
+    "kind": "snatched",
+    "who": "Himari",
+    "item": "jungle_planks",
+    "ago": 8
+   },
+   "fear": {
+    "kind": "safety"
+   },
+   "joy": {
+    "kind": "talked",
+    "who": "Moe",
+    "ago": 2
+   },
+   "sadness": {
+    "kind": "ignored",
+    "who": "Shun",
+    "ago": 5
+   }
+  },
+  "actions": {
+   "collect": [
+    {
+     "id": "dirt",
+     "label": "dirt"
+    },
+    {
+     "id": "oak_leaves",
+     "label": "oak_leaves"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "M4",
+     "label": "M4 拠点 西13北17下14(26m)"
+    },
+    {
+     "id": "Moe",
+     "label": "Moe 西1(1m)"
+    },
+    {
+     "id": "Himari",
+     "label": "Himari 西1(1m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "follow": [
+    {
+     "id": "Moe",
+     "label": "Moe"
+    },
+    {
+     "id": "Himari",
+     "label": "Himari"
+    },
+    {
+     "id": "Shun",
+     "label": "Shun"
+    }
+   ],
+   "call": [
+    {
+     "id": "Moe",
+     "label": "Moe"
+    },
+    {
+     "id": "Shun",
+     "label": "Shun"
+    }
+   ],
+   "avoid_person": [
+    {
+     "id": "Himari",
+     "label": "Himari 西1 (自分が掘ったjungle_planksを先に拾われた)"
+    }
+   ],
+   "complain": [
+    {
+     "id": "Himari",
+     "label": "Himari 西1 (自分が掘ったjungle_planksを先に拾われた)"
+    }
+   ],
+   "hit_person": [
+    {
+     "id": "Himari",
+     "label": "Himari 西1 (自分が掘ったjungle_planksを先に拾われた)"
+    }
+   ],
+   "say": true,
+   "broadcast": true
+  }
+ },
+ {
+  "id": "shigeru_seeds",
+  "cat": "grudge",
+  "src": "runs/2026-11-13T04-52-26/Shigeru-2026-11-13T04-52-26.jsonl loop 18",
+  "persona": {
+   "name": "Shigeru",
+   "personality": "76歳の男性。心配性で、うろたえやすい。どちらかといえば活発で、外向的。どちらかといえば人に気をつかう、やさしい性格。",
+   "speech": "ゆっくりした落ち着いた話し方。少し古い言い回しが混じる。不安になると念を押す。",
+   "temperament": {
+    "bravery": 0.33,
+    "empathy": 0.77,
+    "obedience": 0.67,
+    "greed": 0.43,
+    "sociability": 0.79
+   }
+  },
+  "obs": "自分: Shigeru 位置(-346,80,79) 体力20/20 満腹20/20 時間:昼 1日目\n持ち物: なし\n見えるブロック: grass_block ここ(1m) 他4+, dirt 西1北2(3m), oak_leaves 東1南4(4m) 他4+, grass 西1南4(4m) 他4+, vine 東2上4(4m) 他4+, jungle_leaves 北1上5(5m) 他4+, fern 東5南5上6(9m) 他2+, tall_grass 北14下6(16m) 他1+\n近くの人・生き物・落ちている物: プレイヤーNoboru 南1(1m), プレイヤーMasaru 西1北1(1m), プレイヤーNoriko 西2北1(2m), プレイヤーArata 東2北2(3m), プレイヤーHaruto 東1北3(3m), プレイヤーMei 東1北3(3m)\n今聞こえた話: Emiko「Ryo、作業台へ向かいますね。」 Mayumi「苗木、私も探しています。見つけたらお知らせしますね。」 Ren「Koharu、苗木を植える場所探すの手伝って」 Sho「苗木を植えたよ。木を探すの手伝う？」 Sora「Kenta、原木を探しに西へ行こうよ」",
+  "memText": "覚えている場所: M1=jungle_log 北3上5(6m)・出現地点から西に30m, M2=聞いた場所(Yutakaが言っていた所) 北5下3(6m)・出現地点から西に30m, M3=聞いた場所(Isamuが言っていた所) 東8北4(9m)・出現地点から南西に20m, M4=crafting_table 東2北11下5(13m)・出現地点から西に30m, M5=聞いた場所(Emikoが言っていた所) 西3北14下8(17m)・出現地点から西に30m, M6=聞いた場所(Ayaが言っていた所) 東18北6下7(20m)・出現地点のすぐ近く\nやったこと: collect(jungle_log)→失敗:手の届く高さにjungle_logが見えない。Chinatsuがdirtを3個拾った。Taiyoがfernを2個壊した。Yamatoがdirtを2個拾った。S… / go_to(M6)→成功:jungle_logの所に着いた / call(Aoi)→成功:「Aoi、来て (-330,73,72)」と呼んだ / report_find→成功:全員に発見「出現地点から西1上6にジャングルの原木が見えるぞ。」を知らせた / pick_up(jungle_log)→失敗:jungle_logを拾えなかった / go_to((出現地点のすぐ近くの所))→成功:聞いた場所の所に着いた / follow(Tadashi)→成功:Tadashiに30秒ついて行った (29m動いた、今2m離れている) / go_to(crafting_table)→成功:crafting_tableの所に着いた / explore(south_near)→成功:南へ11m進んだ 行ったことのあるマス / call(Tadashi)→成功:「Tadashi、来て (-346,80,76)」と呼んだ / collect(grass)→失敗:grassを素手で3個掘って0個拾った (掘るのに1秒)。Kyokoがgrassを4個壊した。Eitaがgrassを2個壊した。Shoがdirtを1個壊した。… / go_to(M6)→失敗:着いたがjungle_logはもう無かった / wronged(Noriko)→失敗:Norikoに自分が掘ったwheat_seedsを先に拾われた / collect(grass)→失敗:grassを素手で3個掘って0個拾った (掘るのに1秒未満)。Miuがoak_leavesを3個壊した。Isamuがgrassを2個壊した。Arataがoak…",
+  "progress": "ゴール: jungle_log 1 (近くに見える原木を手に入れて、みんなの共同目標にも役立ちたい。) / 道筋: jungle_log 1 ← 掘る(前に見た) / 次: jungle_log を手に入れる",
+  "body": "お腹は空いていない。眠くない。落ち着いている。あと5分ほどで夜。まだここで夜を越したことがない。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜が来るのが少し気になる。食べ物を持っていない。最近羊を見た。この先の食べ物が少し気になる。誰かの役に立ちたい。誰かに頼られたい",
+  "logEmotions": {
+   "joy": 8.96,
+   "sadness": 1,
+   "anger": 1.44,
+   "fear": 1,
+   "disgust": 0,
+   "surprise": 8.5
+  },
+  "logWords": "お腹は空いていない。眠くない。落ち着いている。あと5分ほどで夜。まだここで夜を越したことがない。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜が来るのが少し気になる。食べ物を持っていない。最近羊を見た。この先の食べ物が少し気になる。誰かの役に立ちたい。誰かに頼られたい。とても驚いている。とてもうれしい。Norikoとは知り合い。自分が掘ったwheat_seedsを先に拾われた。まだ許していない。Rieとは知り合い。Mioとは知り合い。人と関わることはまだ不慣れ",
+  "logChoice": [
+   "explore",
+   "north_near"
+  ],
+  "relations": [
+   {
+    "name": "Noriko",
+    "affinity": 48,
+    "grudge": {
+     "kind": "snatched",
+     "item": "wheat_seeds",
+     "v": 0.2
+    }
+   },
+   {
+    "name": "Rie",
+    "affinity": 52
+   },
+   {
+    "name": "Mio",
+    "affinity": 51
+   }
+  ],
+  "causes": {
+   "anger": {
+    "kind": "snatched",
+    "who": "Noriko",
+    "item": "wheat_seeds",
+    "ago": 2
+   },
+   "joy": {
+    "kind": "met",
+    "who": "Rie",
+    "ago": 1
+   },
+   "sadness": {
+    "kind": "fail_repeat",
+    "what": "collect",
+    "ago": 3
+   },
+   "fear": null
+  },
+  "actions": {
+   "collect": [
+    {
+     "id": "grass_block",
+     "label": "grass_block"
+    },
+    {
+     "id": "oak_leaves",
+     "label": "oak_leaves"
+    },
+    {
+     "id": "grass",
+     "label": "grass"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "Noriko",
+     "label": "Noriko 西2北1(2m)"
+    },
+    {
+     "id": "Masaru",
+     "label": "Masaru 西1北1(1m)"
+    },
+    {
+     "id": "tall_grass",
+     "label": "tall_grass 北14下6(16m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "follow": [
+    {
+     "id": "Noboru",
+     "label": "Noboru"
+    },
+    {
+     "id": "Masaru",
+     "label": "Masaru"
+    },
+    {
+     "id": "Noriko",
+     "label": "Noriko"
+    }
+   ],
+   "call": [
+    {
+     "id": "Noboru",
+     "label": "Noboru"
+    },
+    {
+     "id": "Masaru",
+     "label": "Masaru"
+    }
+   ],
+   "avoid_person": [
+    {
+     "id": "Noriko",
+     "label": "Noriko 西2北1 (自分が掘ったwheat_seedsを先に拾われた)"
+    }
+   ],
+   "complain": [
+    {
+     "id": "Noriko",
+     "label": "Noriko 西2北1 (自分が掘ったwheat_seedsを先に拾われた)"
+    }
+   ],
+   "hit_person": [
+    {
+     "id": "Noriko",
+     "label": "Noriko 西2北1 (自分が掘ったwheat_seedsを先に拾われた)"
+    }
+   ],
+   "say": true,
+   "broadcast": true
+  }
+ },
+ {
+  "id": "mai_cobble",
+  "cat": "grudge",
+  "src": "runs/2026-11-13T04-52-26/Mai-2026-11-13T04-52-26.jsonl loop 97",
+  "persona": {
+   "name": "Mai",
+   "personality": "43歳の女性。どちらかといえば慣れたやり方を好み、新しい発想は少ない。どちらかといえばだらしなく、うっかりしている。",
+   "speech": "大人の落ち着いた話し方。知らない人には丁寧語。",
+   "temperament": {
+    "bravery": 0.62,
+    "empathy": 0.42,
+    "obedience": 0.3,
+    "greed": 0.56,
+    "sociability": 0.68
+   }
+  },
+  "obs": "自分: Mai 位置(-343,51,145) 体力20/20 満腹11/20 時間:明け方 1日目\n持ち物: wooden_pickaxex1, dirtx1, granitex7, cobblestonex82, andesitex19, wooden_axex1, stone_axex1, crafting_tablex1, furnacex1, stone_pickaxex1, coalx8, torchx1\n見えるブロック: stone 西1(1m) 他4+\n近くの人・生き物・落ちている物: プレイヤーHiroshi 南2(2m)\n今聞こえた話: Tetsuya「Osamuさん、少しそばにいてください。怖くて、眠いです。」 Mitsuko「Tetsuya、そばにいておくれ。少し休みたいんじゃ。」 Tetsuya「Mitsukoさん、そばにいます。少し休みましょう。」\n拠点 (東39北57上24(73m)) 前に見たとき: jungle_planks 7、crafting_table 1、jungle_sapling 1、暗い、囲まれていない",
+  "memText": "覚えている場所: M1=copper_ore 東4北11(12m)・出現地点から南に70m, M2=聞いた場所(Mitsukoが言っていた所) 東11北14(18m)・出現地点から南に70m, M3=coal_ore 東12北14上2(19m)・出現地点から南に70m, M4=cobblestone 東12北14上13(23m)・出現地点から南に70m, M5=聞いた場所(Rikuが言っていた所) 東28北16上15(36m)・出現地点から南に70m, M6=聞いた場所(Tetsuyaが言っていた所) 東26北25上13(39m)・出現地点から南に60m\nやったこと: equip(wooden_axe)→成功:wooden_axeを手に持った / use_on(wooden_axe>jungle_planks)→成功:wooden_axeをjungle_planksに使った: 持ち物 jungle_planks-1、開いた (中身: 空) / collect(stone)→成功:stoneをwooden_pickaxeで3個掘って4個拾った (掘るのに5秒) / go_to((出現地点から南に50mの所))→成功:coal_oreの所に着いた / collect(stone)→成功:stoneをstone_pickaxeで3個掘って3個拾った (掘るのに6秒) / search(southwest)→成功:jungle_logを探して南西へ33m進んだ 新しいマス(時間切れ) / search(southwest)→成功:jungle_logを探して南西へ2m進んだ 行ったことのあるマス。Mitsukoに呼ばれた / search(continue)→成功:jungle_logを探して南西へ2m進んだ 行ったことのあるマス。Mitsukoに呼ばれた / go_to(Mitsuko)→成功:Mitsukoの所に着いた / search(southwest)→成功:jungle_logを探して南西へ5m進んだ 行ったことのあるマス。Hiroshiに呼ばれた / search(continue)→失敗:jungle_logを探して南西へ進めなかった: 時間切れ / equip(wooden_axe)→成功:wooden_axeを手に持った\n聞いた話: Tetsuyaは「夜明けまで、そばにいてもいいですか。」と言っていた (3回前)\n教わったこと: Koichiから(49回前・夜)「まずcraft(wooden_axe)で作ってから、equip(wooden_axe)だ。」",
+  "progress": "ゴール: torch 4 (暗い拠点に明かりを置いて、夜の不安を少し減らしたい。) / 道筋: jungle_log 1 ← 掘る(前に見た)、jungle_planks 2 ← jungle_log 1、stick 1 ← jungle_planks 2、torch 3 ← coal 1 + stick 1 / 次: jungle_log を手に入れる",
+  "body": "お腹が空いた。ここに来てから何も食べていない。昨夜は寝られなかった。眠くてたまらない。周りを囲まれた場所にいるので安心している。食べ物を持っていない。食べ物が手に入る所を知らない。この先の食べ物が心配。気が張っている",
+  "logEmotions": {
+   "joy": 6.75,
+   "sadness": 1.23,
+   "anger": 1.62,
+   "fear": 1.17,
+   "disgust": 0,
+   "surprise": 0.1
+  },
+  "logWords": "お腹が空いた。ここに来てから何も食べていない。昨夜は寝られなかった。眠くてたまらない。周りを囲まれた場所にいるので安心している。食べ物を持っていない。食べ物が手に入る所を知らない。この先の食べ物が心配。気が張っている。うれしい。Hiroshiとは知り合い。cobblestoneを取られた。まだ許していない。Kaitoとは知り合い。自分が掘ったjungle_logを先に拾われた。まだ許していない。Mitsukoとは感じが良い。前に物をくれた。iron_pickaxe (鉄のツルハシ) が欲しい (coal_oreをstone_pickaxeで3個掘るのに5秒かかった)。物を作ることは慣れている。人と関わることは少し慣れてきた。木を切ることはまだ不慣れ",
+  "logChoice": [
+   "explore",
+   "southwest_near"
+  ],
+  "relations": [
+   {
+    "name": "Hiroshi",
+    "affinity": 44,
+    "grudge": {
+     "kind": "took_witnessed",
+     "item": "cobblestone",
+     "v": 0.28
+    }
+   },
+   {
+    "name": "Mitsuko",
+    "affinity": 60,
+    "note": "前に物をくれた"
+   },
+   {
+    "name": "Kaito",
+    "affinity": 48,
+    "grudge": {
+     "kind": "snatched",
+     "item": "jungle_log",
+     "v": 0.13
+    }
+   }
+  ],
+  "causes": {
+   "anger": {
+    "kind": "took_witnessed",
+    "who": "Hiroshi",
+    "item": "cobblestone",
+    "ago": 4
+   },
+   "joy": {
+    "kind": "received",
+    "who": "Mitsuko",
+    "item": "coal",
+    "ago": 10
+   },
+   "sadness": {
+    "kind": "fail_repeat",
+    "what": "collect",
+    "ago": 2
+   },
+   "fear": {
+    "kind": "safety"
+   }
+  },
+  "actions": {
+   "craft": [
+    {
+     "id": "torch",
+     "label": "torch"
+    },
+    {
+     "id": "stone_sword",
+     "label": "stone_sword"
+    }
+   ],
+   "place": [
+    {
+     "id": "torch",
+     "label": "torch"
+    },
+    {
+     "id": "crafting_table",
+     "label": "crafting_table"
+    }
+   ],
+   "collect": [
+    {
+     "id": "stone",
+     "label": "stone"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "Hiroshi",
+     "label": "Hiroshi 南2(2m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "follow": [
+    {
+     "id": "Hiroshi",
+     "label": "Hiroshi"
+    }
+   ],
+   "give": [
+    {
+     "id": "Hiroshi:cobblestone",
+     "label": "Hiroshi に cobblestone"
+    }
+   ],
+   "call": [
+    {
+     "id": "Hiroshi",
+     "label": "Hiroshi"
+    }
+   ],
+   "avoid_person": [
+    {
+     "id": "Hiroshi",
+     "label": "Hiroshi 南2 (cobblestoneを取られた)"
+    }
+   ],
+   "complain": [
+    {
+     "id": "Hiroshi",
+     "label": "Hiroshi 南2 (cobblestoneを取られた)"
+    }
+   ],
+   "demand_back": [
+    {
+     "id": "Hiroshi:cobblestone",
+     "label": "Hiroshi 南2 (cobblestoneを取られた)"
+    }
+   ],
+   "hit_person": [
+    {
+     "id": "Hiroshi",
+     "label": "Hiroshi 南2 (cobblestoneを取られた)"
+    }
+   ],
+   "say": true,
+   "broadcast": true
+  }
+ },
+ {
+  "id": "ryu_zombie",
+  "cat": "hostile",
+  "src": "runs/2026-11-13T04-18-31/Ryu-2026-11-13T04-18-31.jsonl loop 73",
+  "persona": {
+   "name": "Ryu",
+   "personality": "26歳の男性。とてもだらしなく、うっかりしている。新しいことが好きで、変わった考えをもつ。活発で、外向的。",
+   "speech": "くだけた話し方で、知らない人には軽い丁寧語。よく質問する。よくしゃべり、思ったことをすぐ口に出す。",
+   "temperament": {
+    "bravery": 0.91,
+    "empathy": 0.45,
+    "obedience": 0.21,
+    "greed": 0.42,
+    "sociability": 0.88
+   }
+  },
+  "obs": "自分: Ryu 位置(-597,74,88) 体力4/20 満腹16/20 時間:夜 1日目\n持ち物: oak_saplingx4, applex1, acacia_logx4, dirtx18, muttonx1, acacia_planksx1, wooden_axex2, featherx1, stickx10, wooden_pickaxex1, acacia_saplingx2\n見えるブロック: white_bed 西1(2m) 他1+, crafting_table 東1南4(4m) 他1+, acacia_log 西3北3上4(6m) 他4+, grass ここ(1m) 他4+, grass_block ここ(1m) 他4+, acacia_door 南5(5m) 他1+, acacia_leaves 上5(5m) 他4+, tall_grass 東4北8(9m) 他4+, oak_leaves 東9南9(12m) 他3+\n近くの人・生き物・落ちている物: 落ちているacacia_sapling 東8(8m), 敵zombie 東5南7(8m), 落ちているstick 東9南4(10m), chicken 西6南13上2(15m)\n今聞こえた話: なし\n自分のベッド/チェストを置いた所の近く: acacia_door 1、crafting_table 1、white_bed 1、暗い、屋根あり",
+  "memText": "覚えている場所: M1=oak_log 東9南10(13m)・出現地点から西に270m, M2=white_bed 東10南14(17m)・出現地点から西に270m, M3=聞いた場所(Kumikoが言っていた所) 東17北9下3(19m)・出現地点から西に260m, M4=acacia_log 西10南22上5(24m)・出現地点から西に290m, M5=acacia_log 東14南25(28m)・出現地点から西に270m, M6=water 西14南45下12(48m)・出現地点から西に300m\nやったこと: ask_permission(Eiko:crafting_table)→成功:Eikoにcrafting_tableを使ってよいか聞いた: いいと言われた「Ryuさん、crafting_tableを使ってよいですよ。」 / attack(pig)→成功:素手でpigを倒して3個拾った / search(southwest)→成功:stoneを探して南西へ35m進んだ 新しいマス。stoneが見えた / enclose(ここ:3x3:cobblestone)→成功:cobblestoneで今いた所の周り (内側3x3) を囲った: 32か所のうち14個置いた (もとから0・足りない/置けなかった18)。中は囲われた (地… / enclose(ここ:3x3:cobblestone)→成功:cobblestoneで今いた所の周り (内側3x3) を囲った: 32か所のうち19個置いた (もとから0・足りない/置けなかった13)。すき間が残っている… / sleep(white_bed)→失敗:寝られなかった: there are monsters nearby / take_placed(white_bed@unknown)→成功:誰かが置いたwhite_bedを掘って1個拾った / flee(away)→成功:敵から13m離れた / place(white_bed)→成功:white_bedを(-599,74,87)に置いた\n聞いた話: Mitsukoは「Sho、ありがとうね。朝になったら一緒に作業台へ行こう」と言っていた (15回前) Koharuは「Kaito、羊を倒すの手伝ってくれる？」と言っていた (15回前) Aoiは全員に「木の剣を作るね。夜明けまで、みんなのそばにいるよ。」と言っていた (15回前・夜) Yamatoは全員に「Chinatsu、一緒に掘ろう。今度は先に取らないでよ！」と言っていた (9回前・夜) Nanamiは全員に「夜明けまで一緒に待って。豚は朝探すよ。」と言っていた (9回前・夜)",
+  "progress": "ゴール: white_bed 1 (ベッドのそばへ戻って眠る機会を作りたい) / 手に入れた",
+  "body": "少しお腹が空いた。眠くてたまらない。さっき痛い目にあったし、近くにzombieがいるので怖い。今は夜。夜明けまであと2分ほど。今夜はもう敵に傷を負わされた。wooden_axeを持っている。防具を着けていない。ベッドがある。夜のあいだが少し気になる。手持ちの食べ物は1回分ほど。最近鶏を見た。この先の食べ物が少し気になる",
+  "logEmotions": {
+   "joy": 6.7,
+   "sadness": 1,
+   "anger": 0,
+   "fear": 1.34,
+   "disgust": 0,
+   "surprise": 0.09
+  },
+  "logWords": "少しお腹が空いた。眠くてたまらない。さっき痛い目にあったし、近くにzombieがいるので怖い。今は夜。夜明けまであと2分ほど。今夜はもう敵に傷を負わされた。wooden_axeを持っている。防具を着けていない。ベッドがある。夜のあいだが少し気になる。手持ちの食べ物は1回分ほど。最近鶏を見た。この先の食べ物が少し気になる。うれしい。Chinatsuとは知り合い。自分が掘ったjungle_logを先に拾われた。まだ許していない。Renとは知り合い。Yokoとは知り合い。stone_pickaxe (石のツルハシ) が欲しい (stoneを素手では取れなかった)。物を作ることは慣れている。石掘りは少し慣れてきた。畑のことはまだ不慣れ",
+  "logChoice": [
+   "flee",
+   "away"
+  ],
+  "relations": [
+   {
+    "name": "Kenta",
+    "affinity": 55,
+    "note": "前にやり方を教えてくれた"
+   }
+  ],
+  "causes": {
+   "fear": {
+    "kind": "death",
+    "ago": 3
+   },
+   "anger": {
+    "kind": "fail",
+    "what": "attack",
+    "ago": 1
+   },
+   "joy": {
+    "kind": "answered",
+    "who": "Kenta",
+    "ago": 7
+   },
+   "sadness": {
+    "kind": "death",
+    "ago": 3
+   }
+  },
+  "actions": {
+   "flee": [
+    {
+     "id": "away",
+     "label": "away 敵から離れる (zombie 東5南7)"
+    }
+   ],
+   "attack": [
+    {
+     "id": "zombie",
+     "label": "zombie 東5南7(8m)"
+    },
+    {
+     "id": "chicken",
+     "label": "chicken 西6南13上2(15m)"
+    }
+   ],
+   "eat": [
+    {
+     "id": "apple",
+     "label": "apple"
+    },
+    {
+     "id": "mutton",
+     "label": "mutton"
+    }
+   ],
+   "pick_up": [
+    {
+     "id": "acacia_sapling",
+     "label": "acacia_sapling 東8(8m)"
+    },
+    {
+     "id": "stick",
+     "label": "stick 東9南4(10m)"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "white_bed",
+     "label": "white_bed 西1(2m)"
+    },
+    {
+     "id": "crafting_table",
+     "label": "crafting_table 東1南4(4m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "broadcast": true,
+   "say": true
+  }
+ },
+ {
+  "id": "kanon_skeleton",
+  "cat": "hostile",
+  "src": "runs/2026-11-13T04-18-31/Kanon-2026-11-13T04-18-31.jsonl loop 60",
+  "persona": {
+   "name": "Kanon",
+   "personality": "11歳の女の子。とても他人に不満をもち、もめごとを起こしやすい。だらしなく、うっかりしている。どちらかといえば慣れたやり方を好み、新しい発想は少ない。",
+   "speech": "子供らしいくだけた話し方。「〜だよ」「〜じゃん」など短い文。言い方がぶっきらぼう。",
+   "temperament": {
+    "bravery": 0.39,
+    "empathy": 0.04,
+    "obedience": 0.05,
+    "greed": 0.94,
+    "sociability": 0.43
+   }
+  },
+  "obs": "自分: Kanon 位置(-424,64,-114) 体力8/20 満腹14/20 時間:夜 1日目\n持ち物: acacia_logx3, acacia_planksx4, wheat_seedsx4, stickx4, featherx1, muttonx1, white_woolx3, acacia_saplingx2\n見えるブロック: oak_log 東9北6(11m) 他3+, acacia_log 東7南10(12m) 他4+, sugar_cane 西7南14(15m) 他2+, grass ここ(1m) 他4+, grass_block ここ(1m) 他4+, tall_grass 東3南3(4m) 他4+, oak_leaves 東7北4上2(8m) 他4+, acacia_leaves 東5南6上4(8m) 他4+\n近くの人・生き物・落ちている物: sheep 東6北5(8m), 敵skeleton 東6北6(9m)\n今聞こえた話: なし\n拠点 (東2南191上28(193m)) 前に見たとき: 置いた物なし、暗い、囲まれていない",
+  "memText": "覚えている場所: M1=water 西13南15下2(20m)・出現地点から北西に200m, M2=sand 西13南15下3(20m)・出現地点から北西に200m, M3=sugar_cane 東16南42(44m)・出現地点から北西に160m, M4=water 東21南51下3(55m)・出現地点から北西に150m, M5=sand 東22南51下4(55m)・出現地点から北西に150m, M6=gravel 東24南52下4(57m)・出現地点から北西に150m\nやったこと: attack(sheep)→失敗:素手でsheepを倒したが何も拾えなかった。Toruがmuttonを2個拾った。Miuがstripped_acacia_logを1個壊した。Miuがstrip… / set_base(here)→成功:ここ(-348,77,72)を拠点にした / search(south)→成功:sheepを探して南へ4m進んだ 行ったことのあるマス。Hikaruに呼ばれた / search(southwest)→成功:sheepを探して南西へ53m進んだ 新しいマス / search(north)→成功:sheepを探して北へ48m進んだ 新しいマス / pick_up(stick)→成功:stickを2個拾った / search(north)→成功:sheepを探して北へ40m進んだ 新しいマス。sheepが見えた / attack(sheep)→成功:素手でsheepを倒して2個拾った / attack(sheep)→成功:素手でsheepを倒して3個拾った / attack(sheep)→失敗:素手でsheepを倒せなかった(7回たたいた) / attack(sheep)→成功:素手でsheepを倒して2個拾った\n聞いた話: Noboruは全員に「わしもwooden_axeが欲しいんじゃ。作業台へ行こうか」と言っていた (20回前・夜) Yamatoは全員に「西のジャングル原木、ぼくも掘るよ！先に拾わないでよ、Chinatsu。」と言っていた (15回前・夜)\n教わったこと: Osamuから(41回前・昼)「草そのものはハサミで壊すと落ちます。素手では種が時々落ちるだけです。」",
+  "progress": "ゴール: white_bed 1 (夜を安全に休めるようにしたい。) / 道筋: white_bed 1 ← white_wool 3 + acacia_planks 3 (crafting_table) / 次: white_bed を作る",
+  "body": "少しお腹が空いた。眠くてたまらない。さっき痛い目にあったし、周りが暗いので怖い。今は夜。夜明けまであと3分ほど。今夜はもう敵に傷を負わされた。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜明けまでが怖い。手持ちの食べ物は1回分に足りない。最近羊を見た。この先の食べ物が少し気になる。気が張っている",
+  "logEmotions": {
+   "joy": 6.43,
+   "sadness": 1.2,
+   "anger": 0.84,
+   "fear": 4.16,
+   "disgust": 0,
+   "surprise": 0.03
+  },
+  "logWords": "少しお腹が空いた。眠くてたまらない。さっき痛い目にあったし、周りが暗いので怖い。今は夜。夜明けまであと3分ほど。今夜はもう敵に傷を負わされた。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜明けまでが怖い。手持ちの食べ物は1回分に足りない。最近羊を見た。この先の食べ物が少し気になる。気が張っている。うれしい。少し不安。Maiとは知り合い。Osamuとは知り合い。前にやり方を教えてくれた。Yusukeとは知り合い。wooden_axe (木の斧) が欲しい (acacia_logを素手で3個掘るのに11秒かかった)。知らない所を見て回ることは慣れている。畑のことは少し慣れてきた。狩りはまだ不慣れ",
+  "logChoice": [
+   "flee",
+   "away"
+  ],
+  "relations": [
+   {
+    "name": "Osamu",
+    "affinity": 56,
+    "note": "前にやり方を教えてくれた"
+   },
+   {
+    "name": "Mai",
+    "affinity": 50
+   }
+  ],
+  "causes": {
+   "fear": {
+    "kind": "safety"
+   },
+   "anger": {
+    "kind": "fail",
+    "what": "collect",
+    "ago": 2
+   },
+   "joy": {
+    "kind": "answered",
+    "who": "Osamu",
+    "ago": 6
+   },
+   "sadness": null
+  },
+  "actions": {
+   "flee": [
+    {
+     "id": "away",
+     "label": "away 敵から離れる (skeleton 東6北6)"
+    }
+   ],
+   "attack": [
+    {
+     "id": "skeleton",
+     "label": "skeleton 東6北6(9m)"
+    },
+    {
+     "id": "sheep",
+     "label": "sheep 東6北5(8m)"
+    }
+   ],
+   "eat": [
+    {
+     "id": "mutton",
+     "label": "mutton"
+    }
+   ],
+   "craft": [
+    {
+     "id": "white_bed",
+     "label": "white_bed 目標の物"
+    },
+    {
+     "id": "crafting_table",
+     "label": "crafting_table"
+    }
+   ],
+   "collect": [
+    {
+     "id": "acacia_log",
+     "label": "acacia_log"
+    },
+    {
+     "id": "tall_grass",
+     "label": "tall_grass"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "broadcast": true,
+   "say": true
+  }
+ },
+ {
+  "id": "kiyoshi_dusk",
+  "cat": "social",
+  "src": "runs/2026-11-13T05-33-43/Kiyoshi-2026-11-13T05-33-43.jsonl loop 36",
+  "persona": {
+   "name": "Kiyoshi",
+   "personality": "78歳の男性。しっかりしていて、自分に厳しい。心配性で、うろたえやすい。他人に不満をもち、もめごとを起こしやすい。",
+   "speech": "ゆっくりした落ち着いた話し方。少し古い言い回しが混じる。不安になると念を押す。言い方がぶっきらぼう。",
+   "temperament": {
+    "bravery": 0.2,
+    "empathy": 0.15,
+    "obedience": 0.48,
+    "greed": 0.9,
+    "sociability": 0.46
+   }
+  },
+  "obs": "自分: Kiyoshi 位置(-415,97,92) 体力20/20 満腹16/20 時間:夕方 1日目\n持ち物: crafting_tablex1, featherx1\n見えるブロック: crafting_table 北1(2m), grass_block 東1南1(1m) 他4+, grass 南2(2m) 他4+, oak_leaves 上3(3m) 他4+\n近くの人・生き物・落ちている物: プレイヤーYusuke 南1(1m), プレイヤーHideki 西4(4m)\n今聞こえた話: Hideki「Kiyoshiさん、斧を装備します。夜前に急ぎましょう。」 Daiki「Yumaさん、教えて: use_on(hand>grass)のやり方が分からない(何度やっても何も変わらなかった)」 Tetsuya「Kentaさん、夜前に西で原木を探しませんか。」 Daiki「うん、木探し手伝うよ。夜前に食べ物も探したいな。」 Hideki「Yusukeさん、夜が気になります。ここを拠点にします。」",
+  "memText": "覚えている場所: M1=oak_log 東1南1(1m)・出現地点から西に100m, M2=聞いた場所(Yusukeが言っていた所) 東1北1(2m)・出現地点から西に100m, M3=聞いた場所(Natsukiが言っていた所) 東13北22下9(27m)・出現地点から西に80m, M4=聞いた場所(Yusukeが言っていた所) 西4北27下25(37m)・出現地点から西に100m, M5=聞いた場所(Satoshiが言っていた所) 東32北17下16(39m)・出現地点から西に60m, M6=聞いた場所(Daikiが言っていた所) 西39北3下8(40m)・出現地点から西に140m\nやったこと: craft(crafting_table)→成功:crafting_tableを1個作った / go_to(M1)→成功:oak_logの所に着いた / explore(west_near)→成功:西へ10m進んだ 行ったことのあるマス / go_to(M1)→成功:oak_logの所に着いた\n聞いた話: Soraは「Tetsuya、原木探すよ。夜前に急ごう」と言っていた (2回前) Yusukeは「Kiyoshiさん、夜前に西で原木を探しませんか。」と言っていた (2回前) Tadashiは「夜が近い。西で原木を探そう」と言っていた (2回前) Naomiは「Tadashiさん、原木を探すのを手伝っていただけますか？夜が心配で…」と言っていた (1回前) Hidekiは「Yusukeさん、夜前に原木を探すんですか？」と言っていた (1回前) Taiyoは「西で原木を探してるんだ。一緒に行こう」と言っていた (1回前) Yusukeは「Kiyoshiさん、そばにいます。出現地点から西に100mの所へ行きましょう。」と言っていた (1回前) Daikiは「うん、木探し手伝うよ。夜前に食べ物も探したいな」と言っていた (1回前) Yukoは全員に「私も木の斧が欲しいです。夜前に原木探しを手伝います！」と言っていた (1回前・夕方) Kaitoは全員に「出現地点から西に30m、上5mにジャングルの原木が見えるぞ。」と言っていた (1回前・夕方)",
+  "progress": "ゴール: wooden_axe 1 (木の斧を欲しがっている人に渡し、手助けをして頼られるため。) / 道筋: oak_log 2 ← 掘る(前に見た)、oak_planks 4 ← oak_log 2、stick 2 ← oak_planks 2、wooden_axe 1 ← oak_planks 3 + stick 2 (crafting_table) / 次: oak_log を手に入れる",
+  "body": "少しお腹が空いた。少し眠い。Yusukeが近くにいるので安心している。あと1分ほどで夜。まだここで夜を越したことがない。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜が来るのが不安。食べ物を持っていない。最近鶏を見た。この先の食べ物が少し気になる。持ち物が少なくて落ち着かない。誰かに頼られたい",
+  "logEmotions": {
+   "joy": 8.74,
+   "sadness": 1,
+   "anger": 0,
+   "fear": 1,
+   "disgust": 0,
+   "surprise": 2.77
+  },
+  "logWords": "少しお腹が空いた。少し眠い。Yusukeが近くにいるので安心している。あと1分ほどで夜。まだここで夜を越したことがない。武器を持っていない。防具を着けていない。囲まれた寝床は無い。夜が来るのが不安。食べ物を持っていない。最近鶏を見た。この先の食べ物が少し気になる。持ち物が少なくて落ち着かない。誰かに頼られたい。うれしい。Yusukeとは感じが良い。前に物をくれた。Shigeruとは知り合い。Taiyoとは知り合い。知らない所を見て回ることは少し慣れてきた。狩りは少し慣れてきた。人と関わることはまだ不慣れ",
+  "logChoice": [
+   "ask",
+   "Yusuke"
+  ],
+  "relations": [
+   {
+    "name": "Yusuke",
+    "affinity": 58,
+    "note": "前に物をくれた"
+   },
+   {
+    "name": "Hideki",
+    "affinity": 52
+   },
+   {
+    "name": "Taiyo",
+    "affinity": 50
+   }
+  ],
+  "causes": {
+   "joy": {
+    "kind": "received",
+    "who": "Yusuke",
+    "item": "feather",
+    "ago": 3
+   },
+   "anger": {
+    "kind": "fail",
+    "what": "collect",
+    "ago": 2
+   },
+   "sadness": {
+    "kind": "ignored",
+    "who": "Taiyo",
+    "ago": 4
+   },
+   "fear": {
+    "kind": "safety"
+   }
+  },
+  "actions": {
+   "place": [
+    {
+     "id": "crafting_table",
+     "label": "crafting_table"
+    }
+   ],
+   "ask": [
+    {
+     "id": "Yusuke",
+     "label": "Yusuke"
+    },
+    {
+     "id": "Hideki",
+     "label": "Hideki"
+    }
+   ],
+   "collect": [
+    {
+     "id": "grass_block",
+     "label": "grass_block"
+    },
+    {
+     "id": "oak_leaves",
+     "label": "oak_leaves"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "Yusuke",
+     "label": "Yusuke 南1(1m)"
+    },
+    {
+     "id": "Hideki",
+     "label": "Hideki 西4(4m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "follow": [
+    {
+     "id": "Yusuke",
+     "label": "Yusuke"
+    },
+    {
+     "id": "Hideki",
+     "label": "Hideki"
+    }
+   ],
+   "give": [
+    {
+     "id": "Yusuke:feather",
+     "label": "Yusuke に feather"
+    },
+    {
+     "id": "Hideki:feather",
+     "label": "Hideki に feather"
+    }
+   ],
+   "call": [
+    {
+     "id": "Yusuke",
+     "label": "Yusuke"
+    },
+    {
+     "id": "Hideki",
+     "label": "Hideki"
+    }
+   ],
+   "say": true,
+   "broadcast": true
+  }
+ },
+ {
+  "id": "yudai_asked",
+  "cat": "social",
+  "src": "runs/2026-11-13T04-18-31/Yudai-2026-11-13T04-18-31.jsonl loop 203",
+  "persona": {
+   "name": "Yudai",
+   "personality": "30歳の男性。とても慣れたやり方を好み、新しい発想は少ない。だらしなく、うっかりしている。どちらかといえば人に気をつかう、やさしい性格。",
+   "speech": "大人の落ち着いた話し方。知らない人には丁寧語。",
+   "temperament": {
+    "bravery": 0.56,
+    "empathy": 0.75,
+    "obedience": 0.45,
+    "greed": 0.26,
+    "sociability": 0.52
+   }
+  },
+  "obs": "自分: Yudai 位置(-311,70,134) 体力3/20 満腹20/20 時間:昼 2日目\n持ち物: stickx1, wheat_seedsx3, jungle_planksx4, coalx14, wooden_shovelx2, torchx4, wooden_axex1, wooden_hoex1, melon_slicex3, jungle_logx7, gravelx3\n見えるブロック: cobblestone 西1(2m) 他2+, dirt ここ(1m), stone 南1(1m) 他4+, torch 西1(2m)\n近くの人・生き物・落ちている物: プレイヤーTatsuya 東1(2m), プレイヤーNoboru 西3(3m)\n今聞こえた話: Noboru「Yudaiさん、教えて: west_nearの方へ進む方法が分からない(何度やっても何も変わらなかった)」 Noboru「Tatsuya、Yutakaが君の丸石を取っていたのを見たぞ。」 Noboru「Yudaiさん、食べ物を探して休みたいんじゃ。案内しておくれ。」 Tatsuya「Yudaiさん、食べ物はどこで手に入りますか？」 Asuka「Toruさん、近くにいてくれる？暗くて怖いの。」",
+  "memText": "覚えている場所: M1=torch 西1(2m)・出現地点から南に70m, M2=coal_ore 西2北1(3m)・出現地点から南に70m, M3=聞いた場所(Sakuraが言っていた所) 東18北35上2(40m)・出現地点から南東に40m, M4=furnace 東18北36上3(41m)・出現地点から南東に40m, M5=crafting_table 東17北37上2(41m)・出現地点から南東に40m, M6=water 東117北54下8(129m)・出現地点から東に130m\nやったこと: explore(west_far)→成功:西へ15m進んだ 新しいマス(動けなかった (近づけなかった)) / collect(melon)→成功:melonをwooden_axeで3個掘って10個拾った (掘るのに3秒) / ask(Miyoko)→成功:Miyokoに聞いた:「分からない。スイカを壊すと薄切りが3〜7個落ちるそうじゃ。」 / ask(Tatsuya)→成功:Tatsuyaに聞いた:「スイカの薄切りは食べるものです。使い方は分かりません。」 / eat(melon_slice)→失敗:食べられなかった: Promise timed out. / follow(Tatsuya)→成功:Tatsuyaに30秒ついて行った (3m動いた、今3m離れている) / search(west)→成功:sheepを探して西へ3m進んだ 行ったことのあるマス。Tatsuyaに呼ばれた / explore(east_near)→失敗:東へ進めなかった: 動けなかった (近づけなかった) / go_to(Noboru)→成功:Noboruの所に着いた / search(south)→成功:sheepを探して南へ18m進んだ 行ったことのあるマス(時間切れ) / follow(Noboru)→成功:Noboruに30秒ついて行った (0m動いた、今3m離れている) / eat(melon_slice)→失敗:食べられなかった: Promise timed out. / place(torch)→成功:torchを(-313,70,133)に置いた\n教わったこと: Tatsuyaから(23回前・昼)「スイカの薄切りは食べるものです。使い方は分かりません。」",
+  "progress": "ゴール: 拠点の近くに明かりが4個ある (夜に備えて周りを明るくし、安心して過ごしたい。) / 道筋: torch 4 を置く (拠点) / 次: torch 4 を置く (拠点)",
+  "body": "お腹は空いていない。昨夜は寝られなかった。眠くてたまらない。周りを囲まれた場所にいるので安心している。手持ちの食べ物は1回分ほど。最近スイカを見た。この先の食べ物が少し気になる。wooden_axe (木の斧) の耐久は残り6割ほど (あと37回)。今の使い方だと、あと2分ほどで壊れそう。予備の斧は無い。かなり参っている",
+  "logEmotions": {
+   "joy": 6.83,
+   "sadness": 2.16,
+   "anger": 5.71,
+   "fear": 1.94,
+   "disgust": 0,
+   "surprise": 0.03
+  },
+  "logWords": "お腹は空いていない。昨夜は寝られなかった。眠くてたまらない。周りを囲まれた場所にいるので安心している。手持ちの食べ物は1回分ほど。最近スイカを見た。この先の食べ物が少し気になる。wooden_axe (木の斧) の耐久は残り6割ほど (あと37回)。今の使い方だと、あと2分ほどで壊れそう。予備の斧は無い。かなり参っている。うれしい。いらだっている。Yunaとは感じが良い。聞いたが知らなかった。Tatsuyaとは感じが良い。前にやり方を教えてくれた。Noboruとは感じが良い。聞いたが知らなかった。wooden_pickaxe (木のツルハシ) が欲しい (furnaceを素手では取れなかった)。知らない所を見て回ることは慣れている。物を作ることは慣れている。狩りはまだ不慣れ",
+  "logChoice": [
+   "place",
+   "torch"
+  ],
+  "relations": [
+   {
+    "name": "Tatsuya",
+    "affinity": 60,
+    "note": "前にやり方を教えてくれた"
+   },
+   {
+    "name": "Noboru",
+    "affinity": 58,
+    "note": "聞いたが知らなかった"
+   },
+   {
+    "name": "Yuna",
+    "affinity": 58
+   }
+  ],
+  "causes": {
+   "joy": {
+    "kind": "answered",
+    "who": "Tatsuya",
+    "ago": 12
+   },
+   "anger": {
+    "kind": "fail_repeat",
+    "what": "craft",
+    "ago": 2
+   },
+   "sadness": {
+    "kind": "ignored",
+    "who": "Yuna",
+    "ago": 9
+   },
+   "fear": {
+    "kind": "safety"
+   }
+  },
+  "actions": {
+   "craft": [
+    {
+     "id": "wooden_pickaxe",
+     "label": "wooden_pickaxe"
+    },
+    {
+     "id": "torch",
+     "label": "torch"
+    }
+   ],
+   "place": [
+    {
+     "id": "torch",
+     "label": "torch"
+    },
+    {
+     "id": "cobblestone",
+     "label": "cobblestone"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "Tatsuya",
+     "label": "Tatsuya 東1(2m)"
+    },
+    {
+     "id": "Noboru",
+     "label": "Noboru 西3(3m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "eat": [
+    {
+     "id": "melon_slice",
+     "label": "melon_slice"
+    }
+   ],
+   "follow": [
+    {
+     "id": "Tatsuya",
+     "label": "Tatsuya"
+    },
+    {
+     "id": "Noboru",
+     "label": "Noboru"
+    }
+   ],
+   "give": [
+    {
+     "id": "Noboru:melon_slice",
+     "label": "Noboru に melon_slice"
+    },
+    {
+     "id": "Tatsuya:melon_slice",
+     "label": "Tatsuya に melon_slice"
+    }
+   ],
+   "call": [
+    {
+     "id": "Tatsuya",
+     "label": "Tatsuya"
+    }
+   ],
+   "say": true,
+   "broadcast": true
+  }
+ },
+ {
+  "id": "yamato_alone",
+  "cat": "alone",
+  "src": "runs/2026-11-13T04-18-31/Yamato-2026-11-13T04-18-31.jsonl loop 38",
+  "persona": {
+   "name": "Yamato",
+   "personality": "14歳の男の子。とてもだらしなく、うっかりしている。他人に不満をもち、もめごとを起こしやすい。新しいことが好きで、変わった考えをもつ。",
+   "speech": "子供らしいくだけた話し方。「〜だよ」「〜じゃん」など短い文。言い方がぶっきらぼう。よく質問する。",
+   "temperament": {
+    "bravery": 0.34,
+    "empathy": 0.08,
+    "obedience": 0.02,
+    "greed": 0.95,
+    "sociability": 0.75
+   }
+  },
+  "obs": "自分: Yamato 位置(-661,71,1) 体力20/20 満腹8/20 時間:夜 1日目\n持ち物: crafting_tablex1, acacia_logx6, stickx2, acacia_planksx3, wheat_seedsx4, wooden_axex1, jungle_planksx1\n見えるブロック: crafting_table 東12北5(13m), grass 北1(1m) 他4+, grass_block 北1(1m) 他4+, dirt 東1北1(2m), acacia_leaves 西1上2(2m) 他3+, tall_grass 西7北5(8m) 他4+\n近くの人・生き物・落ちている物: なし\n今聞こえた話: なし",
+  "memText": "覚えている場所: M1=acacia_log 東1北1(2m)・出現地点から西に350m, M2=acacia_log 東1北2上2(3m)・出現地点から西に350m, M3=acacia_log 東78南75上3(109m)・出現地点から西に260m, M4=crafting_table 東82南77(113m)・出現地点から西に260m, M5=acacia_log 東86南73上5(113m)・出現地点から西に260m, M6=stripped_acacia_log 東83南80上4(116m)・出現地点から西に260m\nやったこと: collect(tall_grass)→失敗:tall_grassを素手で3個掘って0個拾った (掘るのに1秒未満)。Masaruがoak_leavesを3個壊した。Keikoがgrassを3個壊した。K… / collect(grass)→失敗:grassを素手で3個掘って0個拾った (掘るのに1秒未満)。Asukaがtall_grassを4個壊した / search(west)→成功:jungle_logを探して西へ9m進んだ 新しいマス。Takuyaに呼ばれた / search(west)→成功:jungle_logを探して西へ103m進んだ 新しいマス。Nanamiに呼ばれた / collect(acacia_log)→成功:acacia_logを素手で3個掘って2個拾った (掘るのに11秒)(時間切れ)。Kumikoがacacia_logを2個拾った。Kumikoがacacia_… / craft(acacia_planks)→成功:acacia_planksを4個作った / search(northwest)→成功:jungle_logを探して北西へ110m進んだ 新しいマス / craft(wooden_axe)→成功:wooden_axeを1個作った / collect(acacia_log)→成功:acacia_logをwooden_axeで3個掘って3個拾った (掘るのに7秒)\n聞いた話: Kumikoは「Yamatoさん、夜が近いね。種を取ったら寝床へ戻ろうか？」と言っていた (9回前) Michikoは「Minato、わしが掘ったacacia_logを先に拾うとは、困るのう。」と言っていた (9回前) Soraは「Ren、豚探すの？夜前に斧作ろうよ！」と言っていた (9回前) Kumikoは「この茎から種を集めようか。夜支度も気になるねえ」と言っていた (8回前) Soraは「作業台置くよ。斧作って夜に備えようぜ。」と言っていた (8回前)",
+  "progress": "ゴール: wooden_axe 1 (近くの木を切って、夜を越すための材料を集めたい。) / 手に入れた",
+  "body": "お腹がぺこぺこ。ここに来てから何も食べていない。眠い。周りが暗いし、夜なのに外にいるので怖い。今は夜。夜明けまであと6分ほど。ここで過ごす初めての夜。wooden_axeを持っている。防具を着けていない。囲まれた寝床は無い。夜明けまでが不安。食べ物を持っていない。最近小麦を見た。この先の食べ物が心配",
+  "logEmotions": {
+   "joy": 6.92,
+   "sadness": 1.03,
+   "anger": 0,
+   "fear": 2.62,
+   "disgust": 0,
+   "surprise": 1.41
+  },
+  "logWords": "お腹がぺこぺこ。ここに来てから何も食べていない。眠い。周りが暗いし、夜なのに外にいるので怖い。今は夜。夜明けまであと6分ほど。ここで過ごす初めての夜。wooden_axeを持っている。防具を着けていない。囲まれた寝床は無い。夜明けまでが不安。食べ物を持っていない。最近小麦を見た。この先の食べ物が心配。うれしい。Chinatsuとは知り合い。自分が掘ったjungle_logを先に拾われた。まだ許していない。Soraとは知り合い。Osamuとは知り合い。stone_axe (石の斧) が欲しい (acacia_logをwooden_axeで3個掘るのに7秒かかった)。物を作ることは少し慣れてきた。知らない所を見て回ることは少し慣れてきた。畑のことはまだ不慣れ",
+  "logChoice": [
+   "go_to",
+   "crafting_table"
+  ],
+  "relations": [
+   {
+    "name": "Chinatsu",
+    "affinity": 47,
+    "grudge": {
+     "kind": "snatched",
+     "item": "jungle_log",
+     "v": 0.17
+    }
+   },
+   {
+    "name": "Sora",
+    "affinity": 50
+   }
+  ],
+  "causes": {
+   "anger": {
+    "kind": "snatched",
+    "who": "Chinatsu",
+    "item": "jungle_log",
+    "ago": 14
+   },
+   "fear": {
+    "kind": "safety"
+   },
+   "joy": {
+    "kind": "success",
+    "what": "craft",
+    "ago": 1
+   },
+   "sadness": {
+    "kind": "connection"
+   }
+  },
+  "actions": {
+   "craft": [
+    {
+     "id": "wooden_pickaxe",
+     "label": "wooden_pickaxe"
+    },
+    {
+     "id": "wooden_hoe",
+     "label": "wooden_hoe"
+    }
+   ],
+   "place": [
+    {
+     "id": "crafting_table",
+     "label": "crafting_table"
+    }
+   ],
+   "collect": [
+    {
+     "id": "grass",
+     "label": "grass"
+    },
+    {
+     "id": "acacia_leaves",
+     "label": "acacia_leaves"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "crafting_table",
+     "label": "crafting_table 東12北5(13m)"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "broadcast": true,
+   "say": true
+  }
+ },
+ {
+  "id": "itsuki_grudges",
+  "cat": "alone",
+  "src": "runs/2026-11-13T04-52-26/Itsuki-2026-11-13T04-52-26.jsonl loop 117",
+  "persona": {
+   "name": "Itsuki",
+   "personality": "10歳の男の子。だらしなく、うっかりしている。どちらかといえば新しいことが好きで、変わった考えをもつ。どちらかといえば他人に不満をもち、もめごとを起こしやすい。",
+   "speech": "子供らしいくだけた話し方。「〜だよ」「〜じゃん」など短い文。よく質問する。",
+   "temperament": {
+    "bravery": 0.25,
+    "empathy": 0.25,
+    "obedience": 0.13,
+    "greed": 0.79,
+    "sociability": 0.34
+   }
+  },
+  "obs": "自分: Itsuki 位置(-346,66,-466) 体力11/20 満腹17/20 時間:昼 2日目\n持ち物: oak_planksx1, acacia_logx6, acacia_planksx4, wooden_axex1, wooden_swordx1, wooden_pickaxex1, stickx3, jungle_logx2, leatherx2\n見えるブロック: white_bed 西1(2m) 他1+, stripped_acacia_log 西1北2(2m) 他1+, acacia_log 東1北2上3(3m) 他1+, acacia_leaves ここ(1m) 他3+, grass 東2北1下2(3m) 他2+, oak_leaves 西13北7上4(16m) 他2+\n近くの人・生き物・落ちている物: なし\n今聞こえた話: なし\n拠点 (M1)の近く: crafting_table 1、white_bed 1、暗い、屋根あり",
+  "memText": "覚えている場所: M1=拠点 北1(1m)・出現地点から北に530m, M2=crafting_table 南1下2(2m)・出現地点から北に530m, M3=acacia_log 東4北22下2(22m)・出現地点から北に550m, M4=acacia_log 西18南22(29m)・出現地点から北に510m, M5=oak_log 西26南14(30m)・出現地点から北に520m, M6=water 東8南78下4(79m)・出現地点から北に450m\nやったこと: search(north)→成功:coal_oreを探して北へ2m進んだ 行ったことのあるマス。敵のskeletonが見えた / search(northwest)→成功:coal_oreを探して北西へ10m進んだ 新しいマス。敵のskeletonが見えた / attack(sheep)→成功:wooden_swordでsheepを倒して2個拾った / craft(white_bed)→成功:white_bedを1個作った / place(white_bed)→成功:white_bedを(-346,64,-466)に置いた / go_to(M1)→失敗:着いたがwhite_bedはもう無かった / place(white_bed)→成功:white_bedを(-348,67,-466)に置いた / set_base(here)→成功:ここ(-347,66,-467)を拠点にした / use_on(hand>white_bed)→失敗:素手をwhite_bed(-348,67,-466 1.3m)に使ったが何も起きなかった / use_on(wooden_axe>acacia_log)→成功:wooden_axeをacacia_logに使った: acacia_logがstripped_acacia_logになった\n聞いた話: Rinは全員に「夜明けまで寝床のそばで待つよ。眠くて限界だし、今は動きたくない。」と言っていた (13回前・昼) Hiroshiは全員に「眠くて怖い。約束どおり、夜明けまで寝床のそばで待とう。」と言っていた (12回前・昼) Mikuは全員に「眠くて怖いし、限界近いから、夜明けまで寝床のそばで待つね。」と言っていた (4回前・昼) Noboruは全員に「わしも眠くて怖い。夜明けまで寝床のそばで休もう。」と言っていた (4回前・昼)",
+  "progress": "ゴール: 拠点の近くに明かりが4個ある (暗い拠点を明るくして、夜に怖い思いをしないようにしたい。) / 今0 / 道筋: coal 1 ← coal_ore(まだ見ていない)、torch 4 ← coal 1 + stick 1、torch 4 を置く (拠点) / 次: coal 1 を手に入れる",
+  "body": "少しお腹が空いた。昨夜は寝られなかった。眠くてたまらない。自分の寝床の近くにいるので安心している。食べ物を持っていない。最近牛を見た。この先の食べ物が少し気になる。wooden_axe (木の斧) の耐久は残り7割ほど (あと40回)。今の使い方だと、あと4分ほどで壊れそう。予備の斧は無い。もう限界に近い",
+  "logEmotions": {
+   "joy": 5.53,
+   "sadness": 2.65,
+   "anger": 9.6,
+   "fear": 3.56,
+   "disgust": 0,
+   "surprise": 0.03
+  },
+  "logWords": "少しお腹が空いた。昨夜は寝られなかった。眠くてたまらない。自分の寝床の近くにいるので安心している。食べ物を持っていない。最近牛を見た。この先の食べ物が少し気になる。wooden_axe (木の斧) の耐久は残り7割ほど (あと40回)。今の使い方だと、あと4分ほどで壊れそう。予備の斧は無い。もう限界に近い。かなり怒っている。少しうれしい。Toruとは知り合い。crafting_tableを取られた。まだ許していない。Hikaruとは知り合い。crafting_tableを取られた。まだ許していない。Rinとは少し苦手。dirtを取られた。まだ許していない。stone_axe (石の斧) が欲しい (acacia_logをwooden_axeで3個掘るのに7秒かかった)。知らない所を見て回ることは慣れている。物を作ることは慣れている。畑のことはまだ不慣れ",
+  "logChoice": [
+   "search",
+   "north"
+  ],
+  "relations": [
+   {
+    "name": "Toru",
+    "affinity": 42,
+    "grudge": {
+     "kind": "took_witnessed",
+     "item": "crafting_table",
+     "v": 0.26
+    }
+   },
+   {
+    "name": "Hikaru",
+    "affinity": 43,
+    "grudge": {
+     "kind": "took_witnessed",
+     "item": "crafting_table",
+     "v": 0.25
+    }
+   },
+   {
+    "name": "Rin",
+    "affinity": 38,
+    "grudge": {
+     "kind": "took_witnessed",
+     "item": "dirt",
+     "v": 0.24
+    }
+   }
+  ],
+  "causes": {
+   "anger": {
+    "kind": "took_witnessed",
+    "who": "Toru",
+    "item": "crafting_table",
+    "ago": 6
+   },
+   "sadness": {
+    "kind": "connection"
+   },
+   "joy": {
+    "kind": "slept",
+    "ago": 20
+   },
+   "fear": null
+  },
+  "actions": {
+   "craft": [
+    {
+     "id": "wooden_hoe",
+     "label": "wooden_hoe"
+    },
+    {
+     "id": "acacia_planks",
+     "label": "acacia_planks"
+    }
+   ],
+   "place": [
+    {
+     "id": "crafting_table",
+     "label": "crafting_table"
+    }
+   ],
+   "collect": [
+    {
+     "id": "acacia_log",
+     "label": "acacia_log"
+    },
+    {
+     "id": "grass",
+     "label": "grass"
+    }
+   ],
+   "go_to": [
+    {
+     "id": "white_bed",
+     "label": "white_bed 西1(2m)"
+    }
+   ],
+   "search": [
+    {
+     "id": "north",
+     "label": "north"
+    },
+    {
+     "id": "west",
+     "label": "west"
+    }
+   ],
+   "explore": [
+    {
+     "id": "north_near",
+     "label": "north_near 北へ20mほど"
+    },
+    {
+     "id": "southwest_near",
+     "label": "southwest_near 南西へ20mほど"
+    },
+    {
+     "id": "east_far",
+     "label": "east_far 東へ50mほど"
+    }
+   ],
+   "broadcast": true,
+   "say": true
+  }
+ }
+]

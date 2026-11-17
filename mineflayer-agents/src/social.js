@@ -41,6 +41,9 @@ const EMOTION_DEFAULTS = {
   perDecisionTicks: 180, // 旧の「1判断ごと」の量を tick あたりに直すときの判断の間隔 (runs/2026-11-11T03-43-35 の平均)
   halfLifeMul: 1, // 人ごと
   baseShift: {}, // 人ごと { joy, sadness, anger, fear, disgust }
+  // 言葉の作り方 (src/emotion_words.js。2026-11-17)。'buckets3' (今まで) | 'levels' | 'numeric' | 'cause' | 'blend'、
+  //   または { mode, top (言葉に出す感情の数、既定 2), mood (blend で全体の気分も) }。値の動きは変わらない
+  wording: 'buckets3',
 };
 const LEVEL_FRAC = [2 / 7, 5 / 7]; // 旧の 3/5/8: (5−3)/(10−3)・(8−3)/(10−3)
 const EMO_WORD = {
@@ -64,6 +67,12 @@ const NOTE_EN = { 前に物をあげた: 'I gave them something before', 前に�
   聞いたが知らなかった: 'I asked them but they did not know', 聞いたのに返事がなかった: 'I asked them but got no answer',
   前に物を取られた: 'they took something of mine before', 取った物を返してくれた: 'they made up for taking something of mine', 人の物を取ったと聞いた: 'I heard they took other people\'s things' };
 const { Needs, NEED_LABEL, merge } = require('./needs');
+const EW = require('./emotion_words');
+// 感情のきっかけの記録 (cause の言葉に使う): いくつまで持つか・言葉に出す残りの量の下限
+const CAUSE_KEEP = 16;
+const CAUSE_MIN = 0.3;
+// 所有の出来事の kind → きっかけの kind
+const OWN_CAUSE = { witnessed: 'took_witnessed', heard: 'took_heard', told: 'took_told', returned: 'returned', repaired: 'repaired', apology: 'apology', rumor: 'rumor', third: 'third' };
 // ストレスの出どころ → どの感情に出やすいか
 const STRESS_SOURCE = {
   anger: ['hunger', 'sleep', 'greed', 'recognition'],
@@ -148,6 +157,8 @@ class Social {
     this.emoBase = this.perEmotion() ? Object.fromEntries(EMOTIONS.map((e) => [e, r2(clamp(this.emoCfg.base[e] + (this.emoCfg.baseShift[e] || 0), 0, 10))])) : { ...EMO_BASE };
     this.emotions = { ...this.emoBase };
     this.lastTalkTick = 0;
+    this.name = opts.name || ''; // 言葉の選び方の種 (levels などで人ごとに言い方を変える)
+    this.causes = []; // 感情のきっかけ [{ emo, kind, who, item, what, d, t }] (cause の言葉に使う。値には効かない)
   }
 
   static fromJSON(d, opts = {}) {
@@ -157,11 +168,12 @@ class Social {
       if (d.needsModel) s.needsModel = Needs.fromJSON(d.needsModel, { cfg: opts.needs || {}, temperament: s.temperament });
       if (d.relations) s.relations = d.relations;
       s.lastTalkTick = d.lastTalkTick || 0;
+      if (Array.isArray(d.causes)) s.causes = d.causes;
     }
     return s;
   }
 
-  toJSON() { return { emotions: this.emotions, needsModel: this.needsModel.toJSON(), relations: this.relations, lastTalkTick: this.lastTalkTick }; }
+  toJSON() { return { emotions: this.emotions, needsModel: this.needsModel.toJSON(), relations: this.relations, lastTalkTick: this.lastTalkTick, causes: this.causes }; }
 
   // 欲求とストレスの数値 (記録用。2B・Jev には渡さない)
   get needs() { return this.needsModel.values(); }
@@ -211,7 +223,8 @@ class Social {
       g.v = r2(clamp(g.v + add, 0, 1));
       g.tick = tick; g.n = (g.n || 0) + 1;
     }
-    if (kind === 'hit' || kind === 'killed') { this.bump('fear', (kind === 'killed' ? 3 : 1.5) * (1.3 - this.temperament.bravery)); this.bump('anger', kind === 'killed' ? 3 : 2); } else if (add > 0) this.bump('anger', 4 * add);
+    const why = { kind, who: name, item };
+    if (kind === 'hit' || kind === 'killed') { this.bump('fear', (kind === 'killed' ? 3 : 1.5) * (1.3 - this.temperament.bravery), why); this.bump('anger', kind === 'killed' ? 3 : 2, why); } else if (add > 0) this.bump('anger', 4 * add, why);
     return { kind, add: r2(add), v: r.grudge ? r.grudge.v : 0, affinity: moved, ceiling: this.affinityCeiling(name) };
   }
   // 良い出来事でわだかまりを減らす (kind: ease の名前)。good にある出来事は好感も動かす。返り値 { kind, before, v, affinity } | null
@@ -260,10 +273,41 @@ class Social {
   perEmotion() { return this.emoCfg.model === 'perEmotion'; }
   // 値の丸め。perEmotion は 1判断の戻り・上げ幅が小さい (喜びの半減期 17500 tick に対し判断の間隔は 120 tick 前後) ので 0.0001 まで持つ (旧は 0.01)
   emoRound(v) { return this.perEmotion() ? r4(v) : r2(v); }
-  // 感情を d だけ動かす。perEmotion では感情ごとの上げ幅 gain を掛ける
-  bump(emo, d) {
+  // 感情を d だけ動かす。perEmotion では感情ごとの上げ幅 gain を掛ける。
+  //   cause: きっかけ { kind, who, item, what } (言葉の cause 方式に使うだけ。値の動きは同じ)
+  bump(emo, d, cause = null) {
     const g = this.perEmotion() ? (this.emoCfg.gain[emo] ?? 1) : 1;
+    const before = this.emotions[emo];
     this.emotions[emo] = this.emoRound(clamp(this.emotions[emo] + d * g, 0, 10));
+    if (cause && this.emotions[emo] > before) this.noteCause(emo, this.emotions[emo] - before, cause);
+  }
+  // ---- 感情のきっかけ (言葉だけに使う) ----
+  // 今の時刻 (ゲームの通しの tick。needs が最後に見た時刻)
+  nowTime() { return this.needsModel.lastTime; }
+  // きっかけの残り: 上がった量 d を、感情の半減期 (EMOTION_DEFAULTS.halfLife × halfLifeMul) で今まで薄めた量
+  causeLeft(c, now = this.nowTime()) {
+    if (!Number.isFinite(now) || !Number.isFinite(c.t)) return c.d;
+    const h = (this.emoCfg.halfLife[c.emo] || 1) * (this.emoCfg.halfLifeMul || 1);
+    return c.d * Math.pow(0.5, Math.max(0, now - c.t) / h);
+  }
+  noteCause(emo, d, cause) {
+    const t = this.nowTime();
+    const key = `${emo}|${cause.kind}|${cause.who || ''}|${cause.item || ''}|${cause.what || ''}`;
+    const old = this.causes.find((c) => c.key === key);
+    if (old) { old.d = r4(this.causeLeft(old, t) + d); old.t = Number.isFinite(t) ? t : old.t; return; }
+    this.causes.push({ key, emo, kind: cause.kind, who: cause.who || null, item: cause.item || null, what: cause.what || null, d: r4(d), t: Number.isFinite(t) ? t : null });
+    if (this.causes.length > CAUSE_KEEP) { this.causes.sort((a, b) => this.causeLeft(b) - this.causeLeft(a)); this.causes.length = CAUSE_KEEP; }
+  }
+  // 感情 emo のいちばん効いているきっかけ (残り CAUSE_MIN 以上)。無ければ怒りはわだかまりの強い相手 (時刻は言わない)。どちらも無ければ null
+  causeOf(emo) {
+    let best = null; let bl = CAUSE_MIN;
+    for (const c of this.causes) { if (c.emo !== emo) continue; const l = this.causeLeft(c); if (l >= bl) { best = c; bl = l; } }
+    if (best) return best;
+    if (emo === 'anger') {
+      const g = Object.entries(this.grudges()).sort((a, b) => b[1] - a[1])[0];
+      if (g) { const r = this.relations[g[0]].grudge; return { emo, kind: r.kind, who: g[0], item: r.item, t: null }; }
+    }
+    return null;
   }
   // 基準値へ戻る。uniform: 1判断ぶん (decay 倍)。perEmotion: dt (tick) ぶん、感情ごとの半減期で
   decayEmotions(dt = 0) {
@@ -321,19 +365,20 @@ class Social {
       const tot = Object.values(n.inflow).reduce((a, b) => a + b, 0);
       for (const [emo, src] of Object.entries(STRESS_SOURCE)) {
         const share = tot > 0 ? src.reduce((a, k) => a + (n.inflow[k] || 0), 0) / tot : 1 / 3;
-        this.bump(emo, S * st.gain * tilt[emo] * (0.3 + share) * f);
+        const top = src.reduce((a, k) => ((n.inflow[k] || 0) > (n.inflow[a] || 0) ? k : a), src[0]);
+        this.bump(emo, S * st.gain * tilt[emo] * (0.3 + share) * f, (n.inflow[top] || 0) > 0 ? { kind: top } : null);
       }
     }
     // 今の不安そのものも恐れに
-    if (n.v.safety > 0.5) this.bump('fear', (n.v.safety - 0.5) * (1.3 - t.bravery) * f);
+    if (n.v.safety > 0.5) this.bump('fear', (n.v.safety - 0.5) * (1.3 - t.bravery) * f, { kind: 'safety' });
   }
 
   // 行動の結果 (ルール)
   onActionResult(action, ok, { repeatedFail = false } = {}) {
-    if (ok) { this.bump('joy', 0.6); this.bump('anger', -0.4); }
+    if (ok) { this.bump('joy', 0.6, { kind: 'success', what: action }); this.bump('anger', -0.4); }
     else {
-      this.bump('anger', 1.0 * (1.2 - this.temperament.obedience * 0.4));
-      if (repeatedFail) { this.bump('sadness', 0.8); this.bump('disgust', 0.5); }
+      this.bump('anger', 1.0 * (1.2 - this.temperament.obedience * 0.4), { kind: 'fail', what: action });
+      if (repeatedFail) { this.bump('sadness', 0.8, { kind: 'fail_repeat', what: action }); this.bump('disgust', 0.5, { kind: 'fail_repeat', what: action }); }
     }
   }
 
@@ -344,10 +389,10 @@ class Social {
       const to = String(arg || '').split(':')[0];
       if (to) { const r = this.rel(to); r.iHelped += 1; r.note = r.note || '前に物をあげた'; }
     }
-    if (result && result.ok && action === 'sleep' && result.sleep && result.sleep.nightSkipped) this.bump('joy', 1);
+    if (result && result.ok && action === 'sleep' && result.sleep && result.sleep.nightSkipped) this.bump('joy', 1, { kind: 'slept' });
   }
 
-  onDeath() { this.needsModel.onDeath(); this.bump('fear', 4 * (1.3 - this.temperament.bravery)); this.bump('sadness', 2); }
+  onDeath() { this.needsModel.onDeath(); this.bump('fear', 4 * (1.3 - this.temperament.bravery), { kind: 'death' }); this.bump('sadness', 2, { kind: 'death' }); }
 
   // 物をもらった (近くの人が投げた物を拾った)
   onReceived(from) {
@@ -357,13 +402,13 @@ class Social {
     this.moveAffinity(from, this.aff.events.received);
     r.note = '前に物をくれた';
     this.needsModel.onHelpedBy(from);
-    this.bump('joy', 1);
+    this.bump('joy', 1, { kind: 'received', who: from });
   }
 
   onHeard(from, tick, text = '') {
-    if (this.needsModel.onHeard(from, text, tick)) this.bump('joy', 1);
+    if (this.needsModel.onHeard(from, text, tick)) this.bump('joy', 1, { kind: 'talked', who: from });
     const r = this.rel(from);
-    if (!r.met) { r.met = true; this.bump('surprise', 1.5); this.bump('joy', 0.5 * this.temperament.sociability); }
+    if (!r.met) { r.met = true; this.bump('surprise', 1.5, { kind: 'met', who: from }); this.bump('joy', 0.5 * this.temperament.sociability, { kind: 'met', who: from }); }
     r.talks += 1;
     this.lastTalkTick = tick;
   }
@@ -379,7 +424,7 @@ class Social {
       this.moveAffinity(from, this.aff.events.answered);
       r.trust = r2(clamp(r.trust + 0.1, 0, 1));
       r.note = '前にやり方を教えてくれた';
-      this.bump('joy', 1.2);
+      this.bump('joy', 1.2, { kind: 'answered', who: from });
       this.needsModel.onHelpedBy(from);
     } else {
       this.moveAffinity(from, this.aff.events.notKnown);
@@ -392,7 +437,7 @@ class Social {
     r.ignoredMe += 1;
     this.moveAffinity(from, this.aff.events.ignored);
     r.note = '聞いたのに返事がなかった';
-    this.bump('sadness', 0.6);
+    this.bump('sadness', 0.6, { kind: 'ignored', who: from });
     const gr = this.addGrudge(from, 'ignored');
     if (gr) { this.grieved = this.grieved || []; this.grieved.push({ who: from, ...gr }); } // agent が記録に書いて空にする
   }
@@ -408,7 +453,8 @@ class Social {
   //   返り値: 当てたあとの { affinity, trust } (name が無ければ null)
   applyOwnershipImpact(name, imp) {
     if (!imp) return null;
-    for (const e of ['anger', 'sadness', 'joy']) if (imp[e]) this.bump(e, imp[e]);
+    const why = name && OWN_CAUSE[imp.kind] ? { kind: OWN_CAUSE[imp.kind], who: name, item: imp.item || null } : null;
+    for (const e of ['anger', 'sadness', 'joy']) if (imp[e]) this.bump(e, imp[e], why);
     if (!name) return null;
     const r = this.rel(name);
     // 謝られた・返してもらった・元に戻してもらった: わだかまりを先に減らす (好感の上限が緩んでから上げる)
@@ -447,11 +493,17 @@ class Social {
   // 言葉に出す感情 (上位2つ) [[感情, 段 0|1|2], ...]
   shownEmotions() { return shownEmotions(this.emotions, (e) => this.emoLevels(e), this.perEmotion()); }
 
+  // 感情の言葉の列 (emotion_words.js。wording は social.emotions.wording、opts.wording で上書き)
+  emotionPhrases({ lang = 'ja', wording = null } = {}) {
+    return EW.emotionPhrases({ emotions: this.emotions, levels: (e) => this.emoLevels(e), byExcess: this.perEmotion(), wording: wording || this.emoCfg.wording,
+      seed: this.name, causeOf: (e) => this.causeOf(e), now: this.nowTime(), base: this.emoBase, buckets: lang === 'en' ? EMO_WORD_EN : EMO_WORD }, { lang });
+  }
+
   // 2B と Jev に渡す短い言葉。数値は渡さない。体と心の状態 (needs.js) は毎回必ず入れる。lang: 'en' は Jev 用 (同じ値から作る)
-  words({ maxRelations = 3, relations = true, lang = 'ja' } = {}) {
+  words({ maxRelations = 3, relations = true, lang = 'ja', wording = null } = {}) {
     const en = lang === 'en';
     const out = [this.needsModel.words({ lang })];
-    for (const [e, lv] of this.shownEmotions()) out.push((en ? EMO_WORD_EN : EMO_WORD)[e][lv]);
+    out.push(...this.emotionPhrases({ lang, wording }));
     const sep = en ? '; ' : '。';
     if (!relations) return out.join(sep);
     // わだかまりのある相手は先に (何をされたかが必ず言葉に出る)
@@ -466,4 +518,4 @@ class Social {
 // 人ごとの感情の設定: cfg.social.emotions (全員) に persona.emotions (人ごと: halfLifeMul・baseShift) を重ねる
 function emotionsConfig(cfg = {}, persona = {}) { return merge(merge({}, (cfg.social && cfg.social.emotions) || {}), (persona && persona.emotions) || {}); }
 
-module.exports = { Social, emotionsConfig, EMOTIONS, EMO_BASE, EMOTION_DEFAULTS, emoLevels, shownEmotions, NEED_LABEL, AFFINITY_DEFAULTS, GRUDGE_DEFAULTS, GRUDGE_JA, GRUDGE_EN };
+module.exports = { Social, emotionsConfig, EMOTIONS, EMO_BASE, EMOTION_DEFAULTS, EMO_WORD, EMO_WORD_EN, emoLevels, shownEmotions, NEED_LABEL, AFFINITY_DEFAULTS, GRUDGE_DEFAULTS, GRUDGE_JA, GRUDGE_EN };
