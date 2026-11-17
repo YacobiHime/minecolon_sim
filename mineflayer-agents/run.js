@@ -23,6 +23,8 @@
 //   --llm-model M・--llm-base-url URL (--llm-provider の提供元に)、--max-llm-usd X (費用の上限。全プロセスの合計)。
 // 設置物の来歴と所有 (src/provenance.js・src/ownership.js): --provenance on|off (所有の知識と行動の分離)、--ownership-penalty on|off、--ledger on|off。
 // わだかまりと悪い関係の行動 (src/conflict.js): --grudge on|off、--conflict on|off (行動の候補)、--aggression on|off (殴る)。
+// 感情の言葉の作り方 (src/emotion_words.js): --emotion-wording buckets3|levels|numeric|cause|blend (config の social.emotions.wording)、
+//   --emotion-top N (言葉に出す感情の数。既定 2)、--emotion-mood on (blend に全体の気分の1行を足す)。
 //   luna の API キーは環境変数 LUNA_API_KEY (無ければ OPENAI_API_KEY) か /root/.config/luna.env (表示・記録しない)。
 const fs = require('fs');
 const path = require('path');
@@ -135,6 +137,8 @@ async function main() {
   if (conf) ov.conflict = conf;
   const llmOv = llmOverrides(args);
   if (llmOv) ov.llm = llmOv;
+  const ew = emotionWordingOverrides(args);
+  if (ew) ov.social = { emotions: { wording: ew } };
   // 並べ方の種: --seed か config の order.seed。どちらも無ければここで決め、子プロセスにも --seed で渡す (記録の start と run.json に残る)
   if (args.seed != null) ov.order = { seed: Number(args.seed) >>> 0 };
   const base = loadConfig(args.config, ov);
@@ -300,6 +304,18 @@ function conflictOverrides(args) {
   return Object.keys(o).length ? o : null;
 }
 
+// --emotion-wording / --emotion-top / --emotion-mood → social.emotions.wording (無ければ null)
+function emotionWordingOverrides(args) {
+  if (args['emotion-wording'] == null && args['emotion-top'] == null && args['emotion-mood'] == null) return null;
+  const { MODES } = require('./src/emotion_words');
+  const mode = args['emotion-wording'] == null ? 'buckets3' : String(args['emotion-wording']);
+  if (!MODES.includes(mode)) throw new Error(`--emotion-wording は ${MODES.join('|')} のどれか`);
+  const o = { mode };
+  if (args['emotion-top'] != null) { o.top = Number(args['emotion-top']); if (!(o.top >= 1)) throw new Error('--emotion-top は 1 以上の数'); }
+  if (args['emotion-mood'] != null) o.mood = ['on', 'true'].includes(String(args['emotion-mood']).toLowerCase());
+  return o;
+}
+
 // --llm-provider / --llm-roles / --llm-model / --llm-base-url / --max-llm-usd → config の llm に重ねる分 (無ければ null)
 function llmOverrides(args) {
   const o = {};
@@ -323,4 +339,4 @@ function llmOverrides(args) {
 
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
 
-module.exports = { splitAgents, connectWithRetry, personaFor, runParent, parseArgs, llmOverrides, provenanceOverrides, conflictOverrides };
+module.exports = { splitAgents, connectWithRetry, personaFor, runParent, parseArgs, llmOverrides, provenanceOverrides, conflictOverrides, emotionWordingOverrides };
